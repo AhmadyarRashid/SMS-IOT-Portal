@@ -1,0 +1,384 @@
+@import "tailwindcss";
+
+/*
+  SMS IoT — Home Assistant-inspired theme
+  Dark-first with cyan accent. Light mode toggles via [data-theme="light"] on <html>.
+*/
+
+@theme {
+  /* Accent — cyan ("tech / safe / on") */
+  --color-accent-50:  #ecfeff;
+  --color-accent-100: #cffafe;
+  --color-accent-200: #a5f3fc;
+  --color-accent-300: #67e8f9;
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #06b6d4;
+  --color-accent-600: #0891b2;
+  --color-accent-700: #0e7490;
+
+  /* Brand — deep navy (SMS security feel) */
+  --color-brand-50:   #eff6ff;
+  --color-brand-100:  #dbeafe;
+  --color-brand-300:  #93c5fd;
+  --color-brand-500:  #3b82f6;
+  --color-brand-600:  #2563eb;
+  --color-brand-700:  #1d4ed8;
+  --color-brand-900:  #1e3a8a;
+  --color-brand-950:  #0f1e42;
+
+  /* Semantic */
+  --color-ok-500:      #10b981;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-danger-400:  #f87171;
+  --color-danger-500:  #ef4444;
+  --color-danger-600:  #dc2626;
+
+  /* Neutrals (HA dark) */
+  --color-surface-0:  #0b1220;   /* app background  */
+  --color-surface-1:  #111827;   /* panel           */
+  --color-surface-2:  #1f2937;   /* elevated card   */
+  --color-surface-3:  #374151;   /* hover / border  */
+  --color-ink-0:      #f8fafc;   /* primary text    */
+  --color-ink-1:      #cbd5e1;   /* secondary text  */
+  --color-ink-2:      #94a3b8;   /* muted text      */
+  --color-ink-3:      #64748b;   /* very muted      */
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --radius-card: 16px;
+  --radius-tile: 20px;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] {
+  --color-surface-0:  #f5f7fb;
+  --color-surface-1:  #ffffff;
+  --color-surface-2:  #ffffff;
+  --color-surface-3:  #e2e8f0;
+  --color-ink-0:      #0f172a;
+  --color-ink-1:      #334155;
+  --color-ink-2:      #64748b;
+  --color-ink-3:      #94a3b8;
+}
+
+@layer base {
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { color-scheme: dark; }
+  html[data-theme="light"] { color-scheme: light; }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-surface-0);
+    color: var(--color-ink-0);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-surface-3);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-ink-3); }
+}
+
+@layer components {
+  /* ---------- Tiles (HA tile card look) ---------- */
+  .tile {
+    background: var(--color-surface-1);
+    border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+    border-radius: var(--radius-tile);
+    padding: 16px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  }
+  .tile:hover {
+    background: var(--color-surface-2);
+    border-color: color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  }
+  .tile-active {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--color-accent-500) 16%, var(--color-surface-1)) 0%,
+      var(--color-surface-1) 100%);
+    border-color: color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-500) 20%, transparent),
+                0 6px 24px -8px color-mix(in srgb, var(--color-accent-500) 40%, transparent);
+  }
+  .tile-alarm {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--color-danger-500) 18%, var(--color-surface-1)) 0%,
+      var(--color-surface-1) 100%);
+    border-color: color-mix(in srgb, var(--color-danger-500) 50%, transparent);
+  }
+
+  /* ---------- HA Tile Card (horizontal device tile) ---------- */
+  .ha-tile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    min-height: 64px;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+    background: var(--color-surface-1);
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+    text-decoration: none;
+  }
+  .ha-tile:hover {
+    background: var(--color-surface-2);
+    border-color: color-mix(in srgb, var(--color-accent-500) 28%, transparent);
+  }
+  .ha-tile-on {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--color-accent-500) 18%, var(--color-surface-1)) 0%,
+      color-mix(in srgb, var(--color-accent-500) 4%,  var(--color-surface-1)) 100%);
+    border-color: color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-500) 20%, transparent),
+                0 8px 24px -12px color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+  }
+  .ha-tile-alarm {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--color-danger-500) 22%, var(--color-surface-1)) 0%,
+      color-mix(in srgb, var(--color-danger-500) 6%,  var(--color-surface-1)) 100%);
+    border-color: color-mix(in srgb, var(--color-danger-500) 55%, transparent);
+    animation: alarm-breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes alarm-breathe {
+    0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger-500) 30%, transparent), 0 0 0 0 color-mix(in srgb, var(--color-danger-500) 40%, transparent); }
+    50%      { box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger-500) 40%, transparent), 0 0 20px 4px color-mix(in srgb, var(--color-danger-500) 30%, transparent); }
+  }
+
+  .ha-tile-icon {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    border: none;
+    transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+  }
+  .ha-tile-icon-off {
+    background: color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+    color: var(--color-ink-2);
+  }
+  .ha-tile-icon-on {
+    background: color-mix(in srgb, var(--color-accent-500) 24%, transparent);
+    color: var(--color-accent-400);
+    box-shadow: 0 0 18px -2px color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+  }
+  .ha-tile-icon-alarm {
+    background: color-mix(in srgb, var(--color-danger-500) 28%, transparent);
+    color: var(--color-danger-400);
+  }
+
+  /* Icon-as-button — clickable with hover + press affordance */
+  .ha-tile-icon-btn {
+    cursor: pointer;
+    position: relative;
+  }
+  .ha-tile-icon-btn::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: transparent;
+    transition: background 0.2s ease;
+    pointer-events: none;
+  }
+  .ha-tile-icon-btn:hover::after {
+    background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+  }
+  .ha-tile-icon-btn.ha-tile-icon-alarm:hover::after {
+    background: color-mix(in srgb, var(--color-danger-500) 14%, transparent);
+  }
+  .ha-tile-icon-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  /* ---------- Hero icon on detail page ---------- */
+  .ha-hero-icon {
+    width: 128px; height: 128px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: none;
+    transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .ha-hero-icon-off {
+    background: color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+    color: var(--color-ink-2);
+  }
+  .ha-hero-icon-on {
+    background: radial-gradient(circle at 35% 30%,
+      color-mix(in srgb, var(--color-accent-500) 40%, transparent) 0%,
+      color-mix(in srgb, var(--color-accent-500) 18%, transparent) 60%,
+      transparent 100%);
+    color: var(--color-accent-400);
+    box-shadow: 0 0 48px -4px color-mix(in srgb, var(--color-accent-500) 55%, transparent),
+                inset 0 0 0 1px color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+  }
+  .ha-hero-icon-alarm {
+    background: radial-gradient(circle at 35% 30%,
+      color-mix(in srgb, var(--color-danger-500) 42%, transparent) 0%,
+      color-mix(in srgb, var(--color-danger-500) 20%, transparent) 60%,
+      transparent 100%);
+    color: var(--color-danger-400);
+    box-shadow: 0 0 48px -4px color-mix(in srgb, var(--color-danger-500) 55%, transparent);
+    animation: alarm-breathe 2.4s ease-in-out infinite;
+  }
+  .ha-hero-icon-btn { cursor: pointer; }
+  .ha-hero-icon-btn:disabled { cursor: wait; opacity: 0.7; }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+
+  /* ---------- Compact density ----------
+     Toggled by data-density="compact" on <html>. Tightens padding, gaps and
+     icon/text sizes across every reusable surface for users who want more
+     information on screen. */
+  :root[data-density="compact"] .panel { padding: 12px; }
+  :root[data-density="compact"] .tile  { padding: 10px; border-radius: 14px; }
+
+  :root[data-density="compact"] .ha-tile {
+    padding: 8px 10px;
+    min-height: 54px;
+    gap: 10px;
+    border-radius: 14px;
+  }
+  :root[data-density="compact"] .ha-tile-icon {
+    width: 36px; height: 36px;
+  }
+  :root[data-density="compact"] .ha-tile-icon svg { width: 20px; height: 20px; }
+
+  :root[data-density="compact"] .ha-hero-icon {
+    width: 96px; height: 96px;
+  }
+  :root[data-density="compact"] .ha-hero-icon svg { width: 44px; height: 44px; }
+
+  :root[data-density="compact"] .toggle-track { width: 38px; height: 22px; }
+  :root[data-density="compact"] .toggle-thumb  { width: 16px; height: 16px; top: 3px; }
+  :root[data-density="compact"] .toggle-thumb-on  { transform: translateX(19px); }
+  :root[data-density="compact"] .toggle-thumb-off { transform: translateX(3px); }
+
+  /* ---------- Panels ---------- */
+  .panel {
+    background: var(--color-surface-1);
+    border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+    border-radius: var(--radius-card);
+  }
+
+  /* ---------- Status dot ---------- */
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .status-dot-on      { background: var(--color-accent-500); box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent-500) 60%, transparent); }
+  .status-dot-ok      { background: var(--color-ok-500);      box-shadow: 0 0 8px color-mix(in srgb, var(--color-ok-500) 60%, transparent); }
+  .status-dot-warning { background: var(--color-warning-500); box-shadow: 0 0 8px color-mix(in srgb, var(--color-warning-500) 60%, transparent); }
+  .status-dot-alarm   { background: var(--color-danger-500);  box-shadow: 0 0 8px color-mix(in srgb, var(--color-danger-500) 60%, transparent); }
+  .status-dot-off     { background: var(--color-ink-3); }
+
+  .pulse { animation: pulse-dot 1.6s ease-in-out infinite; }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(1.6); }
+  }
+
+  /* ---------- Toggle (HA-style pill) ----------
+     Used on both <button> elements (Settings, Controls tab) and plain <span>s.
+     Reset all browser defaults so the pill is always exactly 44×26 with the
+     thumb centred vertically regardless of the element type it lives on. */
+  .toggle-track {
+    /* reset for <button> */
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    line-height: 0;
+    color: inherit;
+    outline: none;
+
+    /* shape */
+    box-sizing: border-box;
+    display: inline-block;
+    flex-shrink: 0;
+    vertical-align: middle;
+    width: 44px;
+    min-width: 44px;
+    height: 26px;
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+    user-select: none;
+  }
+
+  .toggle-track:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  }
+  .toggle-track:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .toggle-track-on {
+    background: var(--color-accent-500);
+    box-shadow: 0 0 14px -2px color-mix(in srgb, var(--color-accent-500) 60%, transparent);
+  }
+  .toggle-track-off {
+    background: var(--color-surface-3);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    transition: transform 0.22s cubic-bezier(0.34, 1.2, 0.64, 1);
+    will-change: transform;
+    pointer-events: none; /* so clicks always reach the track */
+  }
+  .toggle-thumb-on  { transform: translateX(21px); }
+  .toggle-thumb-off { transform: translateX(3px); }
+
+  /* ---------- Slider ---------- */
+  .ha-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px; outline: none; cursor: pointer; background: var(--color-surface-3); }
+  .ha-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--color-accent-400); border: 3px solid var(--color-surface-1);
+    box-shadow: 0 0 0 1px var(--color-accent-500);
+    cursor: pointer;
+  }
+  .ha-slider::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--color-accent-400); border: 3px solid var(--color-surface-1);
+    box-shadow: 0 0 0 1px var(--color-accent-500);
+    cursor: pointer;
+  }
+
+  /* ---------- Severity badges ---------- */
+  .sev-critical { background: color-mix(in srgb, var(--color-danger-500) 18%, transparent); color: var(--color-danger-400); border: 1px solid color-mix(in srgb, var(--color-danger-500) 40%, transparent); }
+  .sev-high     { background: color-mix(in srgb, var(--color-warning-500) 18%, transparent); color: var(--color-warning-400); border: 1px solid color-mix(in srgb, var(--color-warning-500) 40%, transparent); }
+  .sev-medium   { background: color-mix(in srgb, var(--color-warning-400) 16%, transparent); color: var(--color-warning-400); border: 1px solid color-mix(in srgb, var(--color-warning-400) 35%, transparent); }
+  .sev-low      { background: color-mix(in srgb, var(--color-accent-500) 14%, transparent); color: var(--color-accent-400); border: 1px solid color-mix(in srgb, var(--color-accent-500) 35%, transparent); }
+
+  .dropdown-enter { animation: dropdown-in 0.18s ease-out; }
+  @keyframes dropdown-in {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Spin for fan icons etc. */
+  .spin-slow { animation: spin 3s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+}
