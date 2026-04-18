@@ -68,6 +68,8 @@ export default function AssetPage() {
 
       <Hero asset={asset} />
 
+      <PrimaryControlPanel asset={asset} />
+
       {isControllable && (
         <Tip id="asset-icon-tap" title="Quick tip">
           Tap the big circular icon above to toggle this device. Sensors and cameras open this
@@ -199,6 +201,92 @@ function Hero({ asset }) {
           <Power className="w-3 h-3" /> Tap the icon to turn {active ? 'off' : 'on'}
         </p>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Primary control panel ----------------
+ * Renders inline below the hero for the most common secondary actions:
+ *   LightAsset.brightness → slider
+ *   FanAsset.speed        → slider
+ * Everything else returns null (hero's tap is the full control). The
+ * Controls tab still exposes every writable attribute — this panel is
+ * purely a shortcut for the 80% case.
+ */
+const PRIMARY_SLIDER_ATTR = {
+  LightAsset: ['brightness', 'level'],
+  FanAsset:   ['speed', 'Fan_speed', 'fanSpeed'],
+};
+
+function firstNumericAttr(attrs, candidates) {
+  for (const name of candidates) {
+    const a = attrs?.[name];
+    if (a && typeof a.value === 'number') return [name, a];
+  }
+  return null;
+}
+
+function PrimaryControlPanel({ asset }) {
+  const customType = getCustomAssetType(asset);
+  const candidates = PRIMARY_SLIDER_ATTR[customType];
+  if (!candidates) return null;
+  const match = firstNumericAttr(asset.attributes, candidates);
+  if (!match) return null;
+  const [attrName, attr] = match;
+  return (
+    <div className="panel p-4 flex items-center gap-4">
+      <div className="flex-1 min-w-0">
+        <PrimarySlider
+          assetId={asset.id}
+          attrName={attrName}
+          attr={attr}
+          label={attrName === 'brightness' ? 'Brightness' : attrName === 'level' ? 'Level' : 'Speed'}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Slider that commits on release (mouseup / touchend / keyboard change-end)
+ * and otherwise shows the server value. Pattern avoids setState-in-effect
+ * cascade by using a nullable `draft` instead of syncing server → local.
+ */
+function PrimarySlider({ assetId, attrName, attr, label }) {
+  const write = useWriteAttribute();
+  const [draft, setDraft] = useState(null);
+  const { min = 0, max = 100, unit = '' } = attr?.meta || {};
+  const serverValue = Number(attr?.value) || 0;
+  const displayValue = draft ?? serverValue;
+
+  const commit = () => {
+    if (draft !== null && draft !== serverValue) {
+      write.mutate({ assetId, attributeName: attrName, value: draft });
+    }
+    setDraft(null);
+  };
+
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="text-[13px] font-semibold text-[var(--color-ink-1)]">{label}</p>
+        <p className="text-[18px] font-bold text-[var(--color-accent-400)] tabular-nums">
+          {displayValue}{unit}
+        </p>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={displayValue}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onMouseUp={commit}
+        onTouchEnd={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        className="ha-slider w-full"
+        aria-label={label}
+      />
     </div>
   );
 }
