@@ -180,12 +180,15 @@ export default function OverviewPage() {
         />
       </div>
 
-      {/* Alarm pipeline — OPEN → ACK → IN_PROGRESS → RESOLVED → CLOSED */}
+      {/* Alarm pipeline — OPEN → ACK → IN_PROGRESS → RESOLVED → CLOSED
+      
       <AlarmPipeline
         byStatus={alarmBreakdown.byStatus}
         bySev={alarmBreakdown.bySev}
         total={allAlarms?.length || 0}
       />
+      
+      */}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
