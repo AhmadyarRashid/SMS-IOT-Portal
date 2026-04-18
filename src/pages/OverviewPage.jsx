@@ -192,7 +192,7 @@ export default function OverviewPage() {
             <p className="text-xs text-[var(--color-ink-3)] py-8 text-center">No devices yet.</p>
           ) : (
             <div className="h-60">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
                 <PieChart>
                   <Pie
                     data={typeDistribution}
@@ -225,7 +225,7 @@ export default function OverviewPage() {
           <SectionHead title="Alarms · Last 7 days"
                        subtitle={`${alarmTrend.reduce((s, d) => s + d.count, 0)} total`} />
           <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
               <BarChart data={alarmTrend}>
                 <defs>
                   <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">

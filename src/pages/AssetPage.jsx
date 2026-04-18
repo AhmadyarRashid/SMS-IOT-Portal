@@ -431,7 +431,7 @@ function HistoryTab({ asset }) {
         <EmptyState title="No data in this range" message="Try a wider time window — this attribute may not have any stored datapoints yet." icon={LineIcon} />
       ) : (
         <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
             <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
