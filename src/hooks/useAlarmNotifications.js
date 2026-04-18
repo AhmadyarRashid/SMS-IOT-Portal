@@ -81,17 +81,102 @@ export function useAlarmNotifications() {
  * silently no-ops when the preference is off, permission missing, or the
  * tab is visible (toast is enough in that case).
  */
-export function fireAlarmNotification({ title, body, tag }) {
-  if (typeof Notification === 'undefined') return;
-  if (Notification.permission !== 'granted') return;
-  if (!readPref()) return;
-  if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+const dev = !!import.meta.env?.DEV;
+const log = (...args) => { if (dev) console.debug('[notify]', ...args); };
+
+/**
+ * Format an OpenRemote SentAlarm into a polished notification payload.
+ * Severity-emoji in the title, asset + content in the body, and a
+ * `url: '/alarms'` payload so the SW can deep-link on click.
+ */
+export function buildAlarmNotificationPayload(alarm) {
+  const sev = (alarm?.severity || 'MEDIUM').toUpperCase();
+  const emoji =
+    sev === 'CRITICAL' ? '🚨' :
+    sev === 'HIGH'     ? '⚠️' :
+    sev === 'LOW'      ? 'ℹ️' :
+    '🔔';
+  const title = `${emoji} ${alarm?.title || 'New alarm'}`;
+  const pieces = [];
+  if (alarm?.sourceName) pieces.push(alarm.sourceName);
+  if (alarm?.content) pieces.push(alarm.content);
+  const body = pieces.join(' · ') || 'Tap to open the alarms page.';
+  return {
+    title,
+    body,
+    tag: `alarm-${alarm?.id || Date.now()}`,
+    severity: sev,
+    url: '/alarms',
+  };
+}
+
+/**
+ * Try the rich SW-backed showNotification first (supports action buttons and
+ * click-to-focus), fall back to the bare Notification constructor if no SW is
+ * controlling the page (happens in dev, and on iOS).
+ */
+async function showRich({ title, body, tag, url, severity }) {
+  const actions = [
+    { action: 'view', title: 'View alarm' },
+    { action: 'acknowledge', title: 'Dismiss' },
+  ];
+  const opts = {
+    body: body || '',
+    tag: tag || `sms-iot-alarm-${Date.now()}`,
+    icon: '/favicon.svg',
+    badge: '/favicon.svg',
+    data: { url, severity },
+    requireInteraction: severity === 'CRITICAL',
+    renotify: true,
+  };
+
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && typeof reg.showNotification === 'function') {
+        log('fire via SW', title);
+        await reg.showNotification(title, { ...opts, actions });
+        return true;
+      }
+    } catch (err) {
+      log('SW notification failed, falling back', err);
+    }
+  }
+
+  // Bare fallback — no actions, but at least shows up.
   try {
-    new Notification(title, {
-      body: body || '',
-      tag: tag || `sms-iot-alarm-${Date.now()}`,
-      icon: '/favicon.svg',
-      badge: '/favicon.svg',
-    });
-  } catch { /* ignore */ }
+    log('fire via Notification()', title);
+    new Notification(title, opts);
+    return true;
+  } catch (err) {
+    log('Notification() failed', err);
+    return false;
+  }
+}
+
+export function fireAlarmNotification(input) {
+  if (typeof Notification === 'undefined') {
+    log('skip — Notification API not supported');
+    return;
+  }
+  if (Notification.permission !== 'granted') {
+    log('skip — permission is', Notification.permission);
+    return;
+  }
+  if (!readPref()) {
+    log('skip — preference disabled (sms_notify_alarms=false)');
+    return;
+  }
+  const { ignoreVisibility = false } = input || {};
+  if (!ignoreVisibility && typeof document !== 'undefined' && document.visibilityState === 'visible') {
+    log('skip — tab is visible (toast is enough)');
+    return;
+  }
+
+  // Accept either a raw alarm object or a pre-built payload.
+  const payload = input && (input.title || input.body)
+    ? input
+    : buildAlarmNotificationPayload(input?.alarm || input);
+
+  showRich(payload);
 }

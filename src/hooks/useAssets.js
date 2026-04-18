@@ -109,6 +109,9 @@ export function useAlarms(params = {}) {
     // minimises Chrome would never get an alarm notification — the whole
     // point of OS notifications is to reach the user when they're away.
     refetchIntervalInBackground: true,
+    // Refetch immediately when the tab regains focus, so the feed looks
+    // caught up the instant the user comes back.
+    refetchOnWindowFocus: true,
   });
 }
 

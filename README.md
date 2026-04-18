@@ -69,27 +69,37 @@ npm run preview
 
 ## 3. Information architecture
 
-9 routes. Every legacy route from the previous version of the app redirects to
+10 authenticated routes plus the login route. Every legacy route redirects to
 one of these.
 
 | Route | Page | Purpose |
 |---|---|---|
-| `/` | `OverviewPage` | **Dashboard.** KPIs, charts, live readings, reports, mini site strip |
-| `/sites` | `SitesPage` | **Management.** Gateway grid with rich cards + bulk actions |
-| `/g/:gatewayId` | `GatewayPage` | Devices at one site, grouped by `customAssetType` |
-| `/a/:assetId` | `AssetPage` | Unified device detail with State / Controls / History / Alarms tabs |
-| `/alarms` | `AlarmsPage` | Cross-site alarm inbox with filtering and status transitions |
-| `/automations` | `AutomationsPage` | Rules CRUD (create/pause/delete) |
-| `/map` | `MapPage` | Site pins on a themed tile map; click sidebar or marker to focus |
-| `/settings` | `SettingsPage` | Theme, density, notifications, connection info |
+| `/` | `OverviewPage` | **Dashboard.** KPIs, live readings strip, alarm pipeline + 7-day bars, device mix donut, recent activity, reports, sites strip |
+| `/sites` | `SitesPage` | **Minimal sites gallery.** One-line summary header, tactile tilt-cards, floating Quick Actions pill, ambient drifting blobs |
+| `/g/:gatewayId` | `GatewayPage` | Devices at one site — **horizontal chip filter** (All · Needs attention · per-type) + inline search, flat grid |
+| `/a/:assetId` | `AssetPage` | Device detail — drifting mood halo hero, inline primary controls (brightness/speed), pill tabs (State / Controls / History / Alarms) |
+| `/quick` | `QuickAccessPage` | **iPhone-widget control centre** — pinned controllable devices, drag to reorder, small/large size variants, per-browser IndexedDB layout |
+| `/live` | `LivePage` | **Live activity feed** — two sections (This session · Alarms), pulsing live indicator, session timer |
+| `/alarms` | `AlarmsPage` | Cross-site alarm inbox with filtering, one-click Ack/Resolve, pending-state buttons |
+| `/map` | `MapPage` | Site pins on a themed tile map (Carto dark / OSM light); sidebar or marker click flies to site |
+| `/tutorial` | `TutorialPage` | **Illustrated gallery** of 10 SVG-animated walkthrough cards with click-to-expand detail and progress ring |
+| `/settings` | `SettingsPage` | Hero profile · Appearance · Notifications (real browser alerts) · Connection status · Install as app · Data & privacy · About |
 | `/login` | `LoginPage` | OAuth2 password-grant login |
 
+**Global command palette (⌘K / Ctrl+K)** — launched from any authenticated
+route, fuzzy searches sites, devices, pages, and actions (bulk lock / arm /
+lights-off, theme toggle, per-device toggle). See §15.
+
 Legacy redirects in `App.jsx`: `/monitoring`, `/devices`, `/devices/:id`,
-`/history`, `/controls`, `/rules` → unified views.
+`/history`, `/controls`, `/rules` → unified views. `/activity` → `/live`
+(the feed was renamed in v1.0 to reflect its ephemeral session-scoped nature).
+`/automations` was removed — rule management is no longer exposed in the
+client portal.
 
 **Navigation highlighting (`Sidebar.jsx`):** the **Sites** sidebar item is
 active for `/sites`, `/g/:id`, and `/a/:id` — so drilling into a site keeps
-that item highlighted.
+that item highlighted. The **Alarms** entry has a pulsing red badge driven
+by `useAlarms({status:'OPEN'}).length`.
 
 ---
 
@@ -381,46 +391,76 @@ src/
 │   ├── client.js          Axios instance, REALM config, JWT refresh interceptor
 │   ├── auth.js            OAuth2 password grant + JWT decode for user info
 │   ├── assets.js          /asset/* endpoints
-│   ├── alarms.js          /alarm endpoints
+│   ├── alarms.js          /alarm endpoints (PUT uses /alarm/{id} + minimal body)
 │   ├── datapoints.js      /asset/datapoint endpoints
-│   ├── rules.js           /rules endpoints
-│   └── ...                notifications, users, dashboard (minimal)
+│   ├── rules.js           /rules endpoints (kept, not surfaced in UI)
+│   └── ...                notifications, users, dashboard, map (minimal)
 │
 ├── components/
+│   ├── commandpalette/
+│   │   ├── CommandPalette.jsx    ⌘K launcher — pages/sites/devices/actions
+│   │   └── command-palette.css
 │   ├── layout/
-│   │   ├── DashboardLayout.jsx    Outer shell + scroll restoration
-│   │   ├── Sidebar.jsx            Left rail nav (7 items)
-│   │   └── Header.jsx             Search + theme + notifications + user menu
+│   │   ├── DashboardLayout.jsx   Shell, scroll restoration, live events, PWA listener,
+│   │   │                         command palette, install prompt mount points
+│   │   ├── Sidebar.jsx           Left rail nav (9 items) + pulsing alarm badge
+│   │   └── Header.jsx            Search + theme + notifications + user menu
+│   ├── pwa/
+│   │   └── InstallPrompt.jsx     Floating "Install SMS IoT" toast (beforeinstallprompt)
 │   ├── tiles/
-│   │   ├── AssetGlyph.jsx         Dynamic Lucide icon by customAssetType
-│   │   ├── AssetTile.jsx          HA-style tile card for a single device
-│   │   └── GatewayCard.jsx        Rich site card with live readings
-│   └── ui/                        Button, Modal, LoadingSpinner, EmptyState, ...
+│   │   ├── AssetGlyph.jsx        Dynamic Lucide icon by customAssetType
+│   │   ├── AssetTile.jsx         HA-style tile card for a single device
+│   │   ├── GatewayCard.jsx       Tilt-reactive site card with drifting halo
+│   │   └── gateway-card.css
+│   └── ui/                       Button, Modal, LoadingSpinner, EmptyState,
+│                                 Tip (dismissible inline), Skeleton (.Box/.Card/.Grid/.Hero)
 │
 ├── hooks/
-│   └── useAssets.js       All React Query hooks — useAssets, useAsset,
-│                          useAlarms, useRules, useAssetDatapoints,
-│                          useWriteAttribute (with optimistic updates),
-│                          useGateways, useGatewayChildren
+│   ├── useAssets.js             React Query hooks — useAssets, useAsset, useAlarms,
+│   │                            useRules, useAssetDatapoints, useWriteAttribute
+│   │                            (optimistic), useGateways, useGatewayChildren.
+│   │                            BOTH useAssets and useAlarms poll every 15s with
+│   │                            refetchIntervalInBackground: true.
+│   ├── useLiveEvents.js         Mounted once in DashboardLayout — alarm watcher
+│   │                            (toast + OS notification), asset diff watcher,
+│   │                            best-effort WebSocket to /websocket/events
+│   └── useAlarmNotifications.js useAlarmNotifications() hook + fireAlarmNotification
+│                                helper + buildAlarmNotificationPayload formatter
 │
-├── pages/                 One file per route
+├── pages/                        One file per route + per-page CSS modules
+│                                 (sites.css, gateway/asset-detail.css, quick-access.css,
+│                                  live.css, tutorial.css, settings.css,
+│                                  tutorial-illustrations.jsx = inline SVG scenes)
 │
 ├── store/
-│   ├── authStore.js       user, token, isAuthenticated, login/logout
-│   └── appStore.js        theme, density, sidebar state
+│   ├── authStore.js              user, token, isAuthenticated, login/logout
+│   ├── appStore.js               theme, density, sidebar state
+│   ├── activityStore.js          Zustand ring buffer (200 events) +
+│   │                             SESSION_START const for the /live page
+│   └── pwaStore.js               Global beforeinstallprompt capture + install()
 │
 └── utils/
-    ├── assetIcons.js      DEVICE_TYPES, CONTROLLABLE_TYPES,
-    │                      PRIMARY_ATTR_OVERRIDE, getPrimaryControlAttr,
-    │                      nextToggleValue, isAssetActive, isAssetAlarming,
-    │                      getStateLabel, getAssetIcon (+ labels)
-    ├── gateways.js        isGatewayAsset, pickGateways, pickAllDevices,
-    │                      pickGatewayChildren (path-aware),
-    │                      isDescendantOfGateway, findGatewayForAsset,
-    │                      groupByCustomType, summariseGateway
-    ├── helpers.js         formatDate, formatRelativeTime, getTimeRanges,
-    │                      getAlarmSeverityColor, truncate
-    └── csv.js             toCsv, downloadCsv (RFC 4180, UTF-8 BOM)
+    ├── assetIcons.js     DEVICE_TYPES, CONTROLLABLE_TYPES,
+    │                     PRIMARY_ATTR_OVERRIDE, getPrimaryControlAttr,
+    │                     nextToggleValue, isAssetActive, isAssetAlarming,
+    │                     getStateLabel, getAssetIcon (+ labels)
+    ├── gateways.js       isGatewayAsset, pickGateways, pickAllDevices,
+    │                     pickGatewayChildren (path-aware),
+    │                     isDescendantOfGateway, findGatewayForAsset,
+    │                     groupByCustomType, summariseGateway
+    ├── prefs.js          IndexedDB-backed preferences via idb-keyval —
+    │                     tips dismissal, tutorial progress, quick-access layout,
+    │                     plus clearAllPrefs() and a localStorage fallback.
+    ├── helpers.js        formatDate, formatRelativeTime, getTimeRanges,
+    │                     getAlarmSeverityColor, truncate
+    └── csv.js            toCsv, downloadCsv (RFC 4180, UTF-8 BOM)
+
+public/
+├── favicon.svg           Cyan shield-check (matches sidebar logo)
+├── manifest.webmanifest  PWA manifest — name, theme_color, icon
+└── sw.js                 Service worker — app shell cache + rich notifications
+                          (click-to-focus, action buttons). Registered in
+                          both dev and prod from main.jsx.
 ```
 
 ---
@@ -429,15 +469,28 @@ src/
 
 ### 8.1. Fetching
 
-Three endpoints cover most of the app, and **every view derives from these
-three** without extra per-widget calls:
+Two endpoints cover most of the app, and **every view derives from these
+two** without extra per-widget calls:
 
 1. `POST /asset/query` — hydrates `useAssets({})` (the global asset cache).
 2. `GET /alarm` — `useAlarms({ status: 'OPEN' })` and `useAlarms({})`.
-3. `GET /rules` — `useRules()`.
 
-Per-asset datapoints (`/asset/datapoint/...`) are fetched lazily only when a
-user opens the History tab on a specific asset.
+`useRules()` also exists but is no longer surfaced in the UI. Per-asset
+datapoints (`/asset/datapoint/...`) are fetched lazily only when a user opens
+the History tab on a specific asset.
+
+### 8.1.1. Live-refresh polling (critical)
+
+**Both `useAssets` and `useAlarms` poll every 15 seconds with
+`refetchIntervalInBackground: true`.** This is the foundation that makes the
+Live feed, sidebar alarm badge, command palette, and OS notifications work
+when the tab isn't focused. Without `refetchIntervalInBackground`, React
+Query pauses polling on hidden tabs and the portal would miss every
+externally-created alarm.
+
+The optional WebSocket in `src/hooks/useLiveEvents.js` is a best-effort
+latency improvement (sub-second event delivery when connected) that falls
+back silently to the 15s poll on deployments where the socket is unavailable.
 
 ### 8.2. Query keys
 
@@ -467,7 +520,7 @@ hooks then degrade gracefully:
 - `useWriteAttribute` surfaces 403 as a clear toast: "You do not have
   permission to control this device."
 
-See §14 Troubleshooting for how to fix 403 at the role-assignment level.
+See §23 Troubleshooting for how to fix 403 at the role-assignment level.
 
 ### 8.5. Auth (`src/api/auth.js` + `src/store/authStore.js`)
 
@@ -507,49 +560,83 @@ the owning site. The button label also reflects the site name dynamically
 
 ## 9. Dashboard (`OverviewPage.jsx`)
 
-Every widget on `/` is computed from the three cached queries. **No extra
-API calls.**
+Every widget on `/` is computed from the two cached queries (`useAssets` +
+`useAlarms`) plus the in-memory activity store. **No extra API calls.**
 
 | Widget | Derivation |
 |---|---|
 | Greeting | `new Date()` + `user.name` — updates every 30s |
 | **KPIs** (Sites / Online / Alarms / Active) | Counts from assets + alarms |
-| **Live readings strip** | Aggregates: `power` = sum of `PlugAsset.power`; `temp` = min/avg/max of `HeatSensor.temperature`; doors unlocked = count of DoorLocks where `!isAssetActive`; rules active/total = `rules.filter(r => r.enabled).length` |
+| **Live readings strip** (3 tiles) | `power` = sum of `PlugAsset.power`; `temp` = min/avg/max of `HeatSensor.temperature`; doors unlocked = count of DoorLocks where `!isAssetActive` |
 | **Alarm pipeline** | Count by status (OPEN / ACKNOWLEDGED / IN_PROGRESS / RESOLVED / CLOSED) + severity pills |
 | **Device-mix donut** | Top 6 `customAssetType` values plus "Other" |
 | **7-day alarm bars** | Count per day from `allAlarms.createdOn` |
 | **Currently on** | Controllable devices where `isAssetActive` (Light / Plug / Fan only) |
 | **Triggered sensors** | Sensors (non-controllable, non-Camera/Panel) where `isAssetActive` or `isAssetAlarming` |
 | **Recent alarms** | Top 5 with OPEN status |
+| **Recent activity** | Last 5 entries from the in-memory activity store, with "See all" → `/live` |
 | **Reports** | Client-side CSV export of alarm history + device status |
 | **Sites strip** | Up to 6 mini site cards linking to `/g/:id` |
 
-All charts use Recharts. Tooltip styling pulled from theme tokens so they
-match both light and dark mode.
+The Automations widget was removed — rule management lives on the backend
+only. All charts use Recharts with `minWidth={0} minHeight={0} debounce={50}`
+to silence the `-1` measurement warning during route transitions. Tooltip
+styling is pulled from theme tokens so it matches both light and dark mode.
 
 ---
 
 ## 10. Sites page (`/sites`)
 
-- **Hero banner** — dual-radial gradient over a subtle grid pattern, showing
-  the property count and three right-aligned stats.
-- **Quick actions** — bulk writes to `onOff`:
+**Minimal-plus-delight** — the philosophy is to cut page chrome and let the
+cards be the primary UX.
+
+- **Minimal header** — one-line summary (`3 sites · 18/20 online · All
+  quiet` or `… · 2 alarms active` in red). No hero banner, no stat pills.
+- **Floating Quick Actions pill** (bottom-right, cyan gradient, pulsing
+  ring). Click to fan out the three bulk writes:
   - "All lights off" → every `LightAsset` → `onOff=false`
   - "Lock all doors" → every `DoorLockAsset` → `onOff=true`
   - "Arm all alarms" → every `AlarmAsset` → `onOff=true`
-- **Orphan banner** — appears when device-typed assets exist but none of
-  their `parentId` or `path` entries is a known gateway. Tells the user to
-  link them in the backend.
-- **Search + grid/list toggle** — shown when more than 3 sites.
-- **GatewayCard** — rich tile with mood-tinted gradient (ok/warning/alarm),
-  animated health bar, 4-up live readings (Power, Temp, Doors, Alarms), and
-  a "Live N" pulsing pill when any devices are active.
+- **Ambient drifting gradient blobs** — two oversized blurred cyan/navy
+  blobs drifting behind the content over 42s and 54s cycles. Disabled under
+  `prefers-reduced-motion`.
+- **Inline expanding search** — small magnifier icon that expands to a
+  260px input when clicked. Only rendered when there are >3 sites.
+- **Orphan notice** — collapsed to a small inline amber chip when any
+  device-typed asset is not linked to a known gateway.
+- **GatewayCard redesign** — `src/components/tiles/GatewayCard.jsx` +
+  `gateway-card.css`:
+  - **Mouse-follow 3D tilt** (~8° via `useMotionValue` + `useSpring`)
+  - **Shine sweep** following the cursor (radial gradient, screen blend)
+  - **Drifting mood halo** keyed to site health (ok/warning/alarm)
+  - **Count-up health percentage** via `requestAnimationFrame`
+  - **Shimmering health bar** with alarm-mode brightness pulse
+  - 4-up live readings (Power, Temp, Doors, Alarms); hover tint to mood colour
+  - Whole card tap-springs to 0.985 then releases
+- **Playful empty state** — animated radar display (3 concentric rings + a
+  conic-gradient sweep) for "No sites yet" / "No matches".
 
 ---
 
 ## 11. Gateway page (`/g/:id`)
 
-Grouped tile grid, ordered by safety-first semantics:
+**Chip filter + flat grid** — the old 14-section stacked layout was
+replaced with a horizontal chip filter and a single uniform grid.
+
+- **Minimal header** — icon badge + site name + one-line summary
+  (`Connected · 18/20 online · 2 alarms`).
+- **Horizontal chip row** (scrollable, overflow-x-auto):
+  - `All (N)` — shows every device, sorted by the safety-first order below.
+  - `Needs attention (N)` — red chip, appears only when any child is
+    alarming or disconnected. Uses `isAssetAlarming` + `attributes.connected`.
+  - One chip per present `customAssetType`, in safety-first order with a
+    count pill and the type's `<AssetGlyph>`.
+- **Inline expanding search** — magnifier → 220px input; filters the
+  active chip's pool. Only rendered when there are >6 devices.
+- **Reflow animations** — `LayoutGroup` + `AnimatePresence popLayout`
+  on the grid so switching chips or typing in search smoothly animates
+  tiles in/out rather than a flash reset.
+- **Safety-first sort order** (used for the "All" chip and per-type chips):
 
 ```js
 AlarmAsset → SOSAsset → SmokeSensorAsset →
@@ -560,29 +647,43 @@ HeatSensorAsset → VibrationSensorAsset →
 LightAsset → PlugAsset → FanAsset → PanelAsset
 ```
 
-Section headers use `<AssetGlyph>` + friendly label. Each section renders
-`AssetTile`s in a 1/2/3/4-col responsive grid.
+`AssetTile` itself is unchanged — same icon-tap toggle, same detail
+navigation, same optimistic updates.
 
 ---
 
 ## 12. Asset detail (`/a/:id`)
 
-Large hero with:
-- 128px circular **clickable** icon (for controllable types) with radial glow
-  matching state. Tap → `useWriteAttribute` via §5 logic.
-- Huge state label with color tied to state.
-- "Tap the icon to turn on/off" hint for controllable types.
-- Static "Live" chip with pulsing dot for read-only sensors.
+Hero-as-control-panel with pill tabs below.
 
-**Tabs** (rendered as chips with an underline for the active one):
+**Hero** (`src/pages/asset-detail.css`):
+- **Drifting mood halo** — cyan/red radial gradient that slowly translates
+  over 20s. Alarming assets get a 2.6s breathing pulse instead.
+- **Info strip** at the top: type label (cyan caps) · live connection dot
+  · relative "Updated 2 min ago" · site-name link back to the gateway.
+- **128px clickable icon** for controllable types (Light / Plug / Fan / Lock
+  / Alarm) with radial glow matching state. Tap → `useWriteAttribute` via §5.
+- **Animated state label** — fade-up re-animates on every value change.
+- **Mood border + outer shadow** keyed to state (cyan on, red alarm, neutral off).
 
-- **State** — every attribute as a tile; the "primary reading" (temperature
-  for HeatSensor, power for Plug, brightness for Light, …) renders as a
-  **3xl accent-colored number** and the rest as plain tiles.
-- **Controls** — two groups: **Switches** (booleans) and **Values**
-  (numbers with range sliders + Save button). Writes immediately on switch
-  toggle; deferred-save model for sliders to avoid spamming the API as the
-  user drags.
+**Primary control panel** (new, between hero and tabs):
+- For `LightAsset` with `brightness`/`level` attribute → inline **slider**.
+- For `FanAsset` with `speed` attribute → inline **slider**.
+- Uses a **draft/commit** pattern (no `setState` in effect): value updates
+  live while dragging, write fires on `mouseUp` / `touchEnd` / `blur` / `keyUp`.
+- Other device types → panel returns `null`. Controls tab still has full
+  access to every writable attribute.
+
+**Pill tabs** — replaces the old underline tabs. Rounded container with
+four icon+text pills; active pill gets cyan-tinted background + inset accent
+border. No `mode="wait"` on the inner AnimatePresence (avoids hung tab
+transitions).
+
+- **State** — **feature tile** promotes the primary reading (44px tabular
+  number, unit, 4px accent rail, "live dot + relative time" footer). Other
+  attributes render in a compact 2/3/4-col grid of small tiles with hover tint.
+- **Controls** — unchanged. Two groups: Switches (booleans) write
+  immediately, Values (numbers) with range sliders + explicit Save button.
 - **History** — see §13.
 - **Alarms** — alarms filtered to this asset's id.
 
@@ -593,6 +694,7 @@ Mood (`on` / `off` / `alarm`) drives:
 - Icon variant (lightbulb vs lightbulb-off, lock vs lock-open, fan spins
   when on, alarm icons pulse when alarming).
 - State label color (`--color-accent-400` / `--color-ink-2` / `--color-danger-400`).
+- Hero border colour + shadow + halo intensity.
 
 ---
 
@@ -666,7 +768,103 @@ values are filtered out so a bad point doesn't break the chart.
 
 ---
 
-## 15. Header search (`Header.jsx`)
+## 14.1. Quick access (`/quick`)
+
+iPhone-style widget grid for your favourite controllable devices.
+
+- Built on **dnd-kit** (`@dnd-kit/core` + `sortable` + `utilities`) — React
+  19-native, no `findDOMNode`.
+- **Two widget sizes**: small (1 grid cell, square aspect) and large
+  (2 cells wide, 2:1 aspect). Toggle per-tile via a chrome button in edit mode.
+- **Edit mode** — pencil/check toggle in the hero. While editing, tiles
+  *jiggle* (two alternating CSS keyframes), are draggable, show maximize +
+  delete chrome buttons. Icon toggle is disabled during edit to prevent
+  accidental taps.
+- **DragOverlay** provides a silky floating ghost: rotated 1.5°, scaled
+  1.03, cyan drop-shadow. Original slot fades to opacity:0 while dragging.
+- **Layout persistence** — `{id, size}[]` array stored in IndexedDB via
+  `idb-keyval` (`src/utils/prefs.js`). Schema migrations in `prefs.js#getQuickLayout`
+  handle older shapes (`string[]` → `{id, size}[]` and an intermediate
+  `{i, x, y, w, h}[]` from a short-lived RGL experiment).
+- **Device picker** — slide-over panel grouped by site with search;
+  shows pin/unpin state per device.
+- Auto-compacts from top-left (no floating empties) — same mental model
+  as iPhone widgets.
+
+## 14.2. Live feed (`/live`)
+
+Real-time event feed with a session timer. Mounted behind the sidebar
+**Activity / Live** entry (Activity icon). `/activity` redirects here.
+
+Two sections, visually distinct:
+
+1. **This session** — cyan "Live" pill badge. Shows device state changes
+   since the app was opened. Wipes on reload — purely ephemeral and
+   per-browser by design; cross-device history would require a backend
+   audit log (not available in the current SMS IoT backend). Empty state:
+   *"Nothing yet — still watching."*
+2. **Alarms** — neutral "Synced" pill. Server-persistent via `GET /alarm`,
+   identical across every browser. Empty state: *"All clear."*
+
+Data flow:
+- `useLiveEvents` seeds the activity store from the alarm list on mount.
+- Diff watchers detect (a) new alarms and (b) attribute value changes on
+  known boolean/number attributes. Events push into `activityStore`.
+- `useWriteAttribute`'s optimistic cache update is enough to emit an event
+  when the user toggles a device — no need to wait for the server roundtrip.
+- External changes surface within 15 seconds via the `refetchInterval` poll.
+
+Session start timestamp is captured once (module-level `SESSION_START`)
+and used by the hero for *"Watching since 12 min ago · 42 events this
+session"*. Ticker refreshes every 60s.
+
+`clearSession()` on the store drops non-alarm events only — alarms survive
+because re-seeding them depends on `seededRef` which would not re-fire.
+
+## 14.3. Tutorial (`/tutorial`)
+
+Ten-card illustrated gallery with click-to-expand details.
+
+- `src/pages/tutorial-illustrations.jsx` — ten custom inline SVG scenes
+  (overview, sites, devices, quick, live, history, alarms, map, command,
+  settings) with pure-CSS animations: pulsing dots, radar rings, drawing
+  paths, keycap-press, heartbeat lines, etc.
+- `src/pages/tutorial.css` — shared theme tokens (`--tut-accent`, `--tut-ink`,
+  …) plus all keyframes. Every animation respects `prefers-reduced-motion`.
+- **Card default state**: big SVG + 3-word title + one tagline + "ⓘ" hint.
+  Minimal chrome.
+- **Click → expands inline**: reveals short description + "Try it" CTA
+  (marks the step complete on click) + a "Got it" secondary button.
+- **Completion** tracked in IndexedDB (`tutorial_progress`) via
+  `markTutorialStep` / `getTutorialProgress` in `prefs.js`. Done cards get
+  a green check pill and the illustration's accent colour shifts to green.
+- **Progress ring** (64px, SVG, gradient stroke) in the hero.
+- Footer has **Show tips again** (`resetTips`) and **Reset progress**
+  (`resetTutorial`) controls.
+
+## 15. Command palette (⌘K / Ctrl+K)
+
+Globally available from any authenticated page. Implemented in
+`src/components/commandpalette/CommandPalette.jsx`, mounted once in
+`DashboardLayout`.
+
+- **Keybinding** — `Cmd+K` / `Ctrl+K` toggles. `Esc` closes. `↑ ↓ Enter`
+  for keyboard navigation. All state resets (query, cursor) happen inside
+  the event handler to avoid `set-state-in-effect` lint violations.
+- **Four command kinds**, grouped and scored:
+  - **Pages** — the 10 top-level routes.
+  - **Sites** — every gateway in the asset cache.
+  - **Devices** — every known device, opens its detail page.
+  - **Actions** — "Toggle *device*" per controllable (optimistic via
+    `useWriteAttribute`), "All lights off / Lock all / Arm all" bulk ops
+    via `Promise.allSettled`, and "Switch to light/dark mode".
+- **Fuzzy-ish scorer** — exact-prefix match on title scores 100+, substring
+  60+, in-order character match 5. Sorted desc, top 30 shown.
+- **Hover + keyboard** keep the cursor in sync — `onMouseEnter` sets the
+  cursor index so you can mix pointer + keyboard without losing position.
+- Footer hints: `↑↓ navigate · ↵ select · ⌘K toggle`.
+
+## 16. Header search (`Header.jsx`)
 
 Full in-app search with live dropdown:
 
@@ -682,9 +880,9 @@ Full in-app search with live dropdown:
 
 ---
 
-## 16. Reports & exports
+## 17. Reports & exports
 
-### 16.1. Dashboard → Reports section
+### 17.1. Dashboard → Reports section
 
 Two CSV downloads, both client-side from already-cached data:
 
@@ -693,7 +891,7 @@ Two CSV downloads, both client-side from already-cached data:
 - **Device status** — id, name, customAssetType, parentId, connected,
   current state label.
 
-### 16.2. CSV helper (`src/utils/csv.js`)
+### 17.2. CSV helper (`src/utils/csv.js`)
 
 - `toCsv(rows, columns)` — RFC 4180 escaping (quotes, commas, newlines).
 - `downloadCsv(filename, rows, columns)` — builds the CSV, prepends a UTF-8
@@ -702,7 +900,52 @@ Two CSV downloads, both client-side from already-cached data:
 
 ---
 
-## 17. Env configuration
+## 18. Notifications
+
+Native OS notifications for new alarms. Implemented in
+`src/hooks/useAlarmNotifications.js`.
+
+- **User preference** — `localStorage.sms_notify_alarms = 'true' | 'false'`,
+  toggled from the Notifications section of `/settings` via
+  `useAlarmNotifications().toggle(next)`. On enable, calls
+  `Notification.requestPermission()` and fires a welcome notification.
+- **Rich OS notification** via the service worker's `registration.
+  showNotification()` — action buttons (*View alarm* / *Dismiss*),
+  severity emoji in the title (🚨 CRITICAL / ⚠️ HIGH / ℹ️ LOW / 🔔 default),
+  site-and-content in the body, `requireInteraction: true` for CRITICAL.
+- **Fallback** — plain `new Notification(...)` when no SW is controlling
+  the page (older browsers, iOS).
+- **Click handler** lives in `public/sw.js#notificationclick` — focuses an
+  existing portal tab (or opens a new one) and navigates to `/alarms`.
+- **Visibility guard** — `fireAlarmNotification` is a no-op when
+  `document.visibilityState === 'visible'` so the in-app toast wins when
+  the user is already looking at the tab. Set `ignoreVisibility: true` to
+  bypass for the Settings "Send test" button.
+- **Dev-mode logs** — `console.debug('[notify]', …)` for each decision
+  step so unexpected silences are traceable in DevTools.
+
+## 19. PWA (install + offline shell)
+
+- **Manifest** — `public/manifest.webmanifest` with `theme_color: #0891b2`,
+  favicon as icon, `display: standalone`, scope `/`.
+- **Service worker** — `public/sw.js` registered from `main.jsx` on
+  `window.load` in both **dev and production** (needed for rich
+  notifications in dev). Caches a shell on install (`/`, `/index.html`,
+  `/favicon.svg`, `/manifest.webmanifest`) with network-first strategy.
+  Explicitly bypasses `/api/*`, `/auth/*`, `/websocket/*`, `/@vite/*`,
+  `/@fs/*`, `/src/*`, and Vite's `?import` / `?t=...` query params so HMR
+  keeps working in development.
+- **Install prompt** — `src/components/pwa/InstallPrompt.jsx` shows a
+  bottom-left toast when `beforeinstallprompt` fires. The event is captured
+  globally in `src/store/pwaStore.js` (zustand) so the Settings page can
+  surface the same install button under its "Install as app" section.
+  Dismissal stored in `localStorage.sms_install_dismissed`.
+- **iOS** — `beforeinstallprompt` never fires. Settings shows a hint:
+  *"Tap Share → Add to Home Screen"*. `index.html` includes
+  `apple-touch-icon`, `apple-mobile-web-app-capable`,
+  `apple-mobile-web-app-status-bar-style` for a clean standalone look.
+
+## 20. Env configuration
 
 `.env` is loaded at **build time** by Vite. New names are preferred, legacy
 names are still honoured:
@@ -731,7 +974,7 @@ only.
 
 ---
 
-## 18. Proxy setup (dev + prod)
+## 21. Proxy setup (dev + prod)
 
 Both environments proxy `/api/*` and `/auth/*` to the backend so the browser
 stays same-origin.
@@ -747,7 +990,7 @@ See the Troubleshooting section for why.
 
 ---
 
-## 19. Deployment (Docker)
+## 22. Deployment (Docker)
 
 Multi-stage build. Build-time args bake the env vars into the bundle:
 
@@ -767,9 +1010,9 @@ Dockerfile for compatibility with existing build pipelines.
 
 ---
 
-## 20. Troubleshooting
+## 23. Troubleshooting
 
-### 20.1. "All API calls return 403"
+### 23.1. "All API calls return 403"
 
 Role issue, not a code bug. The logged-in user lacks Keycloak client-roles
 for the endpoints the app hits.
@@ -787,45 +1030,45 @@ Fix in the SMS IoT manager UI → Users → *user* → Roles. Assign at minimum
 per-user isolation add `restricted-user` and create explicit user-asset
 links.
 
-### 20.2. "Login shows an error and won't get me in"
+### 23.2. "Login shows an error and won't get me in"
 
 Usually a 403 on `/userinfo`, not the token grant itself. We work around
 this by decoding the JWT locally for user info — but if you still see it,
 check the Keycloak client config: the `openremote` client must have
 `profile` and `email` scopes.
 
-### 20.3. "History tab spins forever"
+### 23.3. "History tab spins forever"
 
 Was caused by unstable `queryKey` from `getTimeRanges()` re-running
 `Date.now()` every render. Already fixed via `useMemo`. If it regresses,
 check `HistoryTab.timeRange` is memoised on the selected `range` string.
 
-### 20.4. "Map won't focus on the same site when clicked twice"
+### 23.4. "Map won't focus on the same site when clicked twice"
 
 Was caused by memoised selection with a stable id. Already fixed by
 creating a fresh object literal on every click (new identity re-fires the
 effect). If it regresses, check `selectGateway` in `MapPage.jsx` uses
 `setSelection({ id, pos })` with a new object reference each time.
 
-### 20.5. "Icon tap seems laggy"
+### 23.5. "Icon tap seems laggy"
 
 Check `useWriteAttribute`'s `onMutate` optimistic update is still in place.
 That's what makes the flip instant.
 
-### 20.6. "Compact view doesn't change anything"
+### 23.6. "Compact view doesn't change anything"
 
 Confirm `<html>` has `data-density="compact"` attribute after toggling.
 `appStore.setDensity` writes this plus `localStorage.sms_density`. The CSS
 overrides live in the `@layer components` block of `src/index.css`.
 
-### 20.7. "CORS errors in console"
+### 23.7. "CORS errors in console"
 
 You're bypassing the Vite/nginx proxy by hardcoding the full URL somewhere.
 All API calls must use **relative** paths (`/api/...`, `/auth/...`).
 
 ---
 
-## 21. Conventions (respect these when making changes)
+## 24. Conventions (respect these when making changes)
 
 - **One source of truth for device icons** — any new component that shows an
   asset icon imports `<AssetGlyph customType={...} />`. Never import Lucide
@@ -846,9 +1089,27 @@ All API calls must use **relative** paths (`/api/...`, `/auth/...`).
   memoise it. Otherwise React Query refetches forever.
 - **Per-type attribute overrides** go in `PRIMARY_ATTR_OVERRIDE` — one
   line, no branching elsewhere.
+- **Never disable `refetchIntervalInBackground`** on `useAssets` /
+  `useAlarms`. The Live feed + sidebar badge + OS notifications all rely on
+  polling continuing when the tab is hidden — that's the whole point.
+- **Alarm PUT body must be minimal.** `updateAlarm` in `src/api/alarms.js`
+  intentionally strips denormalised fields (`sourceName`, `assetId`) and
+  server-managed timestamps before sending. Adding fields to the PUT body
+  without verifying them against OR's `SentAlarm` will re-introduce the
+  500 we fixed in v1.0.
+- **Use the Skeleton primitives** (`<Skeleton.Box/Card/Grid/Hero/...>`)
+  for loading states on major pages instead of a full-page spinner.
+  Perceived latency is half the fight.
+- **Notification payloads** are built via `buildAlarmNotificationPayload`
+  so every site gets the same severity-emoji title format and `/alarms`
+  deep-link via the service worker.
+- **IDB preferences** live in `src/utils/prefs.js` behind typed helpers
+  (`getDismissedTips`, `getTutorialProgress`, `getQuickLayout`, …). Don't
+  read from `idb-keyval` directly elsewhere — schema migrations happen in
+  these helpers.
 
 ---
 
-## 22. License
+## 25. License
 
 Proprietary — SMS Service (PK).

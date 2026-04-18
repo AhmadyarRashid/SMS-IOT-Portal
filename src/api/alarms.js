@@ -15,11 +15,33 @@ export async function createAlarm(alarm) {
   return data;
 }
 
+/**
+ * Update an alarm. OpenRemote's AlarmResource maps this to
+ *   PUT /alarm/{alarmId}   body: SentAlarm
+ *
+ * IMPORTANT: the alarm objects returned by `GET /alarm` carry denormalised
+ * fields (`sourceName`, `assetId`) and server-managed timestamps
+ * (`createdOn`, `lastModified`, `acknowledgedOn`, `acknowledgedBy`) that the
+ * server-side SentAlarm deserializer rejects — or worse, blows up with a
+ * 500 — when sent back. We explicitly build a minimal body with only the
+ * core editable fields and let the server manage everything else.
+ */
 export async function updateAlarm(alarm) {
   if (!alarm?.id) throw new Error('updateAlarm: alarm.id is required');
-  // OpenRemote's AlarmResource expects PUT /alarm/{alarmId} with the full
-  // SentAlarm body. Without the id in the path, the request silently no-ops.
-  const { data } = await apiClient.put(`/alarm/${alarm.id}`, alarm);
+  const body = {
+    id: alarm.id,
+    realm: alarm.realm,
+    title: alarm.title,
+    content: alarm.content ?? '',
+    severity: alarm.severity,
+    source: alarm.source,
+    sourceId: alarm.sourceId,
+    status: alarm.status,
+    // Only include assigneeId if present — passing undefined is fine, but
+    // passing a stale server-filled string could step on concurrent edits.
+    ...(alarm.assigneeId ? { assigneeId: alarm.assigneeId } : {}),
+  };
+  const { data } = await apiClient.put(`/alarm/${alarm.id}`, body);
   return data;
 }
 

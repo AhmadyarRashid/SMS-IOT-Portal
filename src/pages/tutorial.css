@@ -164,6 +164,45 @@
   100% { transform: scale(0.4); opacity: 0; }
 }
 
+/* Live — heartbeat path drawing and scan cursor */
+.tut-heartbeat {
+  stroke-dasharray: 320;
+  stroke-dashoffset: 320;
+  animation: tut-heartbeat-draw 2.4s ease-in-out infinite;
+}
+@keyframes tut-heartbeat-draw {
+  0%   { stroke-dashoffset: 320; }
+  55%  { stroke-dashoffset: 0; }
+  80%  { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: -320; opacity: 0.4; }
+}
+
+.tut-scan {
+  transform-origin: 150px 55px;
+  transform-box: fill-box;
+}
+
+/* Command — keycap press */
+.tut-key {
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.tut-key-a { animation: tut-key-press 2.4s ease-in-out infinite; }
+.tut-key-b { animation: tut-key-press 2.4s ease-in-out 0.3s infinite; }
+
+@keyframes tut-key-press {
+  0%, 60%, 100% { transform: translateY(0);    filter: brightness(1); }
+  20%           { transform: translateY(2px);  filter: brightness(1.2); }
+}
+
+.tut-caret {
+  animation: tut-caret-blink 1.1s steps(2, jump-none) infinite;
+}
+@keyframes tut-caret-blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 /* Settings slider thumb */
 .tut-slider-thumb {
   animation: tut-thumb 3.8s ease-in-out infinite;
@@ -271,7 +310,11 @@
   .tut-pin-drop,
   .tut-pin-shadow,
   .tut-slider-thumb,
-  .tut-slider-fill {
+  .tut-slider-fill,
+  .tut-heartbeat,
+  .tut-key-a,
+  .tut-key-b,
+  .tut-caret {
     animation: none !important;
   }
   .tut-card:hover,

@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 import useAuthStore from '../store/authStore';
 import useAppStore from '../store/appStore';
 import usePwaStore from '../store/pwaStore';
-import { useAlarmNotifications } from '../hooks/useAlarmNotifications';
+import { useAlarmNotifications, fireAlarmNotification } from '../hooks/useAlarmNotifications';
 import { useAssets } from '../hooks/useAssets';
 import { clearAllPrefs } from '../utils/prefs';
 import { formatRelativeTime } from '../utils/helpers';
@@ -266,6 +266,29 @@ function NotificationsSection() {
           We cannot re-ask once your browser remembers your choice — visit the site's
           notification settings in your browser to unblock.
         </p>
+      )}
+      {permission === 'granted' && enabled && (
+        <Row
+          label="Send a test notification"
+          hint="Confirms your OS is set to show notifications from this browser. Fires immediately, regardless of tab focus."
+        >
+          <button
+            onClick={() => {
+              fireAlarmNotification({
+                title: '🚨 Test alarm · SMS IoT',
+                body: 'Smoke sensor triggered · Head Office',
+                tag: 'sms-iot-test',
+                url: '/alarms',
+                severity: 'CRITICAL',
+                ignoreVisibility: true,
+              });
+              toast.success('Sent — check your Notification Center.');
+            }}
+            className="st-ghost-btn"
+          >
+            Send test
+          </button>
+        </Row>
       )}
     </SectionCard>
   );

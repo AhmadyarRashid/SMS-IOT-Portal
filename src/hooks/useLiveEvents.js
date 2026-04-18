@@ -7,7 +7,9 @@ import { REALM } from '../api/client';
 import {
   getCustomAssetType, getStateLabel, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
-import { fireAlarmNotification } from './useAlarmNotifications';
+import { fireAlarmNotification, buildAlarmNotificationPayload } from './useAlarmNotifications';
+
+const dev = !!import.meta.env?.DEV;
 
 /**
  * Hook that feeds the activity store from two sources:
@@ -26,7 +28,12 @@ import { fireAlarmNotification } from './useAlarmNotifications';
  * authenticated session.
  */
 export default function useLiveEvents() {
-  const { data: alarms = [] } = useAlarms({});
+  // `isSuccess` gates the seed step below — without it the effect would
+  // fire once with `data = []` (the default before React Query resolves),
+  // baseline an empty `prevIdsRef`, and then on the next render — when real
+  // alarms arrive — classify every single alarm as "new" and spam the user
+  // with toasts + OS notifications on every page reload.
+  const { data: alarms = [], isSuccess: alarmsReady } = useAlarms({});
   const { data: assets = [] } = useAssets({});
   const push = useActivityStore((s) => s.push);
   const pushMany = useActivityStore((s) => s.pushMany);
@@ -39,6 +46,10 @@ export default function useLiveEvents() {
   const prevIdsRef = useRef(new Set());
 
   useEffect(() => {
+    // Wait for the first real fetch — React Query returns the default `[]`
+    // before the network call resolves, and seeding against that empty
+    // baseline causes every subsequently-fetched alarm to look "new".
+    if (!alarmsReady) return;
     if (!Array.isArray(alarms)) return;
 
     const toEvent = (a) => ({
@@ -54,6 +65,7 @@ export default function useLiveEvents() {
 
     if (!seededRef.current) {
       // First successful fetch — seed the feed with current alarms (no toast).
+      if (dev) console.debug('[live]', 'alarms seeded', alarms.length);
       pushMany(alarms.map(toEvent));
       prevIdsRef.current = new Set(alarms.map((a) => a.id));
       seededRef.current = true;
@@ -63,6 +75,7 @@ export default function useLiveEvents() {
     // Subsequent fetches — diff and toast on anything new.
     const prev = prevIdsRef.current;
     const fresh = alarms.filter((a) => !prev.has(a.id));
+    if (dev) console.debug('[live]', 'alarms poll', alarms.length, 'total,', fresh.length, 'new');
     if (fresh.length > 0) {
       pushMany(fresh.map(toEvent));
       const onAlarmsPage = locRef.current.startsWith('/alarms');
@@ -72,11 +85,9 @@ export default function useLiveEvents() {
             duration: 4500,
             icon: '🔔',
           });
-          fireAlarmNotification({
-            title: a.title || 'New alarm',
-            body: a.content || a.description || '',
-            tag: `alarm-${a.id}`,
-          });
+          // Rich OS notification: severity emoji in the title, site + content
+          // in the body, deep-links to /alarms when clicked.
+          fireAlarmNotification(buildAlarmNotificationPayload(a));
         });
         if (fresh.length > 3) {
           toast(`+${fresh.length - 3} more alarms`, { icon: '…' });
@@ -84,7 +95,7 @@ export default function useLiveEvents() {
       }
     }
     prevIdsRef.current = new Set(alarms.map((a) => a.id));
-  }, [alarms, pushMany]);
+  }, [alarms, alarmsReady, pushMany]);
 
   // ---- Asset attribute diff watcher ---------------------------------------
   // Whenever the global asset cache updates (optimistic writes after an icon
@@ -162,7 +173,6 @@ export default function useLiveEvents() {
     let gaveUp = false;
     let attempts = 0;
 
-    const dev = !!import.meta.env?.DEV;
     const log = (...args) => { if (dev) console.debug('[live-ws]', ...args); };
 
     const connect = () => {

@@ -11,9 +11,11 @@ export function TutorialIllustration({ kind, done = false }) {
     sites:    <SceneSites />,
     devices:  <SceneDevices />,
     quick:    <SceneQuick />,
+    live:     <SceneLive />,
     history:  <SceneHistory />,
     alarms:   <SceneAlarms />,
     map:      <SceneMap />,
+    command:  <SceneCommand />,
     settings: <SceneSettings />,
   };
   return (
@@ -212,6 +214,73 @@ function SceneMap() {
       </g>
       {/* Pin shadow */}
       <ellipse cx="80" cy="80" rx="10" ry="2.5" fill="var(--tut-accent)" opacity="0.22" className="tut-pin-shadow" />
+    </svg>
+  );
+}
+
+function SceneLive() {
+  // Heartbeat line with a pulsing live indicator — "real-time monitor".
+  return (
+    <svg viewBox="0 0 160 110" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="liveFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor="var(--tut-accent)" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="var(--tut-accent)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <line x1="10" y1="55" x2="150" y2="55" stroke="var(--tut-stroke)" strokeDasharray="2 4" />
+      {/* Heartbeat path */}
+      <path
+        d="M10 55 H40 L48 42 L55 68 L62 35 L70 55 L90 55 L98 42 L105 68 L112 48 L120 55 H150"
+        fill="none"
+        stroke="var(--tut-accent)"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="tut-heartbeat"
+      />
+      {/* Pulsing scan cursor */}
+      <g className="tut-scan">
+        <circle cx="150" cy="55" r="3" fill="var(--tut-accent)" />
+        <circle cx="150" cy="55" r="8" fill="none" stroke="var(--tut-accent)" strokeOpacity="0.55" className="tut-pulse-ring" />
+      </g>
+      {/* Event dots along the line */}
+      <circle cx="55" cy="68" r="2.2" fill="var(--tut-accent)" opacity="0.55" />
+      <circle cx="105" cy="68" r="2.2" fill="var(--tut-accent)" opacity="0.75" />
+    </svg>
+  );
+}
+
+function SceneCommand() {
+  // Two keycaps: ⌘ and K, with a search bar beneath — "press ⌘K".
+  return (
+    <svg viewBox="0 0 160 110" xmlns="http://www.w3.org/2000/svg">
+      {/* Search bar */}
+      <rect x="20" y="72" width="120" height="22" rx="7" fill="var(--tut-fill-soft)" stroke="var(--tut-stroke)" />
+      <circle cx="32" cy="83" r="3.5" fill="none" stroke="var(--tut-ink)" strokeOpacity="0.45" strokeWidth="1.5" />
+      <line x1="34.5" y1="85.5" x2="38" y2="89" stroke="var(--tut-ink)" strokeOpacity="0.45" strokeWidth="1.5" strokeLinecap="round" />
+      {/* Blinking caret */}
+      <rect x="46" y="78" width="1.5" height="10" fill="var(--tut-accent)" className="tut-caret" />
+      {/* Suggestion hint inside search */}
+      <rect x="52" y="80" width="48" height="2.5" rx="1" fill="var(--tut-ink)" opacity="0.3" />
+      <rect x="52" y="85" width="32" height="2" rx="1" fill="var(--tut-ink)" opacity="0.18" />
+
+      {/* ⌘ key */}
+      <g className="tut-key tut-key-a">
+        <rect x="48" y="24" width="30" height="30" rx="7" fill="var(--tut-bg)" stroke="var(--tut-accent)" strokeWidth="1.75" />
+        <text x="63" y="44" textAnchor="middle" fontSize="18" fontWeight="600" fill="var(--tut-accent)" fontFamily="ui-monospace, monospace">⌘</text>
+      </g>
+      {/* + */}
+      <text x="86" y="44" textAnchor="middle" fontSize="14" fill="var(--tut-ink)" opacity="0.5">+</text>
+      {/* K key */}
+      <g className="tut-key tut-key-b">
+        <rect x="94" y="24" width="30" height="30" rx="7" fill="var(--tut-bg)" stroke="var(--tut-accent)" strokeWidth="1.75" />
+        <text x="109" y="45" textAnchor="middle" fontSize="16" fontWeight="700" fill="var(--tut-accent)" fontFamily="ui-monospace, monospace">K</text>
+      </g>
+      {/* Sparkles */}
+      <circle cx="38" cy="34" r="1.5" fill="var(--tut-accent)" className="tut-pulse-dot" />
+      <circle cx="134" cy="48" r="1.5" fill="var(--tut-accent)" opacity="0.7" />
+      <circle cx="140" cy="30" r="1" fill="var(--tut-accent)" opacity="0.5" />
     </svg>
   );
 }
