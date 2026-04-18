@@ -43,18 +43,16 @@ export default function QuickAccessPage() {
     });
   }, []);
 
-  const controllableDevices = useMemo(
-    () => pickAllDevices(assets).filter((a) =>
-      CONTROLLABLE_TYPES.includes(getCustomAssetType(a))
-    ),
-    [assets],
-  );
+  // Every recognised device type — not just controllable ones. Sensors and
+  // cameras are pinnable too; tapping their icon opens the detail page (same
+  // behaviour as AssetTile on /g/:id).
+  const pinnableDevices = useMemo(() => pickAllDevices(assets), [assets]);
   const gateways = useMemo(() => pickGateways(assets), [assets]);
   const deviceMap = useMemo(() => {
     const m = new Map();
-    for (const d of controllableDevices) m.set(d.id, d);
+    for (const d of pinnableDevices) m.set(d.id, d);
     return m;
-  }, [controllableDevices]);
+  }, [pinnableDevices]);
 
   // Drop items whose asset has disappeared.
   const resolvedLayout = useMemo(
@@ -168,12 +166,12 @@ export default function QuickAccessPage() {
             icon={Sparkles}
             title="Nothing pinned yet"
             message={
-              controllableDevices.length
-                ? 'Pick some lights, plugs, fans, locks, or alarms to pin here.'
-                : 'You do not have any controllable devices yet. Add one on your SMS IoT backend first.'
+              pinnableDevices.length
+                ? 'Pin any device — controllable or read-only — for one-tap access.'
+                : 'You do not have any devices yet. Add one on your SMS IoT backend first.'
             }
             action={
-              controllableDevices.length ? (
+              pinnableDevices.length ? (
                 <button
                   onClick={() => setPickerOpen(true)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold text-white"
@@ -254,7 +252,7 @@ export default function QuickAccessPage() {
       <AnimatePresence>
         {pickerOpen && (
           <DevicePicker
-            all={controllableDevices}
+            all={pinnableDevices}
             gateways={gateways}
             pinnedIds={resolvedIds}
             onClose={() => setPickerOpen(false)}
@@ -311,19 +309,27 @@ function TilePresentation({
   const alarm = isAssetAlarming(asset, customType);
   const stateLabel = getStateLabel(asset, customType);
   const primaryAttr = getPrimaryControlAttr(asset, customType);
+  const controllable = CONTROLLABLE_TYPES.includes(customType);
   const write = useWriteAttribute();
 
   const large = size === 'large';
   const tone = alarm ? 'alarm' : active ? 'on' : 'off';
 
+  // Controllable types (light/plug/fan/lock/alarm) toggle on icon tap.
+  // Everything else (sensors, cameras, panels) opens the detail page — same
+  // pattern used by AssetTile on /g/:id.
   const toggle = (e) => {
     e.stopPropagation();
-    if (editing || floating || !primaryAttr) return;
-    write.mutate({
-      assetId: asset.id,
-      attributeName: primaryAttr,
-      value: nextToggleValue(asset, primaryAttr),
-    });
+    if (editing || floating) return;
+    if (controllable && primaryAttr) {
+      write.mutate({
+        assetId: asset.id,
+        attributeName: primaryAttr,
+        value: nextToggleValue(asset, primaryAttr),
+      });
+      return;
+    }
+    onOpen?.();
   };
 
   // Keep icons comfortably inside the tile with room for the glow.
