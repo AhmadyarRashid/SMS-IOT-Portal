@@ -35,9 +35,9 @@ const STEPS = [
   },
   {
     id: 'devices',
-    title: 'Filter, tap, control',
-    tagline: 'Chips filter, icons toggle',
-    detail: 'Inside a site, a chip row at the top filters devices by type (Lights, Locks, Cameras…). A "Needs attention" chip lights up red when anything is alarming. Tap any round icon to toggle the device.',
+    title: 'Filter, tap, rename',
+    tagline: 'Chips filter · icons toggle · pencil renames',
+    detail: 'Inside a site, chips at the top filter devices by type — a "Needs attention" chip lights up red when anything is alarming. Tap any round icon to toggle. On a device\'s detail page, click the pencil next to the name to give it a friendly label; the rename syncs across every browser you sign in from.',
     tryHref: '/sites',
     tryLabel: 'Try a device',
   },
@@ -68,8 +68,8 @@ const STEPS = [
   {
     id: 'alarms',
     title: 'Alarms',
-    tagline: 'Triage the inbox',
-    detail: 'Cross-site alarm list with severity and status filters. One-click Ack and Resolve move alarms through the pipeline. A red badge on the sidebar pulses when any are open.',
+    tagline: 'Triage with one click',
+    detail: 'Rich cards show the alarm, the linked device, the site, and the location — click the location cell to open that site on the map in a new tab. Chip filters narrow by severity or status; counts cross-filter as you click. Ack or Resolve in one tap; a red sidebar badge pulses when any are open.',
     tryHref: '/alarms',
     tryLabel: 'Open alarms',
   },

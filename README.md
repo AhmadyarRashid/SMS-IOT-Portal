@@ -665,6 +665,14 @@ Hero-as-control-panel with pill tabs below.
   / Alarm) with radial glow matching state. Tap → `useWriteAttribute` via §5.
 - **Animated state label** — fade-up re-animates on every value change.
 - **Mood border + outer shadow** keyed to state (cyan on, red alarm, neutral off).
+- **Inline rename** — a pencil icon next to the name flips the h1 into an
+  editable input. Enter saves, Esc cancels. Writes to the standard OR
+  `notes` attribute via `useWriteAttribute` (needs only attribute-write
+  permission, not full asset-write) so the change syncs across every
+  browser the user signs in from. `getAssetDisplayName(asset)` prefers
+  `notes` over `asset.name` everywhere in the UI. See §24 for the
+  `NOTES_USED_FOR_DATA` blocklist — HumanPresenceSensor et al. reuse
+  `notes` for structured data and have the rename UI hidden.
 
 **Primary control panel** (new, between hero and tabs):
 - For `LightAsset` with `brightness`/`level` attribute → inline **slider**.
@@ -770,7 +778,7 @@ values are filtered out so a bad point doesn't break the chart.
 
 ## 14.1. Quick access (`/quick`)
 
-iPhone-style widget grid for your favourite controllable devices.
+iPhone-style widget grid for any pinned devices — controllable or read-only.
 
 - Built on **dnd-kit** (`@dnd-kit/core` + `sortable` + `utilities`) — React
   19-native, no `findDOMNode`.
@@ -786,8 +794,10 @@ iPhone-style widget grid for your favourite controllable devices.
   `idb-keyval` (`src/utils/prefs.js`). Schema migrations in `prefs.js#getQuickLayout`
   handle older shapes (`string[]` → `{id, size}[]` and an intermediate
   `{i, x, y, w, h}[]` from a short-lived RGL experiment).
-- **Device picker** — slide-over panel grouped by site with search;
-  shows pin/unpin state per device.
+- **Device picker** — slide-over panel grouped by site with search; shows
+  every recognised device (sensors + cameras included), with pin/unpin
+  state per device. Tapping a pinned sensor's tile opens its detail page
+  instead of toggling (matches `AssetTile` behaviour).
 - Auto-compacts from top-left (no floating empties) — same mental model
   as iPhone widgets.
 
@@ -841,6 +851,52 @@ Ten-card illustrated gallery with click-to-expand details.
 - **Progress ring** (64px, SVG, gradient stroke) in the hero.
 - Footer has **Show tips again** (`resetTips`) and **Reset progress**
   (`resetTutorial`) controls.
+
+## 14.4. Alarms inbox (`/alarms`)
+
+Cross-site triage page with rich cards, chip filters, and one-tap Ack/Resolve.
+
+- **Minimal hero** — "Alarms" title + pulsing live dot (red when any
+  critical is open) + one-line summary (*3 open · 1 critical · 5 resolved
+  today*). 7-day sparkline on the right with the today-bar highlighted.
+- **Chip filter row** — Severity (`All · Critical · High · Medium · Low`)
+  + a dashed-border divider + Status (`All · Open · Acknowledged ·
+  Resolved`). Counts on every chip **cross-filter**: severity counts
+  honour the current status/search, and status counts honour the current
+  severity/search, so the sum of visible sub-counts always equals the
+  `All` total.
+- **Sort menu** — *Newest first · Oldest first · By severity*. Default is
+  newest, status defaults to `Open` so the page is triage-focused on load.
+- **Inline expanding search** — matches title, content, source, linked
+  device name, and device type label.
+- **Rich alarm cards**:
+  - Severity-keyed left rail. Critical alarms get a 2.2s breathing pulse.
+  - Severity icon badge + severity pill + status pill (color-coded).
+  - Title + content.
+  - 3-to-4 column info grid: **Site · Device · Location · When**.
+    Site clicks through to `/g/:id`; Device to `/a/:id`; Location opens
+    `/map?focus=<gatewayId>` in a new tab (see §14 Map).
+  - Ack and Resolve buttons with live pending state (`…` while writing).
+    Resolved cards fade to 72% opacity so live incidents stand out.
+- **Linked-asset resolution** lives entirely client-side:
+  `resolveAlarmAsset(alarm, assetMap)` reads the full asset objects OR
+  now embeds on each alarm as `alarm.asset[]`. The old
+  `GET /alarm/{id}/asset` endpoint is no longer called — SMS IoT's
+  deployment doesn't mount it, and the per-alarm 404 spam was wasteful
+  anyway. Defensive fallbacks for id-only fields (`assetId`, `sourceId`
+  when `source=INTERNAL`, `assetIds[]`, etc.) remain for older/variant
+  OR versions.
+- **Ack/Resolve** via `useUpdateAlarmStatus` → `updateAlarm()` which
+  PUTs `/alarm/{id}` with a **minimal** SentAlarm body (only core editable
+  fields; server-managed timestamps and denormalised `sourceName`/
+  `assetId` are stripped to avoid 500s on strict deserializers).
+- **Animations** — `LayoutGroup` + `AnimatePresence popLayout`. Entry and
+  layout transitions are **split** via Framer's `default` vs `layout`
+  keys so reshuffles are zero-delay and don't fight CSS. Cards use
+  `whileHover={{ y: -2 }}` (not CSS `transform`) to avoid transform
+  interpolation conflicts during layout animations.
+- **Playful empty state** — animated radar sweep for *"All clear"* /
+  *"Nothing matches"*, same language as Sites/Live.
 
 ## 15. Command palette (⌘K / Ctrl+K)
 
@@ -909,18 +965,35 @@ Native OS notifications for new alarms. Implemented in
   toggled from the Notifications section of `/settings` via
   `useAlarmNotifications().toggle(next)`. On enable, calls
   `Notification.requestPermission()` and fires a welcome notification.
-- **Rich OS notification** via the service worker's `registration.
-  showNotification()` — action buttons (*View alarm* / *Dismiss*),
-  severity emoji in the title (🚨 CRITICAL / ⚠️ HIGH / ℹ️ LOW / 🔔 default),
-  site-and-content in the body, `requireInteraction: true` for CRITICAL.
-- **Fallback** — plain `new Notification(...)` when no SW is controlling
-  the page (older browsers, iOS).
-- **Click handler** lives in `public/sw.js#notificationclick` — focuses an
-  existing portal tab (or opens a new one) and navigates to `/alarms`.
+- **Rich OS notification** via `registration.showNotification()` (service
+  worker) when supported:
+  - Severity emoji prefix in the title (🚨 CRITICAL / ⚠️ HIGH / ℹ️ LOW /
+    🔔 default)
+  - Site + alarm content concatenated in the body
+  - Action buttons: **View alarm** (focuses portal tab + navigates to
+    `/alarms`) / **Dismiss** (closes)
+  - `requireInteraction: true` for CRITICAL — stays on screen until the
+    user responds
+- **Fallback** — plain `new Notification(...)` when the SW isn't
+  controlling the page (older browsers, iOS).
+- **Click handler** lives in `public/sw.js#notificationclick` — iterates
+  `clients.matchAll`, focuses an existing portal tab (or opens a new one)
+  via `client.focus()` + `client.navigate()`, falling back to
+  `postMessage({ type: 'sms-iot-open', url })` on browsers without
+  `navigate`. `main.jsx` listens for that message and routes the app.
+- **Background polling** — `useAlarms` + `useAssets` both use
+  `refetchIntervalInBackground: true` so the tab detects new alarms
+  within ~15 s even when minimised. Without this, `fireAlarmNotification`
+  would never be called for a backgrounded tab. This is load-bearing —
+  see §24 Conventions.
+- **Seed-once guard** — the alarm watcher in `useLiveEvents` gates on
+  React Query's `isSuccess` so it doesn't misfire a toast-storm the
+  first render (when the placeholder `data: []` makes existing alarms
+  look "new").
 - **Visibility guard** — `fireAlarmNotification` is a no-op when
   `document.visibilityState === 'visible'` so the in-app toast wins when
-  the user is already looking at the tab. Set `ignoreVisibility: true` to
-  bypass for the Settings "Send test" button.
+  the user is already looking at the tab. Set `ignoreVisibility: true`
+  to bypass (used by the Settings "Send test" button).
 - **Dev-mode logs** — `console.debug('[notify]', …)` for each decision
   step so unexpected silences are traceable in DevTools.
 
@@ -1107,6 +1180,37 @@ All API calls must use **relative** paths (`/api/...`, `/auth/...`).
   (`getDismissedTips`, `getTutorialProgress`, `getQuickLayout`, …). Don't
   read from `idb-keyval` directly elsewhere — schema migrations happen in
   these helpers.
+- **User-facing names go through `getAssetDisplayName(asset)`** — never
+  read `asset.name` directly for display. The helper resolves the `notes`
+  attribute (our rename target) first, falling back to `asset.name`. All
+  tiles, cards, search, command palette, live feed, map popups, and
+  notifications use it. Adding a new display surface? Use the helper.
+- **Asset types that store data in `notes`** go in `NOTES_USED_FOR_DATA`
+  in `src/utils/assetIcons.js` — one-line Set. `getAssetDisplayName`
+  skips `notes` for those types and the detail page hides the rename
+  pencil via `canRenameAsset(asset)`. HumanPresenceSensorAsset is the
+  canonical case; add any new offenders to the Set.
+- **Alarm resolution reads `alarm.asset[0]` first.** That's the shape SMS
+  IoT emits — an array of full asset objects despite the singular field
+  name. `resolveAlarmAsset` in AlarmsPage keeps defensive fallbacks for
+  id-only variants but the hot path is zero extra HTTP.
+- **Never call `GET /alarm/{id}/asset` per card.** That endpoint 404s on
+  this deployment and the data is already embedded on the alarm. The
+  useAlarmAssets hook was deleted for this reason.
+- **Cross-filtered chip counts** — when adding filter chips with counts,
+  use the `ignoreSev`/`ignoreStatus`-style pattern (see `alarmMatches`
+  in AlarmsPage). Counts should reflect *"if I click this chip, keeping
+  my other filters"* — otherwise the list and the numbers disagree.
+- **Don't put `transform` in CSS `transition` when the element has
+  `layout` or `whileHover` from Framer Motion.** The two systems compete
+  over the same property and the browser stutters. Move hover lifts to
+  `whileHover={{ y: -2 }}` on the motion element, keep CSS transitions
+  for non-transform properties only. The alarm cards regressed this way
+  before; the fix is documented inline in `alarms.css`.
+- **Split Framer transitions into `default` vs `layout`** when you use
+  stagger delays on entry. A `delay` in the top-level `transition` prop
+  applies to layout repositions too, making filter reshuffles feel
+  sluggish. Put the delay on `default`, keep `layout` delay-free.
 
 ---
 
