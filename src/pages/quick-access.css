@@ -1,0 +1,138 @@
+/* iPhone-widget grid.
+   - Small tile = 1 col, square (1:1).
+   - Large tile = 2 cols wide, same row height as a small tile (so it reads as
+     the iPhone "medium" widget — 2:1 wide rectangle).
+   - Row height derives from column width via aspect-ratio on the tile, so
+     tiles stay square no matter the viewport. */
+
+.qa-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+@media (min-width: 640px)  { .qa-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 900px)  { .qa-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1200px) { .qa-grid { grid-template-columns: repeat(5, 1fr); } }
+
+.qa-slot {
+  min-width: 0;
+  touch-action: none;
+}
+
+/* Tile shell. No overflow-hidden — the icon glow needs to breathe. */
+.qa-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-card);
+  transition: box-shadow 220ms cubic-bezier(.2,.8,.2,1),
+              transform 180ms cubic-bezier(.2,.8,.2,1),
+              border-color 200ms ease;
+}
+.qa-tile-small { aspect-ratio: 1 / 1; }
+.qa-tile-large { aspect-ratio: 2 / 1; }
+
+.qa-tile-editing {
+  cursor: grab;
+  user-select: none;
+}
+.qa-tile-editing:active {
+  cursor: grabbing;
+}
+
+/* Body layout */
+.qa-tile-body {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  min-width: 0;
+}
+.qa-tile-body-small {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 14px;
+  text-align: center;
+}
+.qa-tile-body-large {
+  flex-direction: row;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 22px;
+}
+
+.qa-label      { min-width: 0; }
+.qa-label-small { width: 100%; }
+.qa-label-large { flex: 1 1 auto; text-align: left; }
+
+/* Edit-mode chrome — floats in top-right, hidden until editing */
+.qa-tile-chrome {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 4px;
+  z-index: 3;
+  pointer-events: auto;
+}
+
+.qa-chrome-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--color-ink-1);
+  background: color-mix(in srgb, var(--color-surface-2) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: color 160ms ease, background 160ms ease, transform 140ms ease, border-color 160ms ease;
+}
+.qa-chrome-btn:hover {
+  color: var(--color-ink-0);
+  background: color-mix(in srgb, var(--color-ink-0) 14%, var(--color-surface-2));
+  transform: scale(1.05);
+}
+.qa-chrome-danger:hover {
+  color: var(--color-danger-400);
+  background: color-mix(in srgb, var(--color-danger-500) 16%, var(--color-surface-2));
+  border-color: color-mix(in srgb, var(--color-danger-500) 35%, transparent);
+}
+
+/* Floating drag ghost — the silky follower */
+.qa-tile-floating {
+  box-shadow:
+    0 30px 80px -20px color-mix(in srgb, var(--color-accent-500) 60%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+  transform: rotate(1.5deg) scale(1.03);
+  cursor: grabbing !important;
+}
+
+/* iPhone-style jiggle while editing */
+@keyframes qa-jiggle-a {
+  0%, 100% { transform: rotate(-0.55deg); }
+  50%      { transform: rotate(0.55deg); }
+}
+@keyframes qa-jiggle-b {
+  0%, 100% { transform: rotate(0.5deg); }
+  50%      { transform: rotate(-0.5deg); }
+}
+.qa-editing .qa-jiggle {
+  animation: qa-jiggle-a 280ms ease-in-out infinite;
+  transform-origin: center;
+}
+.qa-editing .qa-slot:nth-child(2n) .qa-jiggle { animation-name: qa-jiggle-b; animation-duration: 320ms; }
+.qa-editing .qa-slot:nth-child(3n) .qa-jiggle { animation-duration: 300ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qa-editing .qa-jiggle { animation: none; }
+}
+
+/* Hover lift when not editing */
+.qa-tile:not(.qa-tile-editing):not(.qa-tile-floating):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px -24px color-mix(in srgb, var(--color-ink-0) 30%, transparent);
+}

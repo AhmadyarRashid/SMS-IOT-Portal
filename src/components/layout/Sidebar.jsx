@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  LayoutGrid, Building2, Bell, Workflow, MapPin,
+  LayoutGrid, Building2, Bell, MapPin, Sparkles, BookOpen,
   Settings, ChevronLeft, ChevronRight, X, LogOut, ShieldCheck,
 } from 'lucide-react';
 import useAppStore from '../../store/appStore';
@@ -10,9 +10,10 @@ import useAuthStore from '../../store/authStore';
 const nav = [
   { path: '/', icon: LayoutGrid, label: 'Overview', exact: true },
   { path: '/sites', icon: Building2, label: 'Sites' },
+  { path: '/quick', icon: Sparkles, label: 'Quick access' },
   { path: '/alarms', icon: Bell, label: 'Alarms' },
-  { path: '/automations', icon: Workflow, label: 'Automations' },
   { path: '/map', icon: MapPin, label: 'Map' },
+  { path: '/tutorial', icon: BookOpen, label: 'Tutorial' },
 ];
 
 function isRouteActive(item, pathname) {

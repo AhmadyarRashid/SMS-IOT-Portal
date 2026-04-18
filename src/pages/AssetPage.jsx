@@ -18,7 +18,7 @@ import {
   nextToggleValue, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
 import { formatRelativeTime, getTimeRanges } from '../utils/helpers';
-import { LoadingSpinner, EmptyState } from '../components/ui';
+import { LoadingSpinner, EmptyState, Tip } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 
 const TABS = [
@@ -36,6 +36,9 @@ export default function AssetPage() {
 
   const gateway = useMemo(() => findGatewayForAsset(asset, gateways), [asset, gateways]);
   const backTo = gateway ? `/g/${gateway.id}` : '/sites';
+  const isControllable = asset
+    ? CONTROLLABLE_TYPES.includes(getCustomAssetType(asset))
+    : false;
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
@@ -64,6 +67,13 @@ export default function AssetPage() {
       </Link>
 
       <Hero asset={asset} />
+
+      {isControllable && (
+        <Tip id="asset-icon-tap" title="Quick tip">
+          Tap the big circular icon above to toggle this device. Sensors and cameras open this
+          same view but are read-only.
+        </Tip>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b overflow-x-auto no-scrollbar"

@@ -14,6 +14,8 @@ const AlarmsPage = lazy(() => import('./pages/AlarmsPage'));
 const AutomationsPage = lazy(() => import('./pages/AutomationsPage'));
 const MapPage = lazy(() => import('./pages/MapPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const TutorialPage = lazy(() => import('./pages/TutorialPage'));
+const QuickAccessPage = lazy(() => import('./pages/QuickAccessPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +61,8 @@ export default function App() {
               <Route path="alarms" element={<AlarmsPage />} />
               <Route path="automations" element={<AutomationsPage />} />
               <Route path="map" element={<MapPage />} />
+              <Route path="quick" element={<QuickAccessPage />} />
+              <Route path="tutorial" element={<TutorialPage />} />
               <Route path="settings" element={<SettingsPage />} />
 
               {/* Legacy redirects — old routes now funnel to the unified views */}

@@ -4,14 +4,14 @@ import { motion } from 'framer-motion';
 import {
   Building2, Zap, Bell, Activity, Sun, Moon,
   ChevronRight, AlertTriangle, Lightbulb, Unlock,
-  Thermometer, Workflow, FileDown,
+  Thermometer, FileDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
-import { useAssets, useAlarms, useRules } from '../hooks/useAssets';
+import { useAssets, useAlarms } from '../hooks/useAssets';
 import { pickGateways, pickAllDevices, pickGatewayChildren, summariseGateway } from '../utils/gateways';
 import {
   getCustomAssetType, isAssetActive, isAssetAlarming, getStateLabel,
@@ -25,7 +25,6 @@ export default function OverviewPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
   const { data: allAlarms = [] } = useAlarms({});
-  const { data: rules = [] } = useRules();
   const { user } = useAuthStore();
 
   const gateways = useMemo(() => pickGateways(assets), [assets]);
@@ -54,11 +53,8 @@ export default function OverviewPage() {
     // So a door is unlocked when it is NOT active.
     const doorsUnlocked = doors.filter((d) => !isAssetActive(d, 'DoorLockAsset')).length;
 
-    const rulesActive = (rules || []).filter((r) => r.enabled).length;
-    const rulesTotal = (rules || []).length;
-
-    return { power, temp, doorsUnlocked, doorsTotal: doors.length, rulesActive, rulesTotal };
-  }, [allDevices, rules]);
+    return { power, temp, doorsUnlocked, doorsTotal: doors.length };
+  }, [allDevices]);
 
   // Alarm severity + pipeline status breakdowns.
   const alarmBreakdown = useMemo(() => {
@@ -157,7 +153,7 @@ export default function OverviewPage() {
       </motion.div>
 
       {/* Live readings strip — real-time aggregates from current device state */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <ReadingTile
           icon={Zap}
           label="Power draw"
@@ -178,14 +174,6 @@ export default function OverviewPage() {
           value={readings.doorsTotal ? `${readings.doorsUnlocked}/${readings.doorsTotal}` : '—'}
           sub={readings.doorsUnlocked > 0 ? 'Check security' : 'All locked'}
           tone={readings.doorsUnlocked > 0 ? 'warning' : 'ok'}
-        />
-        <ReadingTile
-          icon={Workflow}
-          label="Automations"
-          value={readings.rulesTotal ? `${readings.rulesActive}/${readings.rulesTotal}` : '—'}
-          sub={readings.rulesTotal ? 'Active rules' : 'No rules yet'}
-          tone={readings.rulesActive ? 'accent' : 'default'}
-          href="/automations"
         />
       </div>
 
