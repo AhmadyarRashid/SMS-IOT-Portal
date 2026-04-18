@@ -55,6 +55,58 @@ export function getCustomAssetType(asset) {
 }
 
 /**
+ * Standard OpenRemote attribute the portal repurposes as a friendly display
+ * name. Every asset inherits a `notes` field from the base Asset class, and
+ * writing to it only needs attribute-write permission (which every user
+ * who can control the device already has). Because it lives on the server,
+ * renames sync across every browser/device the user signs in from.
+ */
+export const DISPLAY_NAME_ATTR = 'notes';
+
+/**
+ * Asset types whose backend integration uses `notes` to carry structured
+ * data (sensor payloads, encoded state, etc.) rather than free-form text.
+ * For these we must NOT repurpose `notes` as a display name — reading the
+ * value would show garbage, and writing would wipe the data.
+ *
+ * Extend this set when you discover another type that uses `notes` for
+ * data. Anything listed here:
+ *   • falls back to `asset.name` in `getAssetDisplayName`
+ *   • has the rename pencil hidden on the asset detail page
+ */
+export const NOTES_USED_FOR_DATA = new Set([
+  'HumanPresenceSensorAsset',
+]);
+
+/** Whether this asset type is safe to rename via the `notes` attribute. */
+export function canRenameAsset(asset) {
+  if (!asset) return false;
+  const type = getCustomAssetType(asset);
+  return !NOTES_USED_FOR_DATA.has(type);
+}
+
+/**
+ * Returns the name to show in the UI for a device or site, checking in order:
+ *   1. The `notes` attribute value — ONLY if the asset type is safe for
+ *      repurposing notes (see NOTES_USED_FOR_DATA above).
+ *   2. The asset's canonical `name` property.
+ *   3. 'Untitled' as the final fallback.
+ *
+ * Components that use React Query's asset cache automatically re-render
+ * when the `notes` attribute flips — `useWriteAttribute` patches the cache
+ * optimistically on every rename.
+ */
+export function getAssetDisplayName(asset) {
+  if (!asset) return 'Untitled';
+  if (canRenameAsset(asset)) {
+    const override = asset.attributes?.[DISPLAY_NAME_ATTR]?.value;
+    if (typeof override === 'string' && override.trim()) return override.trim();
+  }
+  if (typeof asset.name === 'string' && asset.name.trim()) return asset.name;
+  return 'Untitled';
+}
+
+/**
  * True when the asset is one of the recognised device types.
  */
 export function isDeviceAsset(asset) {

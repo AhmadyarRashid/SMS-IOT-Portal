@@ -7,6 +7,7 @@ import {
 import { formatRelativeTime } from '../utils/helpers';
 import useActivityStore, { SESSION_START } from '../store/activityStore';
 import { useAssets } from '../hooks/useAssets';
+import { getAssetDisplayName } from '../utils/assetIcons';
 import { EmptyState } from '../components/ui';
 import './live.css';
 
@@ -202,7 +203,10 @@ function ActivityRow({ event, asset }) {
     : isControl ? 'color-mix(in srgb, var(--color-accent-500) 14%, transparent)'
     : 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)';
 
-  const displayName = asset?.name || event.assetName || 'Unknown device';
+  // Prefer the current display name when the asset is still in cache so
+  // renames propagate retroactively through the feed; fall back to the
+  // snapshot captured at event time.
+  const displayName = asset ? getAssetDisplayName(asset) : (event.assetName || 'Unknown device');
   const linkTo = event.assetId ? `/a/${event.assetId}` : null;
 
   const inner = (

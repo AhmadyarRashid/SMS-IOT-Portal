@@ -8,7 +8,7 @@ import {
   ArrowRight, Wifi, WifiOff,
 } from 'lucide-react';
 import { pickGatewayChildren, summariseGateway } from '../../utils/gateways';
-import { getCustomAssetType, isAssetActive } from '../../utils/assetIcons';
+import { getCustomAssetType, isAssetActive, getAssetDisplayName } from '../../utils/assetIcons';
 import './gateway-card.css';
 
 /**
@@ -95,7 +95,7 @@ export default function GatewayCard({ gateway, assets = [] }) {
       <Link
         to={`/g/${gateway.id}`}
         className={`gw-card gw-card-${mood}`}
-        aria-label={`Open ${gateway.name}`}
+        aria-label={`Open ${getAssetDisplayName(gateway)}`}
       >
         {/* Drifting mood halo */}
         <span className="gw-card-halo" aria-hidden="true" />
@@ -123,7 +123,7 @@ export default function GatewayCard({ gateway, assets = [] }) {
             </motion.div>
             <div className="flex-1 min-w-0">
               <h3 className="text-[19px] font-bold text-[var(--color-ink-0)] truncate leading-tight">
-                {gateway.name}
+                {getAssetDisplayName(gateway)}
               </h3>
               <p className="text-xs text-[var(--color-ink-2)] mt-1 flex items-center gap-1.5">
                 {connected ? (

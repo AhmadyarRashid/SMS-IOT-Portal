@@ -9,7 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAssets, useWriteAttribute } from '../../hooks/useAssets';
 import {
-  getCustomAssetType, CONTROLLABLE_TYPES, getAssetTypeLabel,
+  getCustomAssetType, CONTROLLABLE_TYPES, getAssetTypeLabel, getAssetDisplayName,
 } from '../../utils/assetIcons';
 import { pickAllDevices, pickGateways } from '../../utils/gateways';
 import useAppStore from '../../store/appStore';
@@ -85,7 +85,7 @@ export default function CommandPalette() {
       id: `gw-${g.id}`,
       kind: 'Site',
       icon: Building2,
-      title: g.name || 'Untitled site',
+      title: getAssetDisplayName(g),
       subtitle: 'Open site',
       to: `/g/${g.id}`,
     }));
@@ -96,7 +96,7 @@ export default function CommandPalette() {
         id: `dv-${d.id}`,
         kind: 'Device',
         glyphType: customType,
-        title: d.name || 'Untitled device',
+        title: getAssetDisplayName(d),
         subtitle: getAssetTypeLabel(customType),
         to: `/a/${d.id}`,
       };
@@ -110,7 +110,7 @@ export default function CommandPalette() {
         id: `tog-${d.id}`,
         kind: 'Action',
         glyphType: getCustomAssetType(d),
-        title: `Toggle ${d.name}`,
+        title: `Toggle ${getAssetDisplayName(d)}`,
         subtitle: 'Flip on/off',
         run: () => {
           const v = d.attributes?.onOff?.value;
@@ -123,7 +123,7 @@ export default function CommandPalette() {
             attributeName: attrName,
             value: typeof v === 'boolean' ? !v : true,
           });
-          toast.success(`${d.name} toggled`);
+          toast.success(`${getAssetDisplayName(d)} toggled`);
         },
       }));
 

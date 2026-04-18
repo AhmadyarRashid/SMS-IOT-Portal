@@ -255,11 +255,41 @@ export function useUpdateAsset() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (asset) => updateAsset(asset),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] });
-      queryClient.invalidateQueries({ queryKey: ['asset'] });
-      toast.success('Asset updated');
+
+    // Optimistically patch the caches so renames flip instantly in the UI.
+    onMutate: async (asset) => {
+      if (!asset?.id) return {};
+      await queryClient.cancelQueries({ queryKey: ['asset', asset.id] });
+      await queryClient.cancelQueries({ queryKey: ['assets'] });
+
+      const prevAsset = queryClient.getQueryData(['asset', asset.id]);
+      const prevLists = queryClient.getQueriesData({ queryKey: ['assets'] });
+
+      const patch = (a) => (a && a.id === asset.id ? { ...a, ...asset } : a);
+      if (prevAsset) queryClient.setQueryData(['asset', asset.id], patch(prevAsset));
+      for (const [key, data] of prevLists) {
+        if (Array.isArray(data)) queryClient.setQueryData(key, data.map(patch));
+      }
+      return { prevAsset, prevLists };
     },
-    onError: () => toast.error('Failed to update asset'),
+
+    onError: (err, _asset, ctx) => {
+      if (ctx?.prevAsset) {
+        queryClient.setQueryData(['asset', ctx.prevAsset.id], ctx.prevAsset);
+      }
+      if (ctx?.prevLists) {
+        for (const [key, data] of ctx.prevLists) queryClient.setQueryData(key, data);
+      }
+      if (err.isForbidden || err.response?.status === 403) {
+        toast.error('You do not have permission to edit this device.');
+      } else {
+        toast.error(err.response?.data?.message || 'Failed to update asset');
+      }
+    },
+
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['asset', vars?.id] });
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+    },
   });
 }

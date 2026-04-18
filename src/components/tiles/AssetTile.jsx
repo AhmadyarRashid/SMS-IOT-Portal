@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import {
   getCustomAssetType, isAssetActive, isAssetAlarming,
   getPrimaryControlAttr, getStateLabel, nextToggleValue, CONTROLLABLE_TYPES,
+  getAssetDisplayName,
 } from '../../utils/assetIcons';
 import { useWriteAttribute } from '../../hooks/useAssets';
 import AssetGlyph from './AssetGlyph';
@@ -26,6 +27,7 @@ export default function AssetTile({ asset }) {
   const controllable = CONTROLLABLE_TYPES.includes(customType);
   const primaryAttr = getPrimaryControlAttr(asset, customType);
   const stateLabel = getStateLabel(asset, customType);
+  const displayName = getAssetDisplayName(asset);
 
   const tone = alarm ? 'alarm' : active ? 'on' : 'off';
 
@@ -54,7 +56,7 @@ export default function AssetTile({ asset }) {
         whileTap={{ scale: 0.88 }}
         transition={{ type: 'spring', stiffness: 500, damping: 22 }}
         className={`ha-tile-icon ha-tile-icon-${tone} ha-tile-icon-btn`}
-        aria-label={controllable ? `Toggle ${asset.name}` : `Open ${asset.name}`}
+        aria-label={controllable ? `Toggle ${displayName}` : `Open ${displayName}`}
         aria-pressed={controllable ? active : undefined}
         disabled={write.isPending && write.variables?.assetId === asset.id}
       >
@@ -79,11 +81,11 @@ export default function AssetTile({ asset }) {
       <Link
         to={`/a/${asset.id}`}
         className="flex-1 min-w-0 flex items-center gap-2 group"
-        aria-label={`Open ${asset.name}`}
+        aria-label={`Open ${displayName}`}
       >
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-[var(--color-ink-0)] truncate leading-tight">
-            {asset.name || 'Untitled'}
+            {displayName}
           </p>
           <p className={`text-[11px] mt-0.5 truncate leading-tight ${
             alarm ? 'text-[var(--color-danger-400)] font-semibold'

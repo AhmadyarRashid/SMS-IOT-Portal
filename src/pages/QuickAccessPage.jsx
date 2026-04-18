@@ -19,6 +19,7 @@ import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
   getCustomAssetType, isAssetActive, isAssetAlarming, getStateLabel,
   getPrimaryControlAttr, nextToggleValue, CONTROLLABLE_TYPES, getAssetTypeLabel,
+  getAssetDisplayName,
 } from '../utils/assetIcons';
 import { pickAllDevices, findGatewayForAsset, pickGateways } from '../utils/gateways';
 import { getQuickLayout, setQuickLayout } from '../utils/prefs';
@@ -378,7 +379,7 @@ function TilePresentation({
           disabled={editing || floating}
           className={`ha-hero-icon ha-hero-icon-${tone} ${editing || floating ? '' : 'ha-hero-icon-btn'} flex-shrink-0`}
           style={{ width: iconSizePx, height: iconSizePx }}
-          aria-label={`Toggle ${asset.name}`}
+          aria-label={`Toggle ${getAssetDisplayName(asset)}`}
           aria-pressed={active}
         >
           <motion.div
@@ -410,7 +411,7 @@ function TilePresentation({
               overflow: 'hidden',
             }}
           >
-            {asset.name || 'Untitled'}
+            {getAssetDisplayName(asset)}
           </p>
           <p className={`${large ? 'text-[13px]' : 'text-[11px]'} mt-1 truncate leading-tight ${
             alarm ? 'text-[var(--color-danger-400)] font-semibold'
@@ -421,7 +422,7 @@ function TilePresentation({
           </p>
           {large && gateway && (
             <p className="text-[11px] text-[var(--color-ink-3)] truncate mt-1">
-              {gateway.name}
+              {getAssetDisplayName(gateway)}
             </p>
           )}
         </div>
@@ -443,7 +444,7 @@ function DevicePicker({ all, gateways, pinnedIds, onClose, onToggle }) {
   const groups = useMemo(() => {
     const query = q.trim().toLowerCase();
     const filtered = query
-      ? all.filter((a) => (a.name || '').toLowerCase().includes(query))
+      ? all.filter((a) => getAssetDisplayName(a).toLowerCase().includes(query))
       : all;
     const byGateway = new Map();
     for (const a of filtered) {
@@ -535,7 +536,7 @@ function DevicePicker({ all, gateways, pinnedIds, onClose, onToggle }) {
                       <AssetGlyph customType={customType} on={active} className="w-5 h-5" strokeWidth={1.75} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-[var(--color-ink-0)] truncate">{asset.name}</p>
+                      <p className="text-[13px] font-medium text-[var(--color-ink-0)] truncate">{getAssetDisplayName(asset)}</p>
                       <p className="text-[11px] text-[var(--color-ink-3)] truncate">{getAssetTypeLabel(customType)}</p>
                     </div>
                     <div

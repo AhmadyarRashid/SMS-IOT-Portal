@@ -5,7 +5,7 @@ import { useAlarms, useAssets } from './useAssets';
 import useActivityStore from '../store/activityStore';
 import { REALM } from '../api/client';
 import {
-  getCustomAssetType, getStateLabel, CONTROLLABLE_TYPES,
+  getCustomAssetType, getStateLabel, CONTROLLABLE_TYPES, getAssetDisplayName,
 } from '../utils/assetIcons';
 import { fireAlarmNotification, buildAlarmNotificationPayload } from './useAlarmNotifications';
 
@@ -144,7 +144,7 @@ export default function useLiveEvents() {
           title: buildStateTitle(asset, name, newVal, customType),
           detail: formatValue(name, newVal, primary),
           assetId: asset.id,
-          assetName: asset.name,
+          assetName: getAssetDisplayName(asset),
           attributeName: name,
           value: newVal,
           timestamp: ts,
@@ -284,7 +284,7 @@ const SKIP_ATTRS = new Set([
 ]);
 
 function buildStateTitle(asset, attrName, value, customType) {
-  const name = asset.name || 'Device';
+  const name = getAssetDisplayName(asset);
   // Prefer the asset's canonical state label when the attribute we just saw
   // is the one that drives it — gives nice "Locked" / "Unlocked" strings for
   // door locks, "On" / "Off" for lights, etc.

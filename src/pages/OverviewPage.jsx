@@ -15,6 +15,7 @@ import { useAssets, useAlarms } from '../hooks/useAssets';
 import { pickGateways, pickAllDevices, pickGatewayChildren, summariseGateway } from '../utils/gateways';
 import {
   getCustomAssetType, isAssetActive, isAssetAlarming, getStateLabel,
+  getAssetDisplayName,
 } from '../utils/assetIcons';
 import useAuthStore from '../store/authStore';
 import useActivityStore from '../store/activityStore';
@@ -329,7 +330,7 @@ export default function OverviewPage() {
                     <Building2 className="w-5 h-5" strokeWidth={1.75} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{g.name}</p>
+                    <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(g)}</p>
                     <p className="text-[11px] text-[var(--color-ink-2)] truncate">
                       {s.total} device{s.total === 1 ? '' : 's'} · {s.online} online
                       {s.alarming > 0 && ` · ${s.alarming} alarm`}
@@ -482,7 +483,7 @@ function LiveList({ title, icon: Icon, items, emptyLabel, accent }) {
                     <AssetGlyph customType={t} on={active} alarm={alarm} className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-[var(--color-ink-0)] truncate">{a.name}</p>
+                    <p className="text-xs font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(a)}</p>
                     <p className="text-[11px] text-[var(--color-ink-2)] truncate">{getStateLabel(a, t)}</p>
                   </div>
                 </Link>

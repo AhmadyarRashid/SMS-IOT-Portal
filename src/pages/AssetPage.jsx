@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 import {
   ArrowLeft, Gauge, SlidersHorizontal, LineChart as LineIcon, Bell, Info, Power,
+  Pencil, Check, X as XIcon,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Area, AreaChart,
@@ -16,6 +18,7 @@ import {
   getCustomAssetType, getAssetTypeLabel, isAssetActive, isAssetAlarming,
   getPrimaryControlAttr, getPrimaryReadingAttr, getStateLabel,
   nextToggleValue, CONTROLLABLE_TYPES,
+  getAssetDisplayName, DISPLAY_NAME_ATTR, canRenameAsset,
 } from '../utils/assetIcons';
 import { formatRelativeTime, getTimeRanges } from '../utils/helpers';
 import { LoadingSpinner, EmptyState, Tip, Skeleton } from '../components/ui';
@@ -75,7 +78,7 @@ export default function AssetPage() {
         className="inline-flex items-center gap-1.5 text-xs text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        {gateway ? `Back to ${gateway.name}` : 'Back to sites'}
+        {gateway ? `Back to ${getAssetDisplayName(gateway)}` : 'Back to sites'}
       </Link>
 
       <Hero asset={asset} gateway={gateway} />
@@ -184,7 +187,7 @@ function Hero({ asset, gateway }) {
               to={`/g/${gateway.id}`}
               className="text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)] transition-colors truncate max-w-[160px]"
             >
-              {gateway.name}
+              {getAssetDisplayName(gateway)}
             </Link>
           </>
         )}
@@ -199,7 +202,7 @@ function Hero({ asset, gateway }) {
           whileTap={controllable ? { scale: 0.94 } : {}}
           transition={{ type: 'spring', stiffness: 340, damping: 20 }}
           className={`ha-hero-icon ha-hero-icon-${tone} ${controllable ? 'ha-hero-icon-btn' : ''}`}
-          aria-label={controllable ? `Toggle ${asset.name}` : asset.name}
+          aria-label={controllable ? `Toggle ${getAssetDisplayName(asset)}` : getAssetDisplayName(asset)}
           aria-pressed={controllable ? active : undefined}
         >
           <motion.div
@@ -221,7 +224,7 @@ function Hero({ asset, gateway }) {
         </motion.button>
       </div>
 
-      <h1 className="ad-hero-name">{asset.name}</h1>
+      <EditableName asset={asset} />
       <motion.p
         key={label}
         initial={{ opacity: 0, y: 4 }}
@@ -244,6 +247,113 @@ function Hero({ asset, gateway }) {
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Editable name ----------------
+ * Inline-rename UI on the hero. Writes the chosen name to the standard OR
+ * `notes` attribute via useWriteAttribute — already optimistically patched
+ * into the React Query cache, so every tile / card / search result that
+ * uses getAssetDisplayName() re-renders instantly with the new label. Name
+ * persists server-side, so it syncs across every browser the user signs
+ * in from.
+ *
+ * The underlying asset.name is never mutated — that endpoint needs admin
+ * permission this portal doesn't have (and shouldn't need).
+ */
+function EditableName({ asset }) {
+  const currentName = getAssetDisplayName(asset);
+  const renameable = canRenameAsset(asset);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentName);
+  const inputRef = useRef(null);
+  const write = useWriteAttribute();
+
+  // Asset types where the backend reuses `notes` for structured data (see
+  // NOTES_USED_FOR_DATA in assetIcons.js) — we show the server name without
+  // any edit affordance so we can't accidentally overwrite real data.
+  if (!renameable) {
+    return <h1 className="ad-hero-name">{currentName}</h1>;
+  }
+
+  const start = () => {
+    setDraft(currentName);
+    setEditing(true);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setDraft(currentName);
+  };
+
+  const save = () => {
+    const next = draft.trim();
+    if (!next || next === currentName) {
+      cancel();
+      return;
+    }
+    write.mutate({
+      assetId: asset.id,
+      attributeName: DISPLAY_NAME_ATTR,
+      value: next,
+    }, {
+      onSuccess: () => toast.success('Name saved'),
+    });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="ad-hero-name-edit">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+          }}
+          maxLength={120}
+          className="ad-hero-name-input"
+          aria-label="Edit device name"
+        />
+        <button
+          onClick={save}
+          disabled={write.isPending}
+          aria-label="Save name"
+          className="ad-name-btn ad-name-btn-ok"
+        >
+          <Check className="w-4 h-4" strokeWidth={2.25} />
+        </button>
+        <button
+          onClick={cancel}
+          disabled={write.isPending}
+          aria-label="Cancel"
+          className="ad-name-btn"
+        >
+          <XIcon className="w-4 h-4" strokeWidth={2.25} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ad-hero-name-wrap">
+      <h1 className="ad-hero-name">{currentName}</h1>
+      <button
+        onClick={start}
+        aria-label="Edit device name"
+        title="Rename"
+        className="ad-name-btn ad-name-btn-ghost"
+      >
+        <Pencil className="w-3.5 h-3.5" strokeWidth={2} />
+      </button>
     </div>
   );
 }

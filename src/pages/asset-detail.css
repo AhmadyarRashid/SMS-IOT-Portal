@@ -98,6 +98,99 @@
   letter-spacing: -0.01em;
   line-height: 1.15;
 }
+
+/* ---------------- Editable name ---------------- */
+.ad-hero-name-wrap {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.ad-hero-name-edit {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.ad-hero-name-input {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-ink-0);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-2) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 40%, transparent);
+  outline: none;
+  text-align: center;
+  width: auto;
+  min-width: 180px;
+  max-width: min(480px, 90vw);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--color-accent-500) 14%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+.ad-hero-name-input:focus {
+  border-color: var(--color-accent-500);
+}
+
+.ad-name-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--color-ink-2);
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  transition: color 160ms ease, background 160ms ease, transform 120ms ease;
+  flex-shrink: 0;
+}
+.ad-name-btn:hover {
+  color: var(--color-ink-0);
+  background: color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+  transform: scale(1.05);
+}
+.ad-name-btn:disabled { opacity: 0.55; cursor: wait; }
+
+.ad-name-btn-ok {
+  color: var(--color-accent-400);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+}
+.ad-name-btn-ok:hover {
+  color: var(--color-accent-400);
+  background: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+}
+
+.ad-name-btn-ghost {
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.ad-hero-name-wrap:hover .ad-name-btn-ghost,
+.ad-name-btn-ghost:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border-color: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+}
+.ad-name-btn-ghost:hover {
+  color: var(--color-accent-400);
+  background: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+}
 .ad-hero-state {
   position: relative;
   z-index: 1;

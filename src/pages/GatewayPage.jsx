@@ -8,7 +8,7 @@ import {
 import { useAsset, useGatewayChildren, useAlarms } from '../hooks/useAssets';
 import { summariseGateway } from '../utils/gateways';
 import {
-  getCustomAssetType, getAssetTypeLabel, isAssetAlarming,
+  getCustomAssetType, getAssetTypeLabel, isAssetAlarming, getAssetDisplayName,
 } from '../utils/assetIcons';
 import AssetTile from '../components/tiles/AssetTile';
 import AssetGlyph from '../components/tiles/AssetGlyph';
@@ -186,7 +186,7 @@ export default function GatewayPage() {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="text-[26px] md:text-[28px] font-bold text-[var(--color-ink-0)] leading-tight truncate">
-            {gateway.name}
+            {getAssetDisplayName(gateway)}
           </h1>
           <p className="text-[13px] text-[var(--color-ink-2)] mt-1 flex items-center gap-2 flex-wrap">
             {connected ? (
