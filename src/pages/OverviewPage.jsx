@@ -59,17 +59,6 @@ export default function OverviewPage() {
     return { power, temp, doorsUnlocked, doorsTotal: doors.length };
   }, [allDevices]);
 
-  // Alarm severity + pipeline status breakdowns.
-  const alarmBreakdown = useMemo(() => {
-    const bySev = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    const byStatus = { OPEN: 0, ACKNOWLEDGED: 0, IN_PROGRESS: 0, RESOLVED: 0, CLOSED: 0 };
-    for (const a of allAlarms || []) {
-      if (bySev[a.severity] !== undefined) bySev[a.severity]++;
-      if (byStatus[a.status] !== undefined) byStatus[a.status]++;
-    }
-    return { bySev, byStatus };
-  }, [allAlarms]);
-
   const stats = useMemo(() => {
     const online = allDevices.filter((d) => d.attributes?.connected?.value !== false).length;
     const active = allDevices.filter((d) => {
@@ -525,64 +514,6 @@ function ReadingTile({ icon: Icon, label, value, sub, tone = 'default', href }) 
     </div>
   );
   return href ? <Link to={href} className="block">{content}</Link> : content;
-}
-
-/* ---------------- Alarm pipeline ---------------- */
-
-function AlarmPipeline({ byStatus, bySev, total }) {
-  const steps = [
-    { key: 'OPEN',         label: 'Open',         tone: 'alarm' },
-    { key: 'ACKNOWLEDGED', label: 'Acknowledged', tone: 'warning' },
-    { key: 'IN_PROGRESS',  label: 'In progress',  tone: 'warning' },
-    { key: 'RESOLVED',     label: 'Resolved',     tone: 'ok' },
-    { key: 'CLOSED',       label: 'Closed',       tone: 'default' },
-  ];
-  const severities = [
-    { key: 'CRITICAL', cls: 'sev-critical' },
-    { key: 'HIGH',     cls: 'sev-high' },
-    { key: 'MEDIUM',   cls: 'sev-medium' },
-    { key: 'LOW',      cls: 'sev-low' },
-  ];
-
-  if (total === 0) return null;
-
-  return (
-    <section className="panel p-5">
-      <SectionHead title="Alarm pipeline" subtitle={`${total} total alarms`}
-                   link={{ to: '/alarms', label: 'View all' }} />
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
-        {steps.map((s) => {
-          const count = byStatus[s.key] || 0;
-          const color =
-            s.tone === 'alarm'   ? 'var(--color-danger-400)' :
-            s.tone === 'warning' ? 'var(--color-warning-400)' :
-            s.tone === 'ok'      ? 'var(--color-accent-400)' :
-            'var(--color-ink-1)';
-          const bg =
-            s.tone === 'alarm'   ? 'color-mix(in srgb, var(--color-danger-500) 10%, transparent)' :
-            s.tone === 'warning' ? 'color-mix(in srgb, var(--color-warning-500) 10%, transparent)' :
-            s.tone === 'ok'      ? 'color-mix(in srgb, var(--color-accent-500) 10%, transparent)' :
-            'color-mix(in srgb, var(--color-ink-0) 4%, transparent)';
-          return (
-            <div key={s.key} className="rounded-xl px-3 py-2.5"
-                 style={{ background: bg, border: `1px solid color-mix(in srgb, ${color} 24%, transparent)` }}>
-              <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-2)]">{s.label}</p>
-              <p className="text-xl font-bold tabular-nums mt-0.5" style={{ color }}>{count}</p>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <p className="text-[11px] uppercase tracking-wide text-[var(--color-ink-2)] mr-2 self-center">By severity</p>
-        {severities.map((s) => (
-          <span key={s.key} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.cls}`}>
-            {s.key}
-            <span className="font-bold tabular-nums">{bySev[s.key] || 0}</span>
-          </span>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 /* ---------------- Activity strip ---------------- */

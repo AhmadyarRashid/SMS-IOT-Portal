@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MapPin, Server } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -74,6 +74,7 @@ function FocusSelected({ selection, markerRefs }) {
 export default function MapPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { theme } = useAppStore();
+  const [searchParams] = useSearchParams();
   // `selection` carries an `at` timestamp so identity changes on every click
   // — that re-triggers the focus effect even when the same site is clicked
   // twice in a row (e.g. after the user panned away).
@@ -97,6 +98,21 @@ export default function MapPage() {
     // (re-centres the map after the user panned away).
     setSelection({ id: p.gateway.id, pos: p.pos });
   };
+
+  // Honour ?focus=<gatewayId> so links from other pages (e.g. the Alarms
+  // "Open map" button) can deep-link to a specific site. Runs once the pins
+  // are available; deferred via rAF so setState fires outside the effect
+  // body (React 19's set-state-in-effect lint).
+  const focusId = searchParams.get('focus');
+  useEffect(() => {
+    if (!focusId || pins.length === 0) return undefined;
+    const p = pins.find((x) => x.gateway.id === focusId);
+    if (!p) return undefined;
+    const raf = requestAnimationFrame(() => {
+      setSelection({ id: p.gateway.id, pos: p.pos });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusId, pins]);
 
   const tileUrl = useMemo(
     () => (theme === 'light'
