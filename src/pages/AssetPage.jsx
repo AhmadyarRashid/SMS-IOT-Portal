@@ -20,6 +20,7 @@ import {
 import { formatRelativeTime, getTimeRanges } from '../utils/helpers';
 import { LoadingSpinner, EmptyState, Tip } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
+import './asset-detail.css';
 
 const TABS = [
   { id: 'state',    label: 'State',    icon: Gauge },
@@ -66,7 +67,7 @@ export default function AssetPage() {
         {gateway ? `Back to ${gateway.name}` : 'Back to sites'}
       </Link>
 
-      <Hero asset={asset} />
+      <Hero asset={asset} gateway={gateway} />
 
       <PrimaryControlPanel asset={asset} />
 
@@ -77,33 +78,30 @@ export default function AssetPage() {
         </Tip>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b overflow-x-auto no-scrollbar"
-           style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 8%, transparent)' }}>
+      {/* Pill tabs */}
+      <div className="ad-tabs no-scrollbar">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
-                ${active ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]'}`}
+              className={`ad-tab ${active ? 'ad-tab-active' : ''}`}
+              aria-pressed={active}
             >
               <t.icon className="w-4 h-4" strokeWidth={1.75} />
-              {t.label}
-              {active && <span className="absolute -bottom-px left-3 right-3 h-0.5 rounded bg-[var(--color-accent-500)]" />}
+              <span>{t.label}</span>
             </button>
           );
         })}
       </div>
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         <motion.div
           key={tab}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.18 }}
         >
           {tab === 'state'    && <StateTab asset={asset} />}
           {tab === 'controls' && <ControlsTab asset={asset} />}
@@ -117,7 +115,7 @@ export default function AssetPage() {
 
 /* ---------------- Hero ---------------- */
 
-function Hero({ asset }) {
+function Hero({ asset, gateway }) {
   const customType = getCustomAssetType(asset);
   const active = isAssetActive(asset, customType);
   const alarm = isAssetAlarming(asset, customType);
@@ -126,7 +124,8 @@ function Hero({ asset }) {
   const primaryAttr = getPrimaryControlAttr(asset, customType);
   const write = useWriteAttribute();
 
-  const tone = alarm ? 'alarm' : active ? 'on' : 'off';
+  const mood = alarm ? 'alarm' : active ? 'on' : 'off';
+  const tone = mood;
 
   const handleIconClick = () => {
     if (!controllable || !primaryAttr) return;
@@ -137,27 +136,51 @@ function Hero({ asset }) {
     });
   };
 
-  const bgStyle = alarm
-    ? {
-        background: 'radial-gradient(60% 80% at 50% 20%, color-mix(in srgb, var(--color-danger-500) 22%, transparent), transparent 70%), var(--color-surface-1)',
-        borderColor: 'color-mix(in srgb, var(--color-danger-500) 40%, transparent)',
-      }
-    : active
-      ? {
-          background: 'radial-gradient(60% 80% at 50% 20%, color-mix(in srgb, var(--color-accent-500) 22%, transparent), transparent 70%), var(--color-surface-1)',
-          borderColor: 'color-mix(in srgb, var(--color-accent-500) 40%, transparent)',
-          boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-500) 15%, transparent), 0 16px 48px -20px color-mix(in srgb, var(--color-accent-500) 55%, transparent)',
-        }
-      : {};
+  const connected = asset.attributes?.connected?.value !== false;
+  // Last-updated = most recent timestamp across all attributes.
+  const lastUpdated = useMemo(() => {
+    const ts = Object.values(asset.attributes || {})
+      .map((a) => a?.timestamp)
+      .filter((t) => Number.isFinite(t));
+    return ts.length ? Math.max(...ts) : null;
+  }, [asset.attributes]);
 
   return (
-    <div className="panel px-6 py-8 text-center relative overflow-hidden" style={bgStyle}>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-2)] mb-4">
-        {getAssetTypeLabel(customType)}
-      </p>
+    <div className={`ad-hero ad-hero-${mood}`} data-mood={mood}>
+      {/* Drifting mood halo */}
+      <span className="ad-hero-halo" aria-hidden="true" />
+
+      {/* Info strip — type · connection · updated · site */}
+      <div className="ad-hero-strip">
+        <span className="ad-hero-type">{getAssetTypeLabel(customType)}</span>
+        <span className="ad-hero-sep">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`status-dot ${connected ? 'status-dot-on' : 'status-dot-off'}`} />
+          <span className={connected ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-3)]'}>
+            {connected ? 'Connected' : 'Offline'}
+          </span>
+        </span>
+        {lastUpdated && (
+          <>
+            <span className="ad-hero-sep">·</span>
+            <span className="text-[var(--color-ink-2)]">Updated {formatRelativeTime(lastUpdated)}</span>
+          </>
+        )}
+        {gateway && (
+          <>
+            <span className="ad-hero-sep">·</span>
+            <Link
+              to={`/g/${gateway.id}`}
+              className="text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)] transition-colors truncate max-w-[160px]"
+            >
+              {gateway.name}
+            </Link>
+          </>
+        )}
+      </div>
 
       {/* Big clickable icon — primary control for controllable devices */}
-      <div className="flex justify-center mb-5">
+      <div className="flex justify-center my-5">
         <motion.button
           onClick={handleIconClick}
           disabled={!controllable || write.isPending}
@@ -187,19 +210,28 @@ function Hero({ asset }) {
         </motion.button>
       </div>
 
-      <h1 className="text-2xl font-bold text-[var(--color-ink-0)]">{asset.name}</h1>
-      <p className={`mt-1.5 text-base font-semibold ${
-        alarm ? 'text-[var(--color-danger-400)]'
-          : active ? 'text-[var(--color-accent-400)]'
-          : 'text-[var(--color-ink-2)]'
-      }`}>
+      <h1 className="ad-hero-name">{asset.name}</h1>
+      <motion.p
+        key={label}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className={`ad-hero-state ${
+          alarm ? 'ad-hero-state-alarm'
+            : active ? 'ad-hero-state-on'
+            : 'ad-hero-state-off'
+        }`}
+      >
         {label}
-      </p>
+      </motion.p>
 
       {controllable && primaryAttr && (
-        <p className="mt-3 text-[11px] text-[var(--color-ink-3)] inline-flex items-center gap-1.5">
-          <Power className="w-3 h-3" /> Tap the icon to turn {active ? 'off' : 'on'}
-        </p>
+        <div className="mt-3 flex justify-center">
+          <span className="ad-hero-hint">
+            <Power className="w-3 h-3" />
+            Tap the icon to turn {active ? 'off' : 'on'}
+          </span>
+        </div>
       )}
     </div>
   );
@@ -308,31 +340,71 @@ function StateTab({ asset }) {
     return <EmptyState title="No attributes" message="This device has no reportable state." icon={Gauge} />;
   }
 
+  // Feature the primary reading first, rest follow.
+  const primaryEntry = entries.find(([n]) => n === primaryReading);
+  const restEntries = entries.filter(([n]) => n !== primaryReading);
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {entries.map(([name, attr]) => {
-        const isPrimary = name === primaryReading;
-        return (
-          <div
-            key={name}
-            className="tile"
-            style={isPrimary ? {
-              background: 'linear-gradient(135deg, color-mix(in srgb, var(--color-accent-500) 14%, var(--color-surface-1)) 0%, var(--color-surface-1) 100%)',
-              borderColor: 'color-mix(in srgb, var(--color-accent-500) 35%, transparent)',
-            } : {}}
-          >
-            <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-2)]">{prettyName(name)}</p>
-            <p className={`mt-1.5 break-all ${isPrimary ? 'text-3xl font-bold text-[var(--color-accent-400)]' : 'text-lg font-semibold text-[var(--color-ink-0)]'}`}>
-              {renderValue(attr.value, name)}
-            </p>
-            {attr.timestamp && (
-              <p className="text-[11px] text-[var(--color-ink-3)] mt-1.5">
-                {formatRelativeTime(attr.timestamp)}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="space-y-3">
+      {primaryEntry && (
+        <FeatureTile name={primaryEntry[0]} attr={primaryEntry[1]} />
+      )}
+      {restEntries.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {restEntries.map(([name, attr]) => (
+            <AttrTile key={name} name={name} attr={attr} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeatureTile({ name, attr }) {
+  const unit = attr?.meta?.unit || '';
+  const displayValue = renderValue(attr.value, name);
+  // Split value and unit when the value already includes the unit
+  const numeric = typeof attr.value === 'number' ? attr.value : null;
+  return (
+    <div className="ad-feature">
+      <div className="ad-feature-accent" aria-hidden="true" />
+      <div className="relative z-[1]">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-ink-2)] font-semibold">
+          {prettyName(name)}
+        </p>
+        <div className="mt-2 flex items-end gap-2">
+          <p className="ad-feature-value">
+            {numeric != null ? numeric.toLocaleString(undefined, { maximumFractionDigits: 2 }) : displayValue}
+          </p>
+          {numeric != null && unit && <span className="ad-feature-unit">{unit}</span>}
+        </div>
+        {attr.timestamp && (
+          <p className="text-[11px] text-[var(--color-ink-3)] mt-2 inline-flex items-center gap-1.5">
+            <span className="status-dot status-dot-on" style={{ width: 6, height: 6 }} />
+            {formatRelativeTime(attr.timestamp)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AttrTile({ name, attr }) {
+  const unit = attr?.meta?.unit || '';
+  const display = renderValue(attr.value, name);
+  return (
+    <div className="ad-attr-tile">
+      <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-3)] font-medium truncate">
+        {prettyName(name)}
+      </p>
+      <p className="mt-1.5 text-[17px] font-bold text-[var(--color-ink-0)] leading-tight break-all">
+        {display}{typeof attr.value === 'number' && unit ? ` ${unit}` : ''}
+      </p>
+      {attr.timestamp && (
+        <p className="text-[10px] text-[var(--color-ink-3)] mt-1.5">
+          {formatRelativeTime(attr.timestamp)}
+        </p>
+      )}
     </div>
   );
 }

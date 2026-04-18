@@ -1,0 +1,220 @@
+/* ==========================================================================
+   Asset detail page — hero, pill tabs, state tab feature tiles.
+   Mood is set on the hero via [data-mood]; descendants theme off that.
+   ========================================================================== */
+
+/* ---------------- Hero --------------------------------------------------- */
+.ad-hero {
+  position: relative;
+  border-radius: var(--radius-card);
+  padding: 24px;
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  overflow: hidden;
+  text-align: center;
+  isolation: isolate;
+  transition:
+    border-color 260ms ease,
+    box-shadow 260ms cubic-bezier(.2,.8,.2,1);
+}
+
+.ad-hero[data-mood="on"] {
+  --ad-accent: var(--color-accent-500);
+  --ad-accent-bright: var(--color-accent-400);
+  border-color: color-mix(in srgb, var(--ad-accent) 32%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ad-accent) 14%, transparent),
+    0 22px 60px -28px color-mix(in srgb, var(--ad-accent) 55%, transparent);
+}
+.ad-hero[data-mood="alarm"] {
+  --ad-accent: var(--color-danger-500);
+  --ad-accent-bright: var(--color-danger-400);
+  border-color: color-mix(in srgb, var(--ad-accent) 40%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ad-accent) 20%, transparent),
+    0 22px 60px -28px color-mix(in srgb, var(--ad-accent) 55%, transparent);
+}
+.ad-hero[data-mood="off"] {
+  --ad-accent: var(--color-accent-500);
+  --ad-accent-bright: var(--color-accent-400);
+}
+
+/* Drifting mood halo */
+.ad-hero-halo {
+  position: absolute;
+  inset: -60% -20% 20% -20%;
+  background: radial-gradient(60% 60% at 50% 20%,
+    color-mix(in srgb, var(--ad-accent) 30%, transparent) 0%,
+    transparent 70%);
+  filter: blur(40px);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 0;
+  animation: ad-halo-drift 20s ease-in-out infinite;
+}
+.ad-hero[data-mood="off"] .ad-hero-halo { opacity: 0.25; }
+.ad-hero[data-mood="alarm"] .ad-hero-halo {
+  animation: ad-halo-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes ad-halo-drift {
+  0%, 100% { transform: translate(0, 0)    scale(1);    opacity: 0.85; }
+  33%      { transform: translate(30px, 10px) scale(1.08); opacity: 1; }
+  66%      { transform: translate(-22px, 20px) scale(0.95); opacity: 0.7; }
+}
+@keyframes ad-halo-breathe {
+  0%, 100% { opacity: 0.7;  transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.06); }
+}
+
+/* Info strip */
+.ad-hero-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--color-ink-2);
+  margin-bottom: 6px;
+}
+.ad-hero-type {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 600;
+  color: var(--ad-accent-bright);
+}
+.ad-hero-sep { color: var(--color-ink-3); }
+
+/* Name + state */
+.ad-hero-name {
+  position: relative;
+  z-index: 1;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-ink-0);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.ad-hero-state {
+  position: relative;
+  z-index: 1;
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 700;
+}
+.ad-hero-state-on    { color: var(--color-accent-400); }
+.ad-hero-state-alarm { color: var(--color-danger-400); }
+.ad-hero-state-off   { color: var(--color-ink-2); }
+
+.ad-hero-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--color-ink-2);
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+}
+
+/* ---------------- Pill tabs ---------------------------------------------- */
+.ad-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  overflow-x: auto;
+  width: max-content;
+  max-width: 100%;
+}
+
+.ad-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink-2);
+  white-space: nowrap;
+  transition: color 160ms ease, background 180ms ease, box-shadow 200ms ease;
+}
+.ad-tab:hover { color: var(--color-ink-0); }
+
+.ad-tab-active {
+  color: var(--color-accent-400);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+}
+
+/* ---------------- State tab — feature tile ------------------------------ */
+.ad-feature {
+  position: relative;
+  border-radius: var(--radius-card);
+  padding: 22px 24px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--color-accent-500) 14%, var(--color-surface-1)) 0%,
+      var(--color-surface-1) 60%);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.ad-feature-accent {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--color-accent-400), var(--color-accent-600));
+  border-radius: 4px 0 0 4px;
+}
+
+.ad-feature-value {
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--color-accent-400);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.ad-feature-unit {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-ink-2);
+  padding-bottom: 4px;
+}
+
+/* Smaller attr tiles */
+.ad-attr-tile {
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  transition: background 200ms ease, border-color 200ms ease, transform 180ms ease;
+}
+.ad-attr-tile:hover {
+  background: color-mix(in srgb, var(--color-accent-500) 6%, var(--color-surface-1));
+  border-color: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+  transform: translateY(-1px);
+}
+
+/* ---------------- Compact density ---------------------------------------- */
+:root[data-density="compact"] .ad-hero { padding: 18px; }
+:root[data-density="compact"] .ad-hero-name { font-size: 22px; }
+:root[data-density="compact"] .ad-feature { padding: 16px 18px; }
+:root[data-density="compact"] .ad-feature-value { font-size: 36px; }
+
+/* ---------------- Reduced motion ---------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .ad-hero-halo { animation: none !important; }
+  .ad-attr-tile:hover { transform: none; }
+}
