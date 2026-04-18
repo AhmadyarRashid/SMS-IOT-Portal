@@ -50,7 +50,10 @@ export function useAssets(query = {}) {
     // the WebSocket isn't available.
     staleTime: 10000,
     refetchInterval: 15000,
-    refetchIntervalInBackground: false,
+    // CRITICAL: poll even when the tab is hidden. Without this, browser
+    // notifications never fire because we don't detect new alarms while the
+    // window is minimised / in another tab.
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -97,7 +100,15 @@ export function useAlarms(params = {}) {
         throw err;
       }
     },
-    staleTime: 15000,
+    // Re-poll every 15s so alarms created on the SMS IoT backend surface in
+    // the portal (toast + OS notification + /live feed + sidebar badge)
+    // without the user having to navigate.
+    staleTime: 10000,
+    refetchInterval: 15000,
+    // CRITICAL: poll even when the tab is hidden. Without this, a user who
+    // minimises Chrome would never get an alarm notification — the whole
+    // point of OS notifications is to reach the user when they're away.
+    refetchIntervalInBackground: true,
   });
 }
 

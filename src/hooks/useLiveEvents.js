@@ -7,6 +7,7 @@ import { REALM } from '../api/client';
 import {
   getCustomAssetType, getStateLabel, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
+import { fireAlarmNotification } from './useAlarmNotifications';
 
 /**
  * Hook that feeds the activity store from two sources:
@@ -70,6 +71,11 @@ export default function useLiveEvents() {
           toast.error(a.title || 'New alarm', {
             duration: 4500,
             icon: '🔔',
+          });
+          fireAlarmNotification({
+            title: a.title || 'New alarm',
+            body: a.content || a.description || '',
+            tag: `alarm-${a.id}`,
           });
         });
         if (fresh.length > 3) {

@@ -124,10 +124,20 @@ export default function AlarmsPage() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       {al.status !== 'ACKNOWLEDGED' && al.status !== 'RESOLVED' && al.status !== 'CLOSED' && (
-                        <ActionBtn onClick={() => update.mutate({ alarm: al, status: 'ACKNOWLEDGED' })}>Ack</ActionBtn>
+                        <ActionBtn
+                          onClick={() => update.mutate({ alarm: al, status: 'ACKNOWLEDGED' })}
+                          pending={update.isPending && update.variables?.alarm?.id === al.id && update.variables?.status === 'ACKNOWLEDGED'}
+                        >
+                          Ack
+                        </ActionBtn>
                       )}
                       {al.status !== 'RESOLVED' && al.status !== 'CLOSED' && (
-                        <ActionBtn onClick={() => update.mutate({ alarm: al, status: 'RESOLVED' })}>Resolve</ActionBtn>
+                        <ActionBtn
+                          onClick={() => update.mutate({ alarm: al, status: 'RESOLVED' })}
+                          pending={update.isPending && update.variables?.alarm?.id === al.id && update.variables?.status === 'RESOLVED'}
+                        >
+                          Resolve
+                        </ActionBtn>
                       )}
                     </div>
                   </div>
@@ -174,17 +184,18 @@ function Select({ value, onChange, options }) {
   );
 }
 
-function ActionBtn({ children, onClick }) {
+function ActionBtn({ children, onClick, pending = false }) {
   return (
     <button
       onClick={onClick}
-      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
+      disabled={pending}
+      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-opacity disabled:opacity-60 disabled:cursor-wait"
       style={{
         background: 'color-mix(in srgb, var(--color-accent-500) 14%, transparent)',
         color: 'var(--color-accent-400)',
       }}
     >
-      {children}
+      {pending ? '…' : children}
     </button>
   );
 }

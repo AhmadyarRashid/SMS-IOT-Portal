@@ -1,4 +1,4 @@
-import { get, set, del, createStore } from 'idb-keyval';
+import { get, set, del, clear, createStore } from 'idb-keyval';
 
 // Single IDB database, single store — simple key/value for user prefs.
 // Falls back to localStorage silently if IndexedDB is unavailable
@@ -113,4 +113,44 @@ export async function getQuickLayout() {
 
 export async function setQuickLayout(layout) {
   await write(QUICK_KEY, layout);
+}
+
+// ---- Nuclear: clear everything this app owns in the browser ----------------
+//
+// Wipes the IDB key/value store AND every localStorage key this app sets.
+// Intentionally does NOT touch auth tokens (`or_access_token` / `or_refresh_token`)
+// — signing the user out is a separate action in the UI.
+
+const LOCAL_KEYS_EXACT = [
+  'dashboard_settings',  // legacy settings panel state
+  'sms_density',         // appStore density
+  'sms_install_dismissed',
+  'sms_notify_alarms',
+  'or_theme',            // appStore theme (if persisted)
+  'sms_iot_theme',
+];
+
+const LOCAL_KEY_PREFIXES = [
+  LS_PREFIX, // localStorage-fallback copies of IDB entries
+];
+
+export async function clearAllPrefs() {
+  // Wipe IDB store.
+  if (!useLS) {
+    try { await clear(store); } catch { /* ignore */ }
+  }
+
+  // Wipe known localStorage app keys.
+  try {
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (LOCAL_KEYS_EXACT.includes(k)) { toRemove.push(k); continue; }
+      if (LOCAL_KEY_PREFIXES.some((p) => k.startsWith(p))) toRemove.push(k);
+    }
+    toRemove.forEach((k) => {
+      try { localStorage.removeItem(k); } catch { /* noop */ }
+    });
+  } catch { /* noop */ }
 }

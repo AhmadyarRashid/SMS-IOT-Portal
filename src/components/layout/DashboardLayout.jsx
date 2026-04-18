@@ -6,6 +6,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import useAppStore from '../../store/appStore';
 import useLiveEvents from '../../hooks/useLiveEvents';
+import usePwaStore from '../../store/pwaStore';
 import CommandPalette from '../commandpalette/CommandPalette';
 import InstallPrompt from '../pwa/InstallPrompt';
 
@@ -45,6 +46,11 @@ export default function DashboardLayout() {
   const location = useLocation();
   useScrollRestoration();
   useLiveEvents();
+
+  // Capture the PWA install prompt event globally — consumed by the floating
+  // install toast and the Settings page.
+  const registerPwaListener = usePwaStore((s) => s._registerListener);
+  useEffect(() => registerPwaListener(), [registerPwaListener]);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-surface-0)', color: 'var(--color-ink-0)' }}>

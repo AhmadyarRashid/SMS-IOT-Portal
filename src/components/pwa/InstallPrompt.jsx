@@ -1,59 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X } from 'lucide-react';
+import usePwaStore from '../../store/pwaStore';
 
 const DISMISS_KEY = 'sms_install_dismissed';
 
 /**
- * Catches the `beforeinstallprompt` event and shows a small corner toast
- * inviting the user to install the app. Stays out of the way — one tap on
- * the × dismisses it for this device, stored in localStorage.
+ * Small bottom-left toast inviting the user to install the app. Captures the
+ * `beforeinstallprompt` event from the PWA store (registered globally in the
+ * layout). Stays dismissed across sessions via localStorage.
  *
- * On iOS Safari the event never fires; the user installs via the native
- * "Add to Home Screen" — nothing to show. We silently stay dormant.
+ * The Settings page surfaces a parallel "Install as app" button using the
+ * same store, so users can install even if they dismissed this toast.
  */
 export default function InstallPrompt() {
-  const [evt, setEvt] = useState(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    // If already dismissed (or already installed / running standalone), skip.
-    const dismissed = localStorage.getItem(DISMISS_KEY);
-    const standalone = window.matchMedia?.('(display-mode: standalone)').matches
-      || window.navigator.standalone;
-    if (dismissed || standalone) return;
-
-    const handler = (e) => {
-      e.preventDefault();
-      setEvt(e);
-      setVisible(true);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-
-    const installed = () => setVisible(false);
-    window.addEventListener('appinstalled', installed);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-      window.removeEventListener('appinstalled', installed);
-    };
-  }, []);
+  const event = usePwaStore((s) => s.event);
+  const installed = usePwaStore((s) => s.installed);
+  const install = usePwaStore((s) => s.install);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(DISMISS_KEY) === '1'; }
+    catch { return false; }
+  });
 
   const dismiss = () => {
-    setVisible(false);
+    setDismissed(true);
     try { localStorage.setItem(DISMISS_KEY, '1'); } catch { /* noop */ }
   };
 
-  const install = async () => {
-    if (!evt) return;
-    evt.prompt();
-    try { await evt.userChoice; } catch { /* user cancelled */ }
-    setVisible(false);
-  };
+  // `installed` already comes from the pwa store and rerenders the component
+  // when it flips — no need for an effect to mirror it into local state.
+  const visible = !!event && !installed && !dismissed;
 
   return (
     <AnimatePresence>
-      {visible && evt && (
+      {visible && (
         <motion.div
           initial={{ opacity: 0, y: 16, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
