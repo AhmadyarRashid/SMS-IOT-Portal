@@ -12,7 +12,7 @@ import {
 } from '../utils/assetIcons';
 import AssetTile from '../components/tiles/AssetTile';
 import AssetGlyph from '../components/tiles/AssetGlyph';
-import { LoadingSpinner, EmptyState } from '../components/ui';
+import { EmptyState, Skeleton } from '../components/ui';
 
 /** Safety-first display order, same as before. Drives the chip order and
  * the default "All" flat-grid sort. */
@@ -120,8 +120,25 @@ export default function GatewayPage() {
 
   if (gLoad || cLoad) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" />
+      <div className="p-4 md:p-6 max-w-[1280px] mx-auto space-y-5">
+        <Skeleton.Box h={12} w={80} rounded={4} />
+        <div className="flex items-start gap-4">
+          <Skeleton.Circle size={48} />
+          <div className="flex-1 flex flex-col gap-2">
+            <Skeleton.Box h={22} w={240} rounded={6} />
+            <Skeleton.Box h={12} w={320} rounded={4} />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton.Box key={i} h={32} w={96} rounded={999} />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-2.5">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton.Box key={i} h={72} rounded={16} />
+          ))}
+        </div>
       </div>
     );
   }

@@ -16,6 +16,7 @@ const MapPage = lazy(() => import('./pages/MapPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const TutorialPage = lazy(() => import('./pages/TutorialPage'));
 const QuickAccessPage = lazy(() => import('./pages/QuickAccessPage'));
+const LivePage = lazy(() => import('./pages/LivePage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +63,8 @@ export default function App() {
               <Route path="automations" element={<AutomationsPage />} />
               <Route path="map" element={<MapPage />} />
               <Route path="quick" element={<QuickAccessPage />} />
+              <Route path="live" element={<LivePage />} />
+              <Route path="activity" element={<Navigate to="/live" replace />} />
               <Route path="tutorial" element={<TutorialPage />} />
               <Route path="settings" element={<SettingsPage />} />
 

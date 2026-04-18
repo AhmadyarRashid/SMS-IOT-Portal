@@ -8,7 +8,7 @@ import {
 import { useAssets, useAlarms, useWriteAttribute } from '../hooks/useAssets';
 import { pickGateways, pickAllDevices } from '../utils/gateways';
 import { getCustomAssetType } from '../utils/assetIcons';
-import { LoadingSpinner } from '../components/ui';
+import { Skeleton } from '../components/ui';
 import GatewayCard from '../components/tiles/GatewayCard';
 import './sites.css';
 
@@ -76,8 +76,15 @@ export default function SitesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <LoadingSpinner size="lg" />
+      <div className="sites-page relative p-4 md:p-6 max-w-[1400px] mx-auto">
+        <AmbientBlobs />
+        <div className="relative space-y-6">
+          <div className="flex flex-col gap-2">
+            <Skeleton.Box h={32} w={200} rounded={10} />
+            <Skeleton.Box h={14} w={320} rounded={6} />
+          </div>
+          <Skeleton.Grid cols={3} count={6} cardHeight={320} />
+        </div>
       </div>
     );
   }

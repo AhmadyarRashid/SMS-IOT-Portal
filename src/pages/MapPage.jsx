@@ -118,8 +118,11 @@ export default function MapPage() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-3 panel p-2 overflow-hidden">
-          <div style={{ height: 560 }} className="rounded-xl overflow-hidden">
+        <div className="lg:col-span-3 panel p-2 overflow-hidden" style={{ isolation: 'isolate' }}>
+          <div
+            style={{ height: 560, isolation: 'isolate', position: 'relative', zIndex: 0 }}
+            className="rounded-xl overflow-hidden"
+          >
             <MapContainer
               center={positions[0] || DEFAULT_CENTER}
               zoom={DEFAULT_ZOOM}

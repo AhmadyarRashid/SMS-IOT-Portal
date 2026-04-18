@@ -5,6 +5,9 @@ import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import useAppStore from '../../store/appStore';
+import useLiveEvents from '../../hooks/useLiveEvents';
+import CommandPalette from '../commandpalette/CommandPalette';
+import InstallPrompt from '../pwa/InstallPrompt';
 
 /**
  * Remember scroll positions per pathname. When the user navigates away we
@@ -41,6 +44,7 @@ export default function DashboardLayout() {
   const { sidebarCollapsed, theme } = useAppStore();
   const location = useLocation();
   useScrollRestoration();
+  useLiveEvents();
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-surface-0)', color: 'var(--color-ink-0)' }}>
@@ -63,6 +67,8 @@ export default function DashboardLayout() {
           </motion.div>
         </main>
       </div>
+      <CommandPalette />
+      <InstallPrompt />
       <Toaster
         position="top-right"
         toastOptions={{

@@ -1,0 +1,19 @@
+{
+  "name": "SMS IoT · Client Portal",
+  "short_name": "SMS IoT",
+  "description": "Monitor and control IoT devices across your properties.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1220",
+  "theme_color": "#0891b2",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

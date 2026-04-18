@@ -44,7 +44,13 @@ export function useAssets(query = {}) {
   return useQuery({
     queryKey: ['assets', query],
     queryFn: () => fetchAssetsWithFallback(query),
-    staleTime: 30000,
+    // Re-poll every 15s so state changes coming from the OR manager UI (or any
+    // other client) propagate into the React Query cache — which in turn feeds
+    // the activity diff-watcher and the /live session feed. Works even when
+    // the WebSocket isn't available.
+    staleTime: 10000,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
   });
 }
 

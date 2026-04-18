@@ -18,7 +18,7 @@ import {
   nextToggleValue, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
 import { formatRelativeTime, getTimeRanges } from '../utils/helpers';
-import { LoadingSpinner, EmptyState, Tip } from '../components/ui';
+import { LoadingSpinner, EmptyState, Tip, Skeleton } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 import './asset-detail.css';
 
@@ -42,7 +42,18 @@ export default function AssetPage() {
     : false;
 
   if (isLoading) {
-    return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
+    return (
+      <div className="p-4 md:p-6 max-w-[1100px] mx-auto space-y-5">
+        <Skeleton.Box h={12} w={80} rounded={4} />
+        <Skeleton.Hero />
+        <Skeleton.Box h={52} w={380} rounded={14} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton.Box key={i} h={88} rounded={16} />
+          ))}
+        </div>
+      </div>
+    );
   }
   if (!asset) {
     return (

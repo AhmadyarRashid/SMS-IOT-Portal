@@ -17,7 +17,9 @@ import {
   getCustomAssetType, isAssetActive, isAssetAlarming, getStateLabel,
 } from '../utils/assetIcons';
 import useAuthStore from '../store/authStore';
+import useActivityStore from '../store/activityStore';
 import { downloadCsv } from '../utils/csv';
+import { formatRelativeTime } from '../utils/helpers';
 import { LoadingSpinner } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 
@@ -286,6 +288,9 @@ export default function OverviewPage() {
           )}
         </div>
       </div>
+
+      {/* Recent activity */}
+      <ActivityStrip />
 
       {/* Reports & exports */}
       <Reports alarms={allAlarms} devices={allDevices} />
@@ -572,6 +577,37 @@ function AlarmPipeline({ byStatus, bySev, total }) {
           </span>
         ))}
       </div>
+    </section>
+  );
+}
+
+/* ---------------- Activity strip ---------------- */
+
+function ActivityStrip() {
+  const events = useActivityStore((s) => s.events);
+  const recent = events.slice(0, 5);
+  if (recent.length === 0) return null;
+  return (
+    <section className="panel p-5">
+      <SectionHead title="Recent activity" link={{ to: '/live', label: 'See all' }} />
+      <ul className="divide-y" style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
+        {recent.map((e) => (
+          <li key={e.id} className="flex items-center gap-3 py-2.5">
+            <span
+              className={`status-dot ${e.kind === 'alarm' ? 'status-dot-alarm pulse' : e.kind === 'control' ? 'status-dot-on' : 'status-dot-off'}`}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[var(--color-ink-0)] truncate">{e.title}</p>
+              <p className="text-[11px] text-[var(--color-ink-3)] truncate">
+                {e.assetName || e.assetId || ''}
+              </p>
+            </div>
+            <span className="text-[11px] text-[var(--color-ink-3)] whitespace-nowrap">
+              {formatRelativeTime(e.timestamp)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
