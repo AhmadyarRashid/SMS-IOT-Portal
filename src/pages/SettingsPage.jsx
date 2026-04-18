@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   User, Sun, Moon, Bell, Wifi, WifiOff, Download, Trash2, LogOut,
-  ShieldCheck, ChevronDown, Check, Sparkles, Rows3, Rows2,
+  ShieldCheck, Check, Sparkles, Rows3, Rows2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import useAuthStore from '../store/authStore';
@@ -21,15 +21,6 @@ export default function SettingsPage() {
   const { user, logout } = useAuthStore();
   const { theme, setTheme, density, setDensity } = useAppStore();
   const { dataUpdatedAt, isFetching } = useAssets({});
-
-  const serverUrl =
-    import.meta.env.VITE_SMS_IOT_URL ||
-    import.meta.env.VITE_OPENREMOTE_URL ||
-    '';
-  const realm =
-    import.meta.env.VITE_SMS_IOT_REALM ||
-    import.meta.env.VITE_OPENREMOTE_REALM ||
-    'master';
 
   const displayName = user?.name || user?.preferred_username || 'Client';
   const initials = displayName.slice(0, 2).toUpperCase();
@@ -75,8 +66,6 @@ export default function SettingsPage() {
       <ConnectionSection
         lastSyncedAt={dataUpdatedAt}
         isFetching={isFetching}
-        serverUrl={serverUrl}
-        realm={realm}
       />
 
       {/* Install as app (conditional) */}
@@ -314,9 +303,7 @@ function SwitchWithStatus({ checked, onChange, disabled, status }) {
    Connection status — layman, with optional details
    ================================================================== */
 
-function ConnectionSection({ lastSyncedAt, isFetching, serverUrl, realm }) {
-  const [open, setOpen] = useState(false);
-
+function ConnectionSection({ lastSyncedAt, isFetching }) {
   const syncedLabel = useMemo(() => {
     if (!lastSyncedAt) return 'Never';
     return formatRelativeTime(lastSyncedAt);
@@ -345,30 +332,6 @@ function ConnectionSection({ lastSyncedAt, isFetching, serverUrl, realm }) {
               ? `Last synced ${syncedLabel}`
               : 'No data received yet.'}
         </p>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          className="st-show-details mt-3"
-        >
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
-          {open ? 'Hide technical details' : 'Show technical details'}
-        </button>
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="st-tech">
-                <div><dt>Server</dt><dd className="truncate">{serverUrl || '—'}</dd></div>
-                <div><dt>Realm</dt><dd>{realm}</dd></div>
-                <div><dt>Poll interval</dt><dd>15 s</dd></div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </SectionCard>
   );
@@ -504,7 +467,6 @@ function DataPrivacySection({ onSignOut }) {
    ================================================================== */
 
 function AboutSection({ version }) {
-  const env = import.meta.env.MODE;
   return (
     <SectionCard
       icon={User}
@@ -514,10 +476,7 @@ function AboutSection({ version }) {
     >
       <div className="st-row">
         <p className="text-[13px] text-[var(--color-ink-1)]">Version</p>
-        <div className="flex items-center gap-2">
-          <span className="st-pill st-pill-ok">v{version}</span>
-          {env !== 'production' && <span className="st-pill st-pill-muted">{env}</span>}
-        </div>
+        <span className="st-pill st-pill-ok">v{version}</span>
       </div>
       <div className="st-row">
         <p className="text-[13px] text-[var(--color-ink-1)]">Need help?</p>
