@@ -96,6 +96,28 @@ function resolveAlarmAsset(alarm, assetMap) {
   return null;
 }
 
+/**
+ * Shared match predicate used for both the visible list AND the chip
+ * counts. Pass `ignoreSev: true` (or `ignoreStatus: true`) to compute
+ * "how many alarms would I see if I set this severity / status, given
+ * every OTHER filter that's currently active". That's the UX convention
+ * for cross-filtered chip counts.
+ */
+function alarmMatches(alarm, { sev, status, searchLower, assetMap, ignoreSev = false, ignoreStatus = false }) {
+  if (!ignoreSev && sev !== 'all' && alarm.severity !== sev) return false;
+  if (!ignoreStatus && status !== 'all' && alarm.status !== status) return false;
+  if (searchLower) {
+    const asset = resolveAlarmAsset(alarm, assetMap);
+    const hay = [
+      alarm.title, alarm.content, alarm.sourceName,
+      asset ? getAssetDisplayName(asset) : '',
+      asset ? getAssetTypeLabel(getCustomAssetType(asset)) : '',
+    ].filter(Boolean).join(' ').toLowerCase();
+    if (!hay.includes(searchLower)) return false;
+  }
+  return true;
+}
+
 /** Best-effort extract of [lat, lng] from an asset's location attribute. */
 function extractLatLng(asset) {
   const loc = asset?.attributes?.location?.value;
@@ -129,22 +151,34 @@ export default function AlarmsPage() {
   const gateways = useMemo(() => pickGateways(assets), [assets]);
 
   const list = useMemo(() => (Array.isArray(alarms) ? alarms : []), [alarms]);
+  const searchLower = useMemo(() => search.trim().toLowerCase(), [search]);
 
-  // Severity counts drive the chip counts.
+  // Severity chip counts — cross-filtered by everything EXCEPT the severity
+  // filter itself. So "Critical (N)" tells the user how many alarms they
+  // would see if they clicked Critical, given the currently-selected
+  // status + search.
   const sevCounts = useMemo(() => {
-    const c = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    const c = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, TOTAL: 0 };
     for (const a of list) {
-      if (a.status !== 'OPEN') continue;
+      if (!alarmMatches(a, { sev, status, searchLower, assetMap, ignoreSev: true })) continue;
+      c.TOTAL++;
       if (c[a.severity] !== undefined) c[a.severity]++;
     }
     return c;
-  }, [list]);
+  }, [list, sev, status, searchLower, assetMap]);
 
+  // Status chip counts — cross-filtered by everything EXCEPT the status
+  // filter itself. So "Open (N)" tells the user how many open alarms match
+  // the currently-selected severity + search.
   const statusCounts = useMemo(() => {
-    const c = {};
-    for (const a of list) c[a.status] = (c[a.status] || 0) + 1;
+    const c = { TOTAL: 0 };
+    for (const a of list) {
+      if (!alarmMatches(a, { sev, status, searchLower, assetMap, ignoreStatus: true })) continue;
+      c.TOTAL++;
+      c[a.status] = (c[a.status] || 0) + 1;
+    }
     return c;
-  }, [list]);
+  }, [list, sev, status, searchLower, assetMap]);
 
   const resolvedToday = useMemo(() => {
     const today = startOfDay(new Date()).getTime();
@@ -167,21 +201,9 @@ export default function AlarmsPage() {
 
   // ---- filtering + sorting ------------------------------------------------
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let pool = list.filter((a) => {
-      if (sev !== 'all' && a.severity !== sev) return false;
-      if (status !== 'all' && a.status !== status) return false;
-      if (q) {
-        const asset = resolveAlarmAsset(a, assetMap);
-        const hay = [
-          a.title, a.content, a.sourceName,
-          asset ? getAssetDisplayName(asset) : '',
-          asset ? getAssetTypeLabel(getCustomAssetType(asset)) : '',
-        ].filter(Boolean).join(' ').toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    let pool = list.filter((a) =>
+      alarmMatches(a, { sev, status, searchLower, assetMap })
+    );
     pool = [...pool].sort((a, b) => {
       if (sortBy === 'severity') {
         const ds = (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9);
@@ -192,7 +214,7 @@ export default function AlarmsPage() {
       return (b.createdOn || 0) - (a.createdOn || 0);
     });
     return pool;
-  }, [list, sev, status, search, sortBy, assetMap]);
+  }, [list, sev, status, searchLower, sortBy, assetMap]);
 
   if (isLoading) {
     return (
@@ -232,13 +254,13 @@ export default function AlarmsPage() {
       {/* Filter + sort bar */}
       <div className="flex items-center gap-2">
         <div className="flex gap-1.5 overflow-x-auto no-scrollbar flex-1 min-w-0 pr-1">
-          <SeverityChip active={sev === 'all'} onClick={() => setSev('all')} label="All" count={list.length} tone="default" />
+          <SeverityChip active={sev === 'all'} onClick={() => setSev('all')} label="All" count={sevCounts.TOTAL} tone="default" />
           <SeverityChip active={sev === 'CRITICAL'} onClick={() => setSev('CRITICAL')} label="Critical" count={sevCounts.CRITICAL} tone="critical" />
           <SeverityChip active={sev === 'HIGH'} onClick={() => setSev('HIGH')} label="High" count={sevCounts.HIGH} tone="high" />
           <SeverityChip active={sev === 'MEDIUM'} onClick={() => setSev('MEDIUM')} label="Medium" count={sevCounts.MEDIUM} tone="medium" />
           <SeverityChip active={sev === 'LOW'} onClick={() => setSev('LOW')} label="Low" count={sevCounts.LOW} tone="low" />
           <span className="alarm-chip-divider" />
-          <StatusChip active={status === 'all'} onClick={() => setStatus('all')} label="All" />
+          <StatusChip active={status === 'all'} onClick={() => setStatus('all')} label="All" count={statusCounts.TOTAL} />
           {STATUSES.map((s) => (
             <StatusChip
               key={s}
