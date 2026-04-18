@@ -10,7 +10,7 @@ import useAppStore from '../../store/appStore';
 import useAuthStore from '../../store/authStore';
 import { useAssets, useAlarms } from '../../hooks/useAssets';
 import { pickGateways, pickAllDevices } from '../../utils/gateways';
-import { getCustomAssetType, getAssetTypeLabel } from '../../utils/assetIcons';
+import { getCustomAssetType, getAssetTypeLabel, getAssetDisplayName } from '../../utils/assetIcons';
 import { formatRelativeTime } from '../../utils/helpers';
 import AssetGlyph from '../tiles/AssetGlyph';
 
@@ -47,7 +47,7 @@ export default function Header() {
   const results = useMemo(() => {
     const q = searchQ.trim().toLowerCase();
     if (!q) return { sites: [], devices: [] };
-    const match = (a) => (a.name || '').toLowerCase().includes(q);
+    const match = (a) => getAssetDisplayName(a).toLowerCase().includes(q);
     return {
       sites: sites.filter(match).slice(0, 5),
       devices: devices.filter(match).slice(0, 8),
@@ -183,7 +183,7 @@ export default function Header() {
                                 <Building2 className="w-4 h-4" strokeWidth={1.75} />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{s.name}</p>
+                                <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(s)}</p>
                                 <p className="text-[11px] text-[var(--color-ink-2)]">Site</p>
                               </div>
                             </button>
@@ -212,7 +212,7 @@ export default function Header() {
                                   <AssetGlyph customType={t} className="w-4 h-4" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{d.name}</p>
+                                  <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(d)}</p>
                                   <p className="text-[11px] text-[var(--color-ink-2)]">{getAssetTypeLabel(t)}</p>
                                 </div>
                               </button>

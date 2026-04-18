@@ -1,0 +1,39 @@
+/* Shared shimmer used by every Skeleton.* primitive. */
+
+.sk {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+}
+
+.sk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-ink-0) 10%, transparent) 50%,
+    transparent 100%);
+  transform: translateX(-100%);
+  animation: sk-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes sk-shimmer {
+  0%   { transform: translateX(-100%); }
+  60%  { transform: translateX(120%); }
+  100% { transform: translateX(120%); }
+}
+
+.sk-box { display: block; }
+
+.sk-card {
+  padding: 16px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk::after { animation: none; opacity: 0.5; }
+}

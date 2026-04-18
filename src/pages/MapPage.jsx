@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { MapPin, Server } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -10,6 +10,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useAssets } from '../hooks/useAssets';
 import { pickGateways, pickGatewayChildren, summariseGateway } from '../utils/gateways';
+import { getAssetDisplayName } from '../utils/assetIcons';
 import useAppStore from '../store/appStore';
 import { LoadingSpinner, EmptyState } from '../components/ui';
 
@@ -73,6 +74,7 @@ function FocusSelected({ selection, markerRefs }) {
 export default function MapPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { theme } = useAppStore();
+  const [searchParams] = useSearchParams();
   // `selection` carries an `at` timestamp so identity changes on every click
   // — that re-triggers the focus effect even when the same site is clicked
   // twice in a row (e.g. after the user panned away).
@@ -97,6 +99,21 @@ export default function MapPage() {
     setSelection({ id: p.gateway.id, pos: p.pos });
   };
 
+  // Honour ?focus=<gatewayId> so links from other pages (e.g. the Alarms
+  // "Open map" button) can deep-link to a specific site. Runs once the pins
+  // are available; deferred via rAF so setState fires outside the effect
+  // body (React 19's set-state-in-effect lint).
+  const focusId = searchParams.get('focus');
+  useEffect(() => {
+    if (!focusId || pins.length === 0) return undefined;
+    const p = pins.find((x) => x.gateway.id === focusId);
+    if (!p) return undefined;
+    const raf = requestAnimationFrame(() => {
+      setSelection({ id: p.gateway.id, pos: p.pos });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [focusId, pins]);
+
   const tileUrl = useMemo(
     () => (theme === 'light'
       ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -118,8 +135,11 @@ export default function MapPage() {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="lg:col-span-3 panel p-2 overflow-hidden">
-          <div style={{ height: 560 }} className="rounded-xl overflow-hidden">
+        <div className="lg:col-span-3 panel p-2 overflow-hidden" style={{ isolation: 'isolate' }}>
+          <div
+            style={{ height: 560, isolation: 'isolate', position: 'relative', zIndex: 0 }}
+            className="rounded-xl overflow-hidden"
+          >
             <MapContainer
               center={positions[0] || DEFAULT_CENTER}
               zoom={DEFAULT_ZOOM}
@@ -150,7 +170,7 @@ export default function MapPage() {
                   >
                     <Popup>
                       <div className="min-w-[200px]">
-                        <p className="font-semibold text-sm mb-1">{gateway.name}</p>
+                        <p className="font-semibold text-sm mb-1">{getAssetDisplayName(gateway)}</p>
                         <p className="text-xs text-slate-500 mb-2">Site</p>
                         <div className="grid grid-cols-3 gap-2 text-center mb-2">
                           <div><p className="text-[10px] text-slate-500">Devices</p><p className="text-sm font-semibold">{s.total}</p></div>
@@ -211,7 +231,7 @@ export default function MapPage() {
                         />
                         <div className="flex-1 min-w-0">
                           <p className={`text-xs font-semibold truncate ${isSelected ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-0)]'}`}>
-                            {g.name}
+                            {getAssetDisplayName(g)}
                           </p>
                           <p className="text-[10px] text-[var(--color-ink-2)] truncate">
                             {locatable ? `${pos[0].toFixed(3)}, ${pos[1].toFixed(3)}` : 'No location set'}

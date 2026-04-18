@@ -1,18 +1,21 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  LayoutGrid, Building2, Bell, Workflow, MapPin,
+  LayoutGrid, Building2, Bell, MapPin, Sparkles, BookOpen, Activity,
   Settings, ChevronLeft, ChevronRight, X, LogOut, ShieldCheck,
 } from 'lucide-react';
 import useAppStore from '../../store/appStore';
 import useAuthStore from '../../store/authStore';
+import { useAlarms } from '../../hooks/useAssets';
 
 const nav = [
   { path: '/', icon: LayoutGrid, label: 'Overview', exact: true },
   { path: '/sites', icon: Building2, label: 'Sites' },
-  { path: '/alarms', icon: Bell, label: 'Alarms' },
-  { path: '/automations', icon: Workflow, label: 'Automations' },
+  { path: '/quick', icon: Sparkles, label: 'Quick access' },
+  { path: '/alarms', icon: Bell, label: 'Alarms', badgeKey: 'openAlarms' },
+  { path: '/live', icon: Activity, label: 'Live' },
   { path: '/map', icon: MapPin, label: 'Map' },
+  { path: '/tutorial', icon: BookOpen, label: 'Tutorial' },
 ];
 
 function isRouteActive(item, pathname) {
@@ -23,7 +26,7 @@ function isRouteActive(item, pathname) {
   return pathname.startsWith(item.path);
 }
 
-function NavItem({ item, collapsed, pathname, onNavigate }) {
+function NavItem({ item, collapsed, pathname, onNavigate, badge }) {
   const active = isRouteActive(item, pathname);
   return (
     <NavLink
@@ -34,8 +37,34 @@ function NavItem({ item, collapsed, pathname, onNavigate }) {
           ? 'bg-[color-mix(in_srgb,var(--color-accent-500)_14%,transparent)] text-[var(--color-accent-400)]'
           : 'text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)] hover:bg-[color-mix(in_srgb,var(--color-ink-0)_6%,transparent)]'}`}
     >
-      <item.icon className="w-[18px] h-[18px] flex-shrink-0" strokeWidth={1.75} />
+      <span className="relative flex-shrink-0">
+        <item.icon className="w-[18px] h-[18px]" strokeWidth={1.75} />
+        {badge > 0 && collapsed && (
+          <span
+            className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full text-[9px] font-bold flex items-center justify-center tabular-nums pulse"
+            style={{
+              background: 'var(--color-danger-500)',
+              color: '#fff',
+              boxShadow: '0 0 0 2px var(--color-surface-1)',
+            }}
+          >
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </span>
       {!collapsed && <span className="whitespace-nowrap">{item.label}</span>}
+      {badge > 0 && !collapsed && (
+        <span
+          className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums pulse"
+          style={{
+            background: 'color-mix(in srgb, var(--color-danger-500) 18%, transparent)',
+            color: 'var(--color-danger-400)',
+            border: '1px solid color-mix(in srgb, var(--color-danger-500) 40%, transparent)',
+          }}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
       {active && (
         <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-[var(--color-accent-500)]" />
       )}
@@ -47,6 +76,8 @@ export default function Sidebar() {
   const location = useLocation();
   const { sidebarOpen, sidebarCollapsed, toggleCollapse, closeSidebar } = useAppStore();
   const { user, logout } = useAuthStore();
+  const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
+  const badgeByKey = { openAlarms: openAlarms.length };
 
   const displayName = user?.name || user?.preferred_username || 'Client';
   const initials = displayName.slice(0, 2).toUpperCase();
@@ -95,7 +126,16 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 py-4 space-y-1 overflow-y-auto">
-          {nav.map((item) => <NavItem key={item.path} item={item} collapsed={sidebarCollapsed} pathname={location.pathname} onNavigate={closeSidebar} />)}
+          {nav.map((item) => (
+            <NavItem
+              key={item.path}
+              item={item}
+              collapsed={sidebarCollapsed}
+              pathname={location.pathname}
+              onNavigate={closeSidebar}
+              badge={item.badgeKey ? badgeByKey[item.badgeKey] : 0}
+            />
+          ))}
         </nav>
 
         <div className="border-t"

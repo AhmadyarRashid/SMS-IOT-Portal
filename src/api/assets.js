@@ -16,7 +16,10 @@ export async function createAsset(asset) {
 }
 
 export async function updateAsset(asset) {
-  const { data } = await apiClient.put('/asset', asset);
+  if (!asset?.id) throw new Error('updateAsset: asset.id is required');
+  // OpenRemote's AssetResource expects PUT /asset/{assetId} with the full
+  // Asset body. Without the id in the path the request silently no-ops.
+  const { data } = await apiClient.put(`/asset/${asset.id}`, asset);
   return data;
 }
 

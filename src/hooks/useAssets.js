@@ -44,7 +44,16 @@ export function useAssets(query = {}) {
   return useQuery({
     queryKey: ['assets', query],
     queryFn: () => fetchAssetsWithFallback(query),
-    staleTime: 30000,
+    // Re-poll every 15s so state changes coming from the OR manager UI (or any
+    // other client) propagate into the React Query cache — which in turn feeds
+    // the activity diff-watcher and the /live session feed. Works even when
+    // the WebSocket isn't available.
+    staleTime: 10000,
+    refetchInterval: 15000,
+    // CRITICAL: poll even when the tab is hidden. Without this, browser
+    // notifications never fire because we don't detect new alarms while the
+    // window is minimised / in another tab.
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -91,7 +100,18 @@ export function useAlarms(params = {}) {
         throw err;
       }
     },
-    staleTime: 15000,
+    // Re-poll every 15s so alarms created on the SMS IoT backend surface in
+    // the portal (toast + OS notification + /live feed + sidebar badge)
+    // without the user having to navigate.
+    staleTime: 10000,
+    refetchInterval: 15000,
+    // CRITICAL: poll even when the tab is hidden. Without this, a user who
+    // minimises Chrome would never get an alarm notification — the whole
+    // point of OS notifications is to reach the user when they're away.
+    refetchIntervalInBackground: true,
+    // Refetch immediately when the tab regains focus, so the feed looks
+    // caught up the instant the user comes back.
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -235,11 +255,41 @@ export function useUpdateAsset() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (asset) => updateAsset(asset),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] });
-      queryClient.invalidateQueries({ queryKey: ['asset'] });
-      toast.success('Asset updated');
+
+    // Optimistically patch the caches so renames flip instantly in the UI.
+    onMutate: async (asset) => {
+      if (!asset?.id) return {};
+      await queryClient.cancelQueries({ queryKey: ['asset', asset.id] });
+      await queryClient.cancelQueries({ queryKey: ['assets'] });
+
+      const prevAsset = queryClient.getQueryData(['asset', asset.id]);
+      const prevLists = queryClient.getQueriesData({ queryKey: ['assets'] });
+
+      const patch = (a) => (a && a.id === asset.id ? { ...a, ...asset } : a);
+      if (prevAsset) queryClient.setQueryData(['asset', asset.id], patch(prevAsset));
+      for (const [key, data] of prevLists) {
+        if (Array.isArray(data)) queryClient.setQueryData(key, data.map(patch));
+      }
+      return { prevAsset, prevLists };
     },
-    onError: () => toast.error('Failed to update asset'),
+
+    onError: (err, _asset, ctx) => {
+      if (ctx?.prevAsset) {
+        queryClient.setQueryData(['asset', ctx.prevAsset.id], ctx.prevAsset);
+      }
+      if (ctx?.prevLists) {
+        for (const [key, data] of ctx.prevLists) queryClient.setQueryData(key, data);
+      }
+      if (err.isForbidden || err.response?.status === 403) {
+        toast.error('You do not have permission to edit this device.');
+      } else {
+        toast.error(err.response?.data?.message || 'Failed to update asset');
+      }
+    },
+
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['asset', vars?.id] });
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
+    },
   });
 }

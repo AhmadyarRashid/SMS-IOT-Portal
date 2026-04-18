@@ -1,0 +1,210 @@
+/* ==========================================================================
+   GatewayCard — iPhone-widget cousin. Tactile, tilt-reactive, mood-tinted.
+   Mood is applied via [data-mood] on the outer .gw-card-wrap so every
+   descendant can theme off a single source of truth.
+   ========================================================================== */
+
+.gw-card-wrap {
+  position: relative;
+  height: 100%;
+  border-radius: var(--radius-card);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.gw-card {
+  position: relative;
+  display: block;
+  height: 100%;
+  min-height: 320px;
+  padding: 0;
+  border-radius: var(--radius-card);
+  border: 1px solid;
+  background: var(--color-surface-1);
+  overflow: hidden;
+  transition:
+    border-color 260ms ease,
+    box-shadow 260ms cubic-bezier(.2, .8, .2, 1),
+    transform 260ms cubic-bezier(.2, .8, .2, 1);
+  text-decoration: none;
+  color: inherit;
+  isolation: isolate;
+}
+
+/* Mood-keyed accent & border */
+.gw-card-wrap[data-mood="ok"]       { --gw-accent: var(--color-accent-500);  --gw-accent-bright: var(--color-accent-400); }
+.gw-card-wrap[data-mood="warning"]  { --gw-accent: var(--color-warning-500); --gw-accent-bright: var(--color-warning-400); }
+.gw-card-wrap[data-mood="alarm"]    { --gw-accent: var(--color-danger-500);  --gw-accent-bright: var(--color-danger-400); }
+
+.gw-card-ok      { border-color: color-mix(in srgb, var(--color-accent-500) 28%, transparent); }
+.gw-card-warning { border-color: color-mix(in srgb, var(--color-warning-500) 32%, transparent); }
+.gw-card-alarm   { border-color: color-mix(in srgb, var(--color-danger-500) 40%, transparent); }
+
+.gw-card-wrap:hover .gw-card {
+  border-color: color-mix(in srgb, var(--gw-accent) 55%, transparent);
+  box-shadow:
+    0 28px 60px -22px color-mix(in srgb, var(--gw-accent) 55%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--gw-accent) 20%, transparent);
+}
+.gw-card-wrap[data-mood="alarm"]:hover .gw-card {
+  box-shadow:
+    0 28px 60px -22px color-mix(in srgb, var(--color-danger-500) 70%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-danger-500) 30%, transparent);
+}
+
+.gw-accent { color: var(--gw-accent-bright); }
+
+/* ---- Drifting mood halo --------------------------------------------- */
+.gw-card-halo {
+  position: absolute;
+  inset: -40% -20% 40% -20%;
+  background: radial-gradient(60% 60% at 30% 20%,
+    color-mix(in srgb, var(--gw-accent) 30%, transparent) 0%,
+    transparent 70%);
+  filter: blur(30px);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 0;
+  animation: gw-halo-drift 18s ease-in-out infinite;
+}
+
+@keyframes gw-halo-drift {
+  0%, 100% { transform: translate(0, 0) scale(1);   opacity: 0.9; }
+  33%      { transform: translate(20px, 10px) scale(1.06); opacity: 1; }
+  66%      { transform: translate(-18px, 24px) scale(0.96); opacity: 0.75; }
+}
+
+/* Alarm mood gets a breathing halo */
+.gw-card-wrap[data-mood="alarm"] .gw-card-halo {
+  animation: gw-halo-breathe 2.6s ease-in-out infinite;
+}
+@keyframes gw-halo-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+
+/* ---- Shine sweep (controlled by inline style) ----------------------- */
+.gw-card-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: screen;
+  transition: opacity 260ms ease;
+}
+
+/* ---- Body ----------------------------------------------------------- */
+.gw-card-body {
+  position: relative;
+  z-index: 2;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.gw-card-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--gw-accent) 16%, transparent);
+  color: var(--gw-accent-bright);
+  border: 1px solid color-mix(in srgb, var(--gw-accent) 26%, transparent);
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--gw-accent) 60%, transparent);
+}
+
+.gw-big-number {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--gw-accent-bright);
+  line-height: 1;
+}
+
+/* ---- Health bar ----------------------------------------------------- */
+.gw-health-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  overflow: hidden;
+}
+
+.gw-health-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gw-accent), var(--gw-accent-bright));
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--gw-accent) 45%, transparent);
+  position: relative;
+}
+
+.gw-health-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, #fff 28%, transparent),
+    transparent);
+  transform: translateX(-100%);
+  animation: gw-health-shimmer 2.6s ease-in-out infinite;
+}
+
+@keyframes gw-health-shimmer {
+  0%   { transform: translateX(-100%); }
+  55%  { transform: translateX(120%); }
+  100% { transform: translateX(120%); }
+}
+
+.gw-health-pulse {
+  animation: gw-health-alarm 1.6s ease-in-out infinite;
+}
+
+@keyframes gw-health-alarm {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+
+/* ---- Reading tile --------------------------------------------------- */
+.gw-reading {
+  border-radius: 14px;
+  padding: 10px 6px 8px;
+  text-align: center;
+  background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  transition: background 200ms ease, transform 200ms ease, border-color 200ms ease;
+}
+
+.gw-card-wrap:hover .gw-reading {
+  background: color-mix(in srgb, var(--gw-accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--gw-accent) 18%, transparent);
+}
+
+/* ---- Footer --------------------------------------------------------- */
+.gw-card-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ---- Compact density ----------------------------------------------- */
+:root[data-density="compact"] .gw-card-body { padding: 16px; }
+:root[data-density="compact"] .gw-card { min-height: 280px; }
+:root[data-density="compact"] .gw-card-badge { width: 40px; height: 40px; border-radius: 12px; }
+:root[data-density="compact"] .gw-big-number { font-size: 19px; }
+
+/* ---- Reduced motion ------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .gw-card-halo,
+  .gw-health-fill::after,
+  .gw-health-pulse {
+    animation: none !important;
+  }
+}

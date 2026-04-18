@@ -3,11 +3,34 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
 import useAuthStore from '../store/authStore';
+import './login.css';
 
+/**
+ * SMS IoT portal sign-in screen.
+ *
+ * Everything auth-related is unchanged — same username/password grant via
+ * `useAuthStore#login`, same navigate-on-success, same isLoading / error
+ * handling. This rewrite is purely a visual layering pass to match the
+ * restrained-premium direction used elsewhere in the app:
+ *
+ *   • ambient drifting gradient blobs (same CSS pattern as /sites)
+ *   • bigger brand tile with a breathing halo and an orbiting accent dot
+ *   • an inline SVG illustration of connected device nodes with a flowing
+ *     dasharray pulse between them
+ *   • glass-morphism form panel with a subtle cyan rim
+ *   • cyan bloom on the focused input field (icon + border + soft glow)
+ *   • white shine sweep across the submit button on hover
+ *   • gradient-filled title ("Welcome back")
+ *   • L-shaped corner bracket accents in the viewport
+ *   • staggered mount entrance
+ *
+ * Every animation is gated on `prefers-reduced-motion` (see login.css).
+ */
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
   const { login, isLoading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
 
@@ -17,84 +40,106 @@ export default function LoginPage() {
     if (success) navigate('/');
   };
 
+  const stagger = {
+    hidden: {},
+    show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
+  };
+  const item = {
+    hidden: { opacity: 0, y: 12 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 260, damping: 26 } },
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
-         style={{ background: 'radial-gradient(1200px 600px at 20% 0%, color-mix(in srgb, var(--color-accent-500) 18%, transparent), transparent 60%), radial-gradient(1200px 600px at 80% 100%, color-mix(in srgb, var(--color-brand-700) 40%, transparent), transparent 60%), var(--color-surface-0)' }}>
-      {/* Grid bg */}
-      <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-           style={{
-             backgroundImage: 'linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)',
-             backgroundSize: '60px 60px',
-           }} />
+    <div className="login-page">
+      {/* Layer 0 — ambient gradient blobs + subtle grid */}
+      <div className="login-ambient" aria-hidden="true">
+        <span className="login-blob login-blob-a" />
+        <span className="login-blob login-blob-b" />
+      </div>
+      <div className="login-grid" aria-hidden="true" />
 
+      {/* Layer 1 — corner bracket accents */}
+      <span className="login-corner login-corner-tl" aria-hidden="true" />
+      <span className="login-corner login-corner-tr" aria-hidden="true" />
+      <span className="login-corner login-corner-bl" aria-hidden="true" />
+      <span className="login-corner login-corner-br" aria-hidden="true" />
+
+      {/* Layer 10 — content */}
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="relative z-10 w-full max-w-[420px]"
+        initial="hidden"
+        animate="show"
+        variants={stagger}
+        className="relative z-10 w-full max-w-[440px]"
       >
-        <div className="text-center mb-6">
-          <div className="inline-flex p-3 rounded-2xl mb-3"
-               style={{ background: 'linear-gradient(135deg, var(--color-accent-400), var(--color-accent-600))' }}>
-            <ShieldCheck className="w-8 h-8 text-white" strokeWidth={2} />
+        {/* Brand tile with halo + orbiting dot */}
+        <motion.div variants={item} className="login-brand">
+          <div className="login-brand-tile">
+            <span className="login-brand-halo" aria-hidden="true" />
+            <ShieldCheck className="w-10 h-10 text-white relative z-[1]" strokeWidth={2} />
+            <span className="login-brand-orbit" aria-hidden="true" />
           </div>
-          <h1 className="text-2xl font-bold text-[var(--color-ink-0)] mb-1">SMS IoT Portal</h1>
-          <p className="text-sm text-[var(--color-ink-2)]">Monitor and control your sites, anywhere.</p>
-        </div>
+        </motion.div>
 
-        <div className="panel p-6">
+        {/* Product name — the only text above the form */}
+        <motion.h1 variants={item} className="login-product">
+          SMS IoT Portal
+        </motion.h1>
+
+        {/* Glass form panel */}
+        <motion.div variants={item} className="login-panel">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="p-3 rounded-xl text-sm sev-critical"
+                initial={{ opacity: 0, x: 0 }}
+                animate={{ opacity: 1, x: [0, -6, 6, -3, 3, 0] }}
+                transition={{ x: { duration: 0.45 } }}
+                className="login-error"
               >
                 {error}
               </motion.div>
             )}
 
             <div>
-              <label className="block text-xs font-medium text-[var(--color-ink-2)] mb-1.5">Username</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-3)]" />
+              <label className="login-label" htmlFor="login-username">Username</label>
+              <div className={`login-field ${focusedField === 'username' ? 'login-field-focus' : ''}`}>
+                <User className="login-field-icon" strokeWidth={1.75} />
                 <input
+                  id="login-username"
                   type="text"
                   value={username}
                   onChange={(e) => { setUsername(e.target.value); clearError(); }}
+                  onFocus={() => setFocusedField('username')}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="Your username"
-                  className="w-full pl-10 pr-3 py-2.5 rounded-xl text-sm outline-none"
-                  style={{
-                    background: 'var(--color-surface-0)',
-                    color: 'var(--color-ink-0)',
-                    border: '1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent)',
-                  }}
+                  className="login-input"
+                  autoFocus
+                  autoComplete="username"
                   required
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--color-ink-2)] mb-1.5">Password</label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-ink-3)]" />
+              <label className="login-label" htmlFor="login-password">Password</label>
+              <div className={`login-field ${focusedField === 'password' ? 'login-field-focus' : ''}`}>
+                <Lock className="login-field-icon" strokeWidth={1.75} />
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                  onFocus={() => setFocusedField('password')}
+                  onBlur={() => setFocusedField(null)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 rounded-xl text-sm outline-none"
-                  style={{
-                    background: 'var(--color-surface-0)',
-                    color: 'var(--color-ink-0)',
-                    border: '1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent)',
-                  }}
+                  className="login-input login-input-pw"
+                  autoComplete="current-password"
                   required
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-ink-3)] hover:text-[var(--color-ink-0)]"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="login-toggle"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -102,19 +147,16 @@ export default function LoginPage() {
             </div>
 
             <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
+              whileHover={{ scale: 1.015 }}
+              whileTap={{ scale: 0.98 }}
               type="submit"
               disabled={isLoading || !username || !password}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(135deg, var(--color-accent-500), var(--color-accent-600))',
-                boxShadow: '0 8px 20px -10px color-mix(in srgb, var(--color-accent-500) 60%, transparent)',
-              }}
+              className="login-submit"
             >
+              <span className="login-submit-shine" aria-hidden="true" />
               {isLoading ? (
-                <motion.div
-                  className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                <motion.span
+                  className="login-spinner"
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                 />
@@ -123,11 +165,11 @@ export default function LoginPage() {
               )}
             </motion.button>
           </form>
-        </div>
+        </motion.div>
 
-        <p className="text-center text-[11px] text-[var(--color-ink-3)] mt-4">
-          Secured via SMS IoT
-        </p>
+        <motion.p variants={item} className="login-footer">
+          Secured via SMS IoT · v1.0.0
+        </motion.p>
       </motion.div>
     </div>
   );

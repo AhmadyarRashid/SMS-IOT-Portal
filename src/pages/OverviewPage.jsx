@@ -4,20 +4,23 @@ import { motion } from 'framer-motion';
 import {
   Building2, Zap, Bell, Activity, Sun, Moon,
   ChevronRight, AlertTriangle, Lightbulb, Unlock,
-  Thermometer, Workflow, FileDown,
+  Thermometer, FileDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
-import { useAssets, useAlarms, useRules } from '../hooks/useAssets';
+import { useAssets, useAlarms } from '../hooks/useAssets';
 import { pickGateways, pickAllDevices, pickGatewayChildren, summariseGateway } from '../utils/gateways';
 import {
   getCustomAssetType, isAssetActive, isAssetAlarming, getStateLabel,
+  getAssetDisplayName,
 } from '../utils/assetIcons';
 import useAuthStore from '../store/authStore';
+import useActivityStore from '../store/activityStore';
 import { downloadCsv } from '../utils/csv';
+import { formatRelativeTime } from '../utils/helpers';
 import { LoadingSpinner } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 
@@ -25,7 +28,6 @@ export default function OverviewPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
   const { data: allAlarms = [] } = useAlarms({});
-  const { data: rules = [] } = useRules();
   const { user } = useAuthStore();
 
   const gateways = useMemo(() => pickGateways(assets), [assets]);
@@ -54,22 +56,8 @@ export default function OverviewPage() {
     // So a door is unlocked when it is NOT active.
     const doorsUnlocked = doors.filter((d) => !isAssetActive(d, 'DoorLockAsset')).length;
 
-    const rulesActive = (rules || []).filter((r) => r.enabled).length;
-    const rulesTotal = (rules || []).length;
-
-    return { power, temp, doorsUnlocked, doorsTotal: doors.length, rulesActive, rulesTotal };
-  }, [allDevices, rules]);
-
-  // Alarm severity + pipeline status breakdowns.
-  const alarmBreakdown = useMemo(() => {
-    const bySev = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    const byStatus = { OPEN: 0, ACKNOWLEDGED: 0, IN_PROGRESS: 0, RESOLVED: 0, CLOSED: 0 };
-    for (const a of allAlarms || []) {
-      if (bySev[a.severity] !== undefined) bySev[a.severity]++;
-      if (byStatus[a.status] !== undefined) byStatus[a.status]++;
-    }
-    return { bySev, byStatus };
-  }, [allAlarms]);
+    return { power, temp, doorsUnlocked, doorsTotal: doors.length };
+  }, [allDevices]);
 
   const stats = useMemo(() => {
     const online = allDevices.filter((d) => d.attributes?.connected?.value !== false).length;
@@ -157,7 +145,7 @@ export default function OverviewPage() {
       </motion.div>
 
       {/* Live readings strip — real-time aggregates from current device state */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <ReadingTile
           icon={Zap}
           label="Power draw"
@@ -179,22 +167,17 @@ export default function OverviewPage() {
           sub={readings.doorsUnlocked > 0 ? 'Check security' : 'All locked'}
           tone={readings.doorsUnlocked > 0 ? 'warning' : 'ok'}
         />
-        <ReadingTile
-          icon={Workflow}
-          label="Automations"
-          value={readings.rulesTotal ? `${readings.rulesActive}/${readings.rulesTotal}` : '—'}
-          sub={readings.rulesTotal ? 'Active rules' : 'No rules yet'}
-          tone={readings.rulesActive ? 'accent' : 'default'}
-          href="/automations"
-        />
       </div>
 
-      {/* Alarm pipeline — OPEN → ACK → IN_PROGRESS → RESOLVED → CLOSED */}
+      {/* Alarm pipeline — OPEN → ACK → IN_PROGRESS → RESOLVED → CLOSED
+      
       <AlarmPipeline
         byStatus={alarmBreakdown.byStatus}
         bySev={alarmBreakdown.bySev}
         total={allAlarms?.length || 0}
       />
+      
+      */}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -204,7 +187,7 @@ export default function OverviewPage() {
             <p className="text-xs text-[var(--color-ink-3)] py-8 text-center">No devices yet.</p>
           ) : (
             <div className="h-60">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
                 <PieChart>
                   <Pie
                     data={typeDistribution}
@@ -237,7 +220,7 @@ export default function OverviewPage() {
           <SectionHead title="Alarms · Last 7 days"
                        subtitle={`${alarmTrend.reduce((s, d) => s + d.count, 0)} total`} />
           <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
               <BarChart data={alarmTrend}>
                 <defs>
                   <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
@@ -299,6 +282,9 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {/* Recent activity */}
+      <ActivityStrip />
+
       {/* Reports & exports */}
       <Reports alarms={allAlarms} devices={allDevices} />
 
@@ -336,7 +322,7 @@ export default function OverviewPage() {
                     <Building2 className="w-5 h-5" strokeWidth={1.75} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{g.name}</p>
+                    <p className="text-sm font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(g)}</p>
                     <p className="text-[11px] text-[var(--color-ink-2)] truncate">
                       {s.total} device{s.total === 1 ? '' : 's'} · {s.online} online
                       {s.alarming > 0 && ` · ${s.alarming} alarm`}
@@ -489,7 +475,7 @@ function LiveList({ title, icon: Icon, items, emptyLabel, accent }) {
                     <AssetGlyph customType={t} on={active} alarm={alarm} className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-[var(--color-ink-0)] truncate">{a.name}</p>
+                    <p className="text-xs font-semibold text-[var(--color-ink-0)] truncate">{getAssetDisplayName(a)}</p>
                     <p className="text-[11px] text-[var(--color-ink-2)] truncate">{getStateLabel(a, t)}</p>
                   </div>
                 </Link>
@@ -530,60 +516,33 @@ function ReadingTile({ icon: Icon, label, value, sub, tone = 'default', href }) 
   return href ? <Link to={href} className="block">{content}</Link> : content;
 }
 
-/* ---------------- Alarm pipeline ---------------- */
+/* ---------------- Activity strip ---------------- */
 
-function AlarmPipeline({ byStatus, bySev, total }) {
-  const steps = [
-    { key: 'OPEN',         label: 'Open',         tone: 'alarm' },
-    { key: 'ACKNOWLEDGED', label: 'Acknowledged', tone: 'warning' },
-    { key: 'IN_PROGRESS',  label: 'In progress',  tone: 'warning' },
-    { key: 'RESOLVED',     label: 'Resolved',     tone: 'ok' },
-    { key: 'CLOSED',       label: 'Closed',       tone: 'default' },
-  ];
-  const severities = [
-    { key: 'CRITICAL', cls: 'sev-critical' },
-    { key: 'HIGH',     cls: 'sev-high' },
-    { key: 'MEDIUM',   cls: 'sev-medium' },
-    { key: 'LOW',      cls: 'sev-low' },
-  ];
-
-  if (total === 0) return null;
-
+function ActivityStrip() {
+  const events = useActivityStore((s) => s.events);
+  const recent = events.slice(0, 5);
+  if (recent.length === 0) return null;
   return (
     <section className="panel p-5">
-      <SectionHead title="Alarm pipeline" subtitle={`${total} total alarms`}
-                   link={{ to: '/alarms', label: 'View all' }} />
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
-        {steps.map((s) => {
-          const count = byStatus[s.key] || 0;
-          const color =
-            s.tone === 'alarm'   ? 'var(--color-danger-400)' :
-            s.tone === 'warning' ? 'var(--color-warning-400)' :
-            s.tone === 'ok'      ? 'var(--color-accent-400)' :
-            'var(--color-ink-1)';
-          const bg =
-            s.tone === 'alarm'   ? 'color-mix(in srgb, var(--color-danger-500) 10%, transparent)' :
-            s.tone === 'warning' ? 'color-mix(in srgb, var(--color-warning-500) 10%, transparent)' :
-            s.tone === 'ok'      ? 'color-mix(in srgb, var(--color-accent-500) 10%, transparent)' :
-            'color-mix(in srgb, var(--color-ink-0) 4%, transparent)';
-          return (
-            <div key={s.key} className="rounded-xl px-3 py-2.5"
-                 style={{ background: bg, border: `1px solid color-mix(in srgb, ${color} 24%, transparent)` }}>
-              <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-2)]">{s.label}</p>
-              <p className="text-xl font-bold tabular-nums mt-0.5" style={{ color }}>{count}</p>
+      <SectionHead title="Recent activity" link={{ to: '/live', label: 'See all' }} />
+      <ul className="divide-y" style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
+        {recent.map((e) => (
+          <li key={e.id} className="flex items-center gap-3 py-2.5">
+            <span
+              className={`status-dot ${e.kind === 'alarm' ? 'status-dot-alarm pulse' : e.kind === 'control' ? 'status-dot-on' : 'status-dot-off'}`}
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[var(--color-ink-0)] truncate">{e.title}</p>
+              <p className="text-[11px] text-[var(--color-ink-3)] truncate">
+                {e.assetName || e.assetId || ''}
+              </p>
             </div>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <p className="text-[11px] uppercase tracking-wide text-[var(--color-ink-2)] mr-2 self-center">By severity</p>
-        {severities.map((s) => (
-          <span key={s.key} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.cls}`}>
-            {s.key}
-            <span className="font-bold tabular-nums">{bySev[s.key] || 0}</span>
-          </span>
+            <span className="text-[11px] text-[var(--color-ink-3)] whitespace-nowrap">
+              {formatRelativeTime(e.timestamp)}
+            </span>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

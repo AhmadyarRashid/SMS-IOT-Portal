@@ -1,0 +1,41 @@
+/* Live page — pulsing indicators for the "watching now" affordance. */
+
+.live-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-accent-500);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--color-accent-500) 80%, transparent);
+  position: relative;
+}
+
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+  animation: live-pulse 1.6s ease-out infinite;
+}
+
+.live-dot-sm {
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent-500) 70%, transparent);
+}
+
+.live-dot-sm::after {
+  inset: -3px;
+  border-width: 1.5px;
+}
+
+@keyframes live-pulse {
+  0%   { transform: scale(0.75); opacity: 0.85; }
+  70%  { transform: scale(1.55); opacity: 0;    }
+  100% { transform: scale(1.55); opacity: 0;    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after { animation: none; opacity: 0.4; }
+}

@@ -1,10 +1,14 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigationType } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import useAppStore from '../../store/appStore';
+import useLiveEvents from '../../hooks/useLiveEvents';
+import usePwaStore from '../../store/pwaStore';
+import CommandPalette from '../commandpalette/CommandPalette';
+import InstallPrompt from '../pwa/InstallPrompt';
 
 /**
  * Remember scroll positions per pathname. When the user navigates away we
@@ -41,6 +45,12 @@ export default function DashboardLayout() {
   const { sidebarCollapsed, theme } = useAppStore();
   const location = useLocation();
   useScrollRestoration();
+  useLiveEvents();
+
+  // Capture the PWA install prompt event globally — consumed by the floating
+  // install toast and the Settings page.
+  const registerPwaListener = usePwaStore((s) => s._registerListener);
+  useEffect(() => registerPwaListener(), [registerPwaListener]);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-surface-0)', color: 'var(--color-ink-0)' }}>
@@ -48,19 +58,23 @@ export default function DashboardLayout() {
       <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[232px]'}`}>
         <Header />
         <main className="min-h-[calc(100vh-56px)]">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          {/* Key on pathname so the page re-runs its entrance animation on
+              navigation. No AnimatePresence wrapper — `mode="wait"` would hold
+              the next page off-screen if an outgoing page had a hung exit
+              animation (notably Recharts containers during unmount), which
+              occasionally left this area blank on sidebar click. */}
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Outlet />
+          </motion.div>
         </main>
       </div>
+      <CommandPalette />
+      <InstallPrompt />
       <Toaster
         position="top-right"
         toastOptions={{

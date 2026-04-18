@@ -1,118 +1,134 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import {
+  motion, useMotionValue, useSpring, useTransform, useReducedMotion,
+} from 'framer-motion';
 import {
   Server, Zap, Thermometer, Unlock, Bell, Activity,
   ArrowRight, Wifi, WifiOff,
 } from 'lucide-react';
 import { pickGatewayChildren, summariseGateway } from '../../utils/gateways';
-import { getCustomAssetType, isAssetActive } from '../../utils/assetIcons';
+import { getCustomAssetType, isAssetActive, getAssetDisplayName } from '../../utils/assetIcons';
+import './gateway-card.css';
 
 /**
- * Rich Home Assistant-style site card. Shows:
- *   • connection dot + site name
- *   • coloured health bar (online %)
- *   • 4 live aggregate readings pulled from the site's devices
- *   • "Enter site" CTA
- *
- * Tinted by health — green/cyan when fine, red when alarms exist.
+ * Home Assistant-style site card with delight:
+ *   • 3D tilt that follows the cursor (disabled if prefers-reduced-motion)
+ *   • shine sweep on hover
+ *   • mood-keyed radial glow that slowly drifts
+ *   • spring on tap, counting-up numbers on mount
  */
 export default function GatewayCard({ gateway, assets = [] }) {
-  const children = pickGatewayChildren(assets, gateway.id);
+  const reduceMotion = useReducedMotion();
+  const cardRef = useRef(null);
+  const [hovered, setHovered] = useState(false);
+
+  // ---- Derived stats ----------------------------------------------------
+  const children = useMemo(() => pickGatewayChildren(assets, gateway.id), [assets, gateway.id]);
   const { total, online, offline, alarming } = summariseGateway(children);
   const connected = gateway.attributes?.connected?.value !== false;
 
-  // --- Live aggregates across this gateway's child devices ----------------
-  const plugs = children.filter((c) => getCustomAssetType(c) === 'PlugAsset');
-  const power = plugs.reduce((s, p) => {
-    const v = Number(p.attributes?.power?.value);
-    return Number.isFinite(v) ? s + v : s;
-  }, 0);
+  const power = useMemo(() => children
+    .filter((c) => getCustomAssetType(c) === 'PlugAsset')
+    .reduce((s, p) => {
+      const v = Number(p.attributes?.power?.value);
+      return Number.isFinite(v) ? s + v : s;
+    }, 0), [children]);
 
-  const heats = children.filter((c) => getCustomAssetType(c) === 'HeatSensorAsset');
-  const temps = heats.map((h) => Number(h.attributes?.temperature?.value)).filter(Number.isFinite);
-  const avgTemp = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
+  const avgTemp = useMemo(() => {
+    const heats = children
+      .filter((c) => getCustomAssetType(c) === 'HeatSensorAsset')
+      .map((h) => Number(h.attributes?.temperature?.value))
+      .filter(Number.isFinite);
+    return heats.length ? heats.reduce((a, b) => a + b, 0) / heats.length : null;
+  }, [children]);
 
-  const doorLocks = children.filter((c) => getCustomAssetType(c) === 'DoorLockAsset');
-  // DoorLock convention: active === true means "Locked".
-  // So a door is unlocked when it is NOT active.
+  const doorLocks = useMemo(
+    () => children.filter((c) => getCustomAssetType(c) === 'DoorLockAsset'),
+    [children],
+  );
   const doorsUnlocked = doorLocks.filter((d) => !isAssetActive(d, 'DoorLockAsset')).length;
 
-  const activeCount = children.filter((c) => {
+  const activeCount = useMemo(() => children.filter((c) => {
     const t = getCustomAssetType(c);
     if (!['LightAsset', 'PlugAsset', 'FanAsset'].includes(t)) return false;
     return isAssetActive(c, t);
-  }).length;
+  }).length, [children]);
 
-  // --- Styling keyed on health -------------------------------------------
   const healthPct = total > 0 ? Math.round((online / total) * 100) : 100;
   const mood = alarming > 0 ? 'alarm' : offline > 0 ? 'warning' : 'ok';
 
-  const moodStyles = {
-    ok: {
-      accent: 'var(--color-accent-500)',
-      accentSoft: 'color-mix(in srgb, var(--color-accent-500) 14%, transparent)',
-      border: 'color-mix(in srgb, var(--color-accent-500) 35%, transparent)',
-      barBg: 'linear-gradient(90deg, var(--color-accent-500), var(--color-accent-400))',
-      halo: 'radial-gradient(600px 160px at 0% 0%, color-mix(in srgb, var(--color-accent-500) 22%, transparent), transparent 60%)',
-      glow: '0 16px 40px -20px color-mix(in srgb, var(--color-accent-500) 55%, transparent)',
-    },
-    warning: {
-      accent: 'var(--color-warning-500)',
-      accentSoft: 'color-mix(in srgb, var(--color-warning-500) 16%, transparent)',
-      border: 'color-mix(in srgb, var(--color-warning-500) 40%, transparent)',
-      barBg: 'linear-gradient(90deg, var(--color-warning-500), var(--color-warning-400))',
-      halo: 'radial-gradient(600px 160px at 0% 0%, color-mix(in srgb, var(--color-warning-500) 22%, transparent), transparent 60%)',
-      glow: '0 16px 40px -20px color-mix(in srgb, var(--color-warning-500) 45%, transparent)',
-    },
-    alarm: {
-      accent: 'var(--color-danger-500)',
-      accentSoft: 'color-mix(in srgb, var(--color-danger-500) 18%, transparent)',
-      border: 'color-mix(in srgb, var(--color-danger-500) 50%, transparent)',
-      barBg: 'linear-gradient(90deg, var(--color-danger-500), var(--color-danger-400))',
-      halo: 'radial-gradient(600px 160px at 0% 0%, color-mix(in srgb, var(--color-danger-500) 26%, transparent), transparent 60%)',
-      glow: '0 16px 40px -20px color-mix(in srgb, var(--color-danger-500) 55%, transparent)',
-    },
-  }[mood];
+  // ---- 3D tilt (mouse-follow) -------------------------------------------
+  const mx = useMotionValue(0.5);
+  const my = useMotionValue(0.5);
+  const rotateX = useSpring(useTransform(my, [0, 1], [8, -8]), { stiffness: 180, damping: 18 });
+  const rotateY = useSpring(useTransform(mx, [0, 1], [-10, 10]), { stiffness: 180, damping: 18 });
+
+  const shineX = useTransform(mx, [0, 1], ['0%', '100%']);
+  const shineY = useTransform(my, [0, 1], ['0%', '100%']);
+
+  const onMove = (e) => {
+    if (reduceMotion || !cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    mx.set((e.clientX - rect.left) / rect.width);
+    my.set((e.clientY - rect.top) / rect.height);
+  };
+
+  const onLeave = () => {
+    setHovered(false);
+    mx.set(0.5);
+    my.set(0.5);
+  };
 
   return (
-    <motion.div whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 320, damping: 22 }}>
+    <motion.div
+      ref={cardRef}
+      data-mood={mood}
+      className="gw-card-wrap"
+      style={reduceMotion ? undefined : { rotateX, rotateY, transformPerspective: 1100 }}
+      onMouseMove={onMove}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={onLeave}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+    >
       <Link
         to={`/g/${gateway.id}`}
-        className="block relative overflow-hidden rounded-[var(--radius-card)] border transition-colors h-full"
-        style={{
-          background: `${moodStyles.halo}, var(--color-surface-1)`,
-          borderColor: moodStyles.border,
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = moodStyles.glow; }}
-        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = ''; }}
+        className={`gw-card gw-card-${mood}`}
+        aria-label={`Open ${getAssetDisplayName(gateway)}`}
       >
-        {/* Top-right live indicator */}
-        {activeCount > 0 && (
-          <div className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
-               style={{
-                 background: 'color-mix(in srgb, var(--color-accent-500) 18%, transparent)',
-                 color: 'var(--color-accent-400)',
-               }}>
-            <span className="status-dot status-dot-on pulse" />
-            {activeCount} live
-          </div>
-        )}
+        {/* Drifting mood halo */}
+        <span className="gw-card-halo" aria-hidden="true" />
 
-        <div className="p-5">
-          {/* Header — icon + name + connection */}
-          <div className="flex items-start gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
-                 style={{ background: moodStyles.accentSoft, color: moodStyles.accent }}>
+        {/* Shine sweep — follows cursor, only visible on hover */}
+        <motion.span
+          className="gw-card-shine"
+          aria-hidden="true"
+          style={{
+            opacity: hovered && !reduceMotion ? 1 : 0,
+            background: `radial-gradient(320px circle at ${shineX.get()} ${shineY.get()},
+              color-mix(in srgb, #fff 14%, transparent), transparent 60%)`,
+          }}
+        />
+
+        <div className="gw-card-body">
+          {/* Header */}
+          <div className="flex items-start gap-3">
+            <motion.div
+              whileHover={reduceMotion ? {} : { rotate: [0, -6, 6, 0] }}
+              transition={{ duration: 0.6 }}
+              className="gw-card-badge"
+            >
               <Server className="w-6 h-6" strokeWidth={1.75} />
-            </div>
+            </motion.div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-bold text-[var(--color-ink-0)] truncate leading-tight">
-                {gateway.name}
+              <h3 className="text-[19px] font-bold text-[var(--color-ink-0)] truncate leading-tight">
+                {getAssetDisplayName(gateway)}
               </h3>
-              <p className="text-xs text-[var(--color-ink-2)] mt-0.5 flex items-center gap-1.5">
+              <p className="text-xs text-[var(--color-ink-2)] mt-1 flex items-center gap-1.5">
                 {connected ? (
                   <>
-                    <Wifi className="w-3 h-3" style={{ color: moodStyles.accent }} />
+                    <Wifi className="w-3 h-3 gw-accent" />
                     <span>Connected</span>
                   </>
                 ) : (
@@ -127,29 +143,32 @@ export default function GatewayCard({ gateway, assets = [] }) {
             </div>
           </div>
 
-          {/* Health bar */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between text-[11px] mb-1.5">
-              <span className="text-[var(--color-ink-2)] uppercase tracking-wide font-medium">Online</span>
-              <span className="font-bold tabular-nums" style={{ color: moodStyles.accent }}>
-                {healthPct}%
-                <span className="ml-1 text-[var(--color-ink-3)] font-normal">({online}/{total})</span>
+          {/* Health */}
+          <div className="mt-5">
+            <div className="flex items-end justify-between mb-2">
+              <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--color-ink-2)] font-semibold">
+                Online
               </span>
+              <div className="flex items-baseline gap-1.5">
+                <CountUp to={healthPct} duration={0.9} className="gw-big-number" />
+                <span className="text-base gw-accent font-bold">%</span>
+                <span className="text-[11px] text-[var(--color-ink-3)] ml-1 tabular-nums">
+                  {online}/{total}
+                </span>
+              </div>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden"
-                 style={{ background: 'color-mix(in srgb, var(--color-ink-0) 8%, transparent)' }}>
+            <div className="gw-health-track">
               <motion.div
+                className={`gw-health-fill ${mood === 'alarm' ? 'gw-health-pulse' : ''}`}
                 initial={{ width: 0 }}
                 animate={{ width: `${healthPct}%` }}
-                transition={{ duration: 0.8, ease: 'easeOut' }}
-                className="h-full rounded-full"
-                style={{ background: moodStyles.barBg }}
+                transition={{ duration: 0.9, ease: [0.2, 0.8, 0.2, 1] }}
               />
             </div>
           </div>
 
-          {/* Live readings grid */}
-          <div className="grid grid-cols-4 gap-2 mb-5">
+          {/* Readings */}
+          <div className="grid grid-cols-4 gap-2 mt-5">
             <Reading icon={Zap}         value={power > 0 ? `${power.toFixed(0)}W` : '—'} label="Power" />
             <Reading icon={Thermometer} value={avgTemp != null ? `${avgTemp.toFixed(1)}°` : '—'} label="Temp" />
             <Reading icon={Unlock}      value={doorLocks.length ? `${doorsUnlocked}/${doorLocks.length}` : '—'} label="Doors" tone={doorsUnlocked > 0 ? 'warning' : 'default'} />
@@ -157,17 +176,19 @@ export default function GatewayCard({ gateway, assets = [] }) {
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between pt-3 border-t"
-               style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
+          <div className="gw-card-footer">
             <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-ink-2)]">
               <Activity className="w-3 h-3" />
               {activeCount > 0 ? `${activeCount} device${activeCount === 1 ? '' : 's'} active` : 'All quiet'}
             </span>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold"
-                  style={{ color: moodStyles.accent }}>
+            <motion.span
+              animate={hovered && !reduceMotion ? { x: 4 } : { x: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+              className="inline-flex items-center gap-1 text-xs font-semibold gw-accent"
+            >
               Enter site
               <ArrowRight className="w-3.5 h-3.5" />
-            </span>
+            </motion.span>
           </div>
         </div>
       </Link>
@@ -175,16 +196,41 @@ export default function GatewayCard({ gateway, assets = [] }) {
   );
 }
 
+/* ---------- Counting-up number on mount ---------- */
+
+function CountUp({ to, duration = 0.8, className = '' }) {
+  const reduceMotion = useReducedMotion();
+  const [v, setV] = useState(reduceMotion ? to : 0);
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const start = performance.now();
+    let frame;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / (duration * 1000));
+      const eased = 1 - Math.pow(1 - t, 3);
+      setV(Math.round(to * eased));
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [to, duration, reduceMotion]);
+
+  return <span className={`tabular-nums ${className}`}>{reduceMotion ? to : v}</span>;
+}
+
+/* ---------- Reading tile ---------- */
+
 function Reading({ icon: Icon, value, label, tone = 'default' }) {
-  const color =
-    tone === 'alarm'   ? 'var(--color-danger-400)' :
-    tone === 'warning' ? 'var(--color-warning-400)' :
-    'var(--color-ink-1)';
+  const toneClass =
+    tone === 'alarm'   ? 'text-[var(--color-danger-400)]' :
+    tone === 'warning' ? 'text-[var(--color-warning-400)]' :
+    'text-[var(--color-ink-0)]';
+
   return (
-    <div className="rounded-xl p-2 text-center"
-         style={{ background: 'color-mix(in srgb, var(--color-ink-0) 4%, transparent)' }}>
-      <Icon className="w-3.5 h-3.5 mx-auto mb-1" style={{ color: 'var(--color-ink-2)' }} strokeWidth={1.75} />
-      <p className="text-sm font-bold tabular-nums" style={{ color }}>{value}</p>
+    <div className="gw-reading">
+      <Icon className="w-3.5 h-3.5 mx-auto mb-1 text-[var(--color-ink-2)]" strokeWidth={1.75} />
+      <p className={`text-sm font-bold tabular-nums ${toneClass}`}>{value}</p>
       <p className="text-[9px] uppercase tracking-wider text-[var(--color-ink-3)]">{label}</p>
     </div>
   );

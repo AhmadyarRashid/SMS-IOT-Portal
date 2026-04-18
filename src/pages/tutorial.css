@@ -1,0 +1,324 @@
+/* ==========================================================================
+   Tutorial page — illustrated cards with click-to-expand detail.
+   Illustrations share a small token palette exposed via CSS custom props so
+   every scene reacts to theme and mood (done/not done) consistently.
+   ========================================================================== */
+
+.tut-scene {
+  --tut-accent: var(--color-accent-500);
+  --tut-danger: var(--color-danger-500);
+  --tut-bg: var(--color-surface-1);
+  --tut-ink: var(--color-ink-0);
+  --tut-stroke: color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+  --tut-fill-soft: color-mix(in srgb, var(--color-accent-500) 8%, transparent);
+
+  width: 100%;
+  aspect-ratio: 16 / 11;
+  display: block;
+  border-radius: 16px;
+  background:
+    radial-gradient(110% 80% at 50% 0%,
+      color-mix(in srgb, var(--color-accent-500) 14%, transparent) 0%,
+      transparent 70%),
+    var(--color-surface-2);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  overflow: hidden;
+}
+
+.tut-scene svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Completed cards desaturate the illustration so the gallery visually
+   conveys progress without needing copy. */
+.tut-scene-done {
+  --tut-accent: var(--color-ok-500);
+  background:
+    radial-gradient(110% 80% at 50% 0%,
+      color-mix(in srgb, var(--color-ok-500) 12%, transparent) 0%,
+      transparent 70%),
+    var(--color-surface-2);
+}
+
+/* ---------------------- Shared SVG animation kit ---------------------- */
+
+.tut-pulse-dot {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: tut-pulse 1.9s ease-in-out infinite;
+}
+@keyframes tut-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%      { transform: scale(1.4); opacity: 0.65; }
+}
+
+.tut-pulse-ring {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: tut-pulse-ring 1.9s ease-out infinite;
+}
+@keyframes tut-pulse-ring {
+  0%   { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+/* Radar rings (Sites scene) */
+.tut-ring {
+  transform-origin: 80px 70px;
+  animation: tut-ring-grow 3.4s ease-out infinite;
+  opacity: 0;
+}
+.tut-ring-1 { animation-delay: 0s; }
+.tut-ring-2 { animation-delay: 1.1s; }
+.tut-ring-3 { animation-delay: 2.2s; }
+@keyframes tut-ring-grow {
+  0%   { transform: scale(0.35); opacity: 0.8; }
+  70%  { opacity: 0; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+
+/* Power ring glow (Devices scene) */
+.tut-power-glow {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: tut-power 2.4s ease-in-out infinite;
+}
+@keyframes tut-power {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+.tut-tap-dot {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: tut-pulse 1.6s ease-in-out infinite;
+}
+.tut-tap-ring {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: tut-tap 1.6s ease-out infinite;
+  opacity: 0;
+}
+.tut-tap-ring-1 { animation-delay: 0s; }
+.tut-tap-ring-2 { animation-delay: 0.4s; }
+@keyframes tut-tap {
+  0%   { transform: scale(0.6); opacity: 0.75; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* Quick-access lifted tile */
+.tut-lift {
+  transform-origin: 51px 78px;
+  animation: tut-lift 3.2s ease-in-out infinite;
+}
+@keyframes tut-lift {
+  0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+  50%      { transform: translate(4px, -6px) rotate(2deg); }
+}
+
+/* History line drawing */
+.tut-draw-path {
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  animation: tut-draw 3s ease-in-out infinite;
+}
+@keyframes tut-draw {
+  0%   { stroke-dashoffset: 260; }
+  45%  { stroke-dashoffset: 0; }
+  70%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -260; }
+}
+
+/* Alarms breathing rings */
+.tut-alarm-ring {
+  transform-origin: 80px 55px;
+  animation: tut-alarm-breathe 2.2s ease-in-out infinite;
+}
+.tut-alarm-ring-1 { animation-delay: 0s; }
+.tut-alarm-ring-2 { animation-delay: 0.6s; }
+@keyframes tut-alarm-breathe {
+  0%, 100% { transform: scale(0.85); opacity: 0.35; }
+  50%      { transform: scale(1);    opacity: 0.85; }
+}
+
+/* Map pin drop */
+.tut-pin-drop {
+  transform-origin: 80px 66px;
+  animation: tut-pin 2.6s ease-in-out infinite;
+}
+@keyframes tut-pin {
+  0%   { transform: translateY(-20px); opacity: 0; }
+  30%  { transform: translateY(0);     opacity: 1; }
+  70%  { transform: translateY(0);     opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+.tut-pin-shadow {
+  transform-origin: 80px 80px;
+  animation: tut-pin-shadow 2.6s ease-in-out infinite;
+}
+@keyframes tut-pin-shadow {
+  0%   { transform: scale(0.4); opacity: 0; }
+  30%  { transform: scale(1);   opacity: 0.6; }
+  70%  { transform: scale(1);   opacity: 0.6; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+
+/* Live — heartbeat path drawing and scan cursor */
+.tut-heartbeat {
+  stroke-dasharray: 320;
+  stroke-dashoffset: 320;
+  animation: tut-heartbeat-draw 2.4s ease-in-out infinite;
+}
+@keyframes tut-heartbeat-draw {
+  0%   { stroke-dashoffset: 320; }
+  55%  { stroke-dashoffset: 0; }
+  80%  { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: -320; opacity: 0.4; }
+}
+
+.tut-scan {
+  transform-origin: 150px 55px;
+  transform-box: fill-box;
+}
+
+/* Command — keycap press */
+.tut-key {
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.tut-key-a { animation: tut-key-press 2.4s ease-in-out infinite; }
+.tut-key-b { animation: tut-key-press 2.4s ease-in-out 0.3s infinite; }
+
+@keyframes tut-key-press {
+  0%, 60%, 100% { transform: translateY(0);    filter: brightness(1); }
+  20%           { transform: translateY(2px);  filter: brightness(1.2); }
+}
+
+.tut-caret {
+  animation: tut-caret-blink 1.1s steps(2, jump-none) infinite;
+}
+@keyframes tut-caret-blink {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Settings slider thumb */
+.tut-slider-thumb {
+  animation: tut-thumb 3.8s ease-in-out infinite;
+}
+@keyframes tut-thumb {
+  0%, 100% { transform: translateX(-18px); }
+  50%      { transform: translateX(48px); }
+}
+.tut-slider-fill {
+  transform-origin: 22px 55px;
+  animation: tut-slider-fill 3.8s ease-in-out infinite;
+}
+@keyframes tut-slider-fill {
+  0%, 100% { transform: scaleX(0.65); }
+  50%      { transform: scaleX(1.4); }
+}
+
+/* ---------------------- Card shell ---------------------- */
+
+.tut-card {
+  position: relative;
+  padding: 14px;
+  border-radius: var(--radius-card);
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  cursor: pointer;
+  transition:
+    transform 240ms cubic-bezier(.2, .8, .2, 1),
+    box-shadow 240ms cubic-bezier(.2, .8, .2, 1),
+    border-color 240ms ease;
+  outline: none;
+}
+
+.tut-card:hover,
+.tut-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--color-accent-500) 32%, transparent);
+  box-shadow: 0 18px 40px -22px color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+}
+
+.tut-card-open {
+  border-color: color-mix(in srgb, var(--color-accent-500) 40%, transparent);
+  box-shadow: 0 22px 50px -22px color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+}
+
+.tut-card-done {
+  border-color: color-mix(in srgb, var(--color-ok-500) 28%, transparent);
+}
+
+.tut-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--color-ok-400);
+  background: color-mix(in srgb, var(--color-ok-500) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ok-500) 35%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.tut-card-art {
+  margin-bottom: 14px;
+}
+
+.tut-card-meta {
+  padding: 0 2px 2px;
+}
+
+.tut-info-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--color-ink-2);
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  transition: color 160ms ease, background 160ms ease, transform 120ms ease;
+}
+.tut-info-btn:hover {
+  color: var(--color-accent-400);
+  background: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 30%, transparent);
+  transform: scale(1.05);
+}
+
+/* ---------------------- Reduced motion ---------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tut-pulse-dot,
+  .tut-pulse-ring,
+  .tut-ring,
+  .tut-power-glow,
+  .tut-tap-dot,
+  .tut-tap-ring,
+  .tut-lift,
+  .tut-draw-path,
+  .tut-alarm-ring,
+  .tut-pin-drop,
+  .tut-pin-shadow,
+  .tut-slider-thumb,
+  .tut-slider-fill,
+  .tut-heartbeat,
+  .tut-key-a,
+  .tut-key-b,
+  .tut-caret {
+    animation: none !important;
+  }
+  .tut-card:hover,
+  .tut-card:focus-visible {
+    transform: none;
+  }
+}

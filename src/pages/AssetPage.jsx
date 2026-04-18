@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 import {
   ArrowLeft, Gauge, SlidersHorizontal, LineChart as LineIcon, Bell, Info, Power,
+  Pencil, Check, X as XIcon,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Area, AreaChart,
@@ -16,10 +18,12 @@ import {
   getCustomAssetType, getAssetTypeLabel, isAssetActive, isAssetAlarming,
   getPrimaryControlAttr, getPrimaryReadingAttr, getStateLabel,
   nextToggleValue, CONTROLLABLE_TYPES,
+  getAssetDisplayName, DISPLAY_NAME_ATTR, canRenameAsset,
 } from '../utils/assetIcons';
 import { formatRelativeTime, getTimeRanges } from '../utils/helpers';
-import { LoadingSpinner, EmptyState } from '../components/ui';
+import { LoadingSpinner, EmptyState, Tip, Skeleton } from '../components/ui';
 import AssetGlyph from '../components/tiles/AssetGlyph';
+import './asset-detail.css';
 
 const TABS = [
   { id: 'state',    label: 'State',    icon: Gauge },
@@ -36,9 +40,23 @@ export default function AssetPage() {
 
   const gateway = useMemo(() => findGatewayForAsset(asset, gateways), [asset, gateways]);
   const backTo = gateway ? `/g/${gateway.id}` : '/sites';
+  const isControllable = asset
+    ? CONTROLLABLE_TYPES.includes(getCustomAssetType(asset))
+    : false;
 
   if (isLoading) {
-    return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
+    return (
+      <div className="p-4 md:p-6 max-w-[1100px] mx-auto space-y-5">
+        <Skeleton.Box h={12} w={80} rounded={4} />
+        <Skeleton.Hero />
+        <Skeleton.Box h={52} w={380} rounded={14} />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton.Box key={i} h={88} rounded={16} />
+          ))}
+        </div>
+      </div>
+    );
   }
   if (!asset) {
     return (
@@ -60,38 +78,44 @@ export default function AssetPage() {
         className="inline-flex items-center gap-1.5 text-xs text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        {gateway ? `Back to ${gateway.name}` : 'Back to sites'}
+        {gateway ? `Back to ${getAssetDisplayName(gateway)}` : 'Back to sites'}
       </Link>
 
-      <Hero asset={asset} />
+      <Hero asset={asset} gateway={gateway} />
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b overflow-x-auto no-scrollbar"
-           style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 8%, transparent)' }}>
+      <PrimaryControlPanel asset={asset} />
+
+      {isControllable && (
+        <Tip id="asset-icon-tap" title="Quick tip">
+          Tap the big circular icon above to toggle this device. Sensors and cameras open this
+          same view but are read-only.
+        </Tip>
+      )}
+
+      {/* Pill tabs */}
+      <div className="ad-tabs no-scrollbar">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap
-                ${active ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]'}`}
+              className={`ad-tab ${active ? 'ad-tab-active' : ''}`}
+              aria-pressed={active}
             >
               <t.icon className="w-4 h-4" strokeWidth={1.75} />
-              {t.label}
-              {active && <span className="absolute -bottom-px left-3 right-3 h-0.5 rounded bg-[var(--color-accent-500)]" />}
+              <span>{t.label}</span>
             </button>
           );
         })}
       </div>
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         <motion.div
           key={tab}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.18 }}
         >
           {tab === 'state'    && <StateTab asset={asset} />}
           {tab === 'controls' && <ControlsTab asset={asset} />}
@@ -105,7 +129,7 @@ export default function AssetPage() {
 
 /* ---------------- Hero ---------------- */
 
-function Hero({ asset }) {
+function Hero({ asset, gateway }) {
   const customType = getCustomAssetType(asset);
   const active = isAssetActive(asset, customType);
   const alarm = isAssetAlarming(asset, customType);
@@ -114,7 +138,8 @@ function Hero({ asset }) {
   const primaryAttr = getPrimaryControlAttr(asset, customType);
   const write = useWriteAttribute();
 
-  const tone = alarm ? 'alarm' : active ? 'on' : 'off';
+  const mood = alarm ? 'alarm' : active ? 'on' : 'off';
+  const tone = mood;
 
   const handleIconClick = () => {
     if (!controllable || !primaryAttr) return;
@@ -125,27 +150,51 @@ function Hero({ asset }) {
     });
   };
 
-  const bgStyle = alarm
-    ? {
-        background: 'radial-gradient(60% 80% at 50% 20%, color-mix(in srgb, var(--color-danger-500) 22%, transparent), transparent 70%), var(--color-surface-1)',
-        borderColor: 'color-mix(in srgb, var(--color-danger-500) 40%, transparent)',
-      }
-    : active
-      ? {
-          background: 'radial-gradient(60% 80% at 50% 20%, color-mix(in srgb, var(--color-accent-500) 22%, transparent), transparent 70%), var(--color-surface-1)',
-          borderColor: 'color-mix(in srgb, var(--color-accent-500) 40%, transparent)',
-          boxShadow: '0 0 0 1px color-mix(in srgb, var(--color-accent-500) 15%, transparent), 0 16px 48px -20px color-mix(in srgb, var(--color-accent-500) 55%, transparent)',
-        }
-      : {};
+  const connected = asset.attributes?.connected?.value !== false;
+  // Last-updated = most recent timestamp across all attributes.
+  const lastUpdated = useMemo(() => {
+    const ts = Object.values(asset.attributes || {})
+      .map((a) => a?.timestamp)
+      .filter((t) => Number.isFinite(t));
+    return ts.length ? Math.max(...ts) : null;
+  }, [asset.attributes]);
 
   return (
-    <div className="panel px-6 py-8 text-center relative overflow-hidden" style={bgStyle}>
-      <p className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-2)] mb-4">
-        {getAssetTypeLabel(customType)}
-      </p>
+    <div className={`ad-hero ad-hero-${mood}`} data-mood={mood}>
+      {/* Drifting mood halo */}
+      <span className="ad-hero-halo" aria-hidden="true" />
+
+      {/* Info strip — type · connection · updated · site */}
+      <div className="ad-hero-strip">
+        <span className="ad-hero-type">{getAssetTypeLabel(customType)}</span>
+        <span className="ad-hero-sep">·</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className={`status-dot ${connected ? 'status-dot-on' : 'status-dot-off'}`} />
+          <span className={connected ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-3)]'}>
+            {connected ? 'Connected' : 'Offline'}
+          </span>
+        </span>
+        {lastUpdated && (
+          <>
+            <span className="ad-hero-sep">·</span>
+            <span className="text-[var(--color-ink-2)]">Updated {formatRelativeTime(lastUpdated)}</span>
+          </>
+        )}
+        {gateway && (
+          <>
+            <span className="ad-hero-sep">·</span>
+            <Link
+              to={`/g/${gateway.id}`}
+              className="text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)] transition-colors truncate max-w-[160px]"
+            >
+              {getAssetDisplayName(gateway)}
+            </Link>
+          </>
+        )}
+      </div>
 
       {/* Big clickable icon — primary control for controllable devices */}
-      <div className="flex justify-center mb-5">
+      <div className="flex justify-center my-5">
         <motion.button
           onClick={handleIconClick}
           disabled={!controllable || write.isPending}
@@ -153,7 +202,7 @@ function Hero({ asset }) {
           whileTap={controllable ? { scale: 0.94 } : {}}
           transition={{ type: 'spring', stiffness: 340, damping: 20 }}
           className={`ha-hero-icon ha-hero-icon-${tone} ${controllable ? 'ha-hero-icon-btn' : ''}`}
-          aria-label={controllable ? `Toggle ${asset.name}` : asset.name}
+          aria-label={controllable ? `Toggle ${getAssetDisplayName(asset)}` : getAssetDisplayName(asset)}
           aria-pressed={controllable ? active : undefined}
         >
           <motion.div
@@ -175,20 +224,222 @@ function Hero({ asset }) {
         </motion.button>
       </div>
 
-      <h1 className="text-2xl font-bold text-[var(--color-ink-0)]">{asset.name}</h1>
-      <p className={`mt-1.5 text-base font-semibold ${
-        alarm ? 'text-[var(--color-danger-400)]'
-          : active ? 'text-[var(--color-accent-400)]'
-          : 'text-[var(--color-ink-2)]'
-      }`}>
+      <EditableName asset={asset} />
+      <motion.p
+        key={label}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className={`ad-hero-state ${
+          alarm ? 'ad-hero-state-alarm'
+            : active ? 'ad-hero-state-on'
+            : 'ad-hero-state-off'
+        }`}
+      >
         {label}
-      </p>
+      </motion.p>
 
       {controllable && primaryAttr && (
-        <p className="mt-3 text-[11px] text-[var(--color-ink-3)] inline-flex items-center gap-1.5">
-          <Power className="w-3 h-3" /> Tap the icon to turn {active ? 'off' : 'on'}
-        </p>
+        <div className="mt-3 flex justify-center">
+          <span className="ad-hero-hint">
+            <Power className="w-3 h-3" />
+            Tap the icon to turn {active ? 'off' : 'on'}
+          </span>
+        </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------- Editable name ----------------
+ * Inline-rename UI on the hero. Writes the chosen name to the standard OR
+ * `notes` attribute via useWriteAttribute — already optimistically patched
+ * into the React Query cache, so every tile / card / search result that
+ * uses getAssetDisplayName() re-renders instantly with the new label. Name
+ * persists server-side, so it syncs across every browser the user signs
+ * in from.
+ *
+ * The underlying asset.name is never mutated — that endpoint needs admin
+ * permission this portal doesn't have (and shouldn't need).
+ */
+function EditableName({ asset }) {
+  const currentName = getAssetDisplayName(asset);
+  const renameable = canRenameAsset(asset);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentName);
+  const inputRef = useRef(null);
+  const write = useWriteAttribute();
+
+  // Asset types where the backend reuses `notes` for structured data (see
+  // NOTES_USED_FOR_DATA in assetIcons.js) — we show the server name without
+  // any edit affordance so we can't accidentally overwrite real data.
+  if (!renameable) {
+    return <h1 className="ad-hero-name">{currentName}</h1>;
+  }
+
+  const start = () => {
+    setDraft(currentName);
+    setEditing(true);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setDraft(currentName);
+  };
+
+  const save = () => {
+    const next = draft.trim();
+    if (!next || next === currentName) {
+      cancel();
+      return;
+    }
+    write.mutate({
+      assetId: asset.id,
+      attributeName: DISPLAY_NAME_ATTR,
+      value: next,
+    }, {
+      onSuccess: () => toast.success('Name saved'),
+    });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="ad-hero-name-edit">
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+          }}
+          maxLength={120}
+          className="ad-hero-name-input"
+          aria-label="Edit device name"
+        />
+        <button
+          onClick={save}
+          disabled={write.isPending}
+          aria-label="Save name"
+          className="ad-name-btn ad-name-btn-ok"
+        >
+          <Check className="w-4 h-4" strokeWidth={2.25} />
+        </button>
+        <button
+          onClick={cancel}
+          disabled={write.isPending}
+          aria-label="Cancel"
+          className="ad-name-btn"
+        >
+          <XIcon className="w-4 h-4" strokeWidth={2.25} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ad-hero-name-wrap">
+      <h1 className="ad-hero-name">{currentName}</h1>
+      <button
+        onClick={start}
+        aria-label="Edit device name"
+        title="Rename"
+        className="ad-name-btn ad-name-btn-ghost"
+      >
+        <Pencil className="w-3.5 h-3.5" strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
+
+/* ---------------- Primary control panel ----------------
+ * Renders inline below the hero for the most common secondary actions:
+ *   LightAsset.brightness → slider
+ *   FanAsset.speed        → slider
+ * Everything else returns null (hero's tap is the full control). The
+ * Controls tab still exposes every writable attribute — this panel is
+ * purely a shortcut for the 80% case.
+ */
+const PRIMARY_SLIDER_ATTR = {
+  LightAsset: ['brightness', 'level'],
+  FanAsset:   ['speed', 'Fan_speed', 'fanSpeed'],
+};
+
+function firstNumericAttr(attrs, candidates) {
+  for (const name of candidates) {
+    const a = attrs?.[name];
+    if (a && typeof a.value === 'number') return [name, a];
+  }
+  return null;
+}
+
+function PrimaryControlPanel({ asset }) {
+  const customType = getCustomAssetType(asset);
+  const candidates = PRIMARY_SLIDER_ATTR[customType];
+  if (!candidates) return null;
+  const match = firstNumericAttr(asset.attributes, candidates);
+  if (!match) return null;
+  const [attrName, attr] = match;
+  return (
+    <div className="panel p-4 flex items-center gap-4">
+      <div className="flex-1 min-w-0">
+        <PrimarySlider
+          assetId={asset.id}
+          attrName={attrName}
+          attr={attr}
+          label={attrName === 'brightness' ? 'Brightness' : attrName === 'level' ? 'Level' : 'Speed'}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Slider that commits on release (mouseup / touchend / keyboard change-end)
+ * and otherwise shows the server value. Pattern avoids setState-in-effect
+ * cascade by using a nullable `draft` instead of syncing server → local.
+ */
+function PrimarySlider({ assetId, attrName, attr, label }) {
+  const write = useWriteAttribute();
+  const [draft, setDraft] = useState(null);
+  const { min = 0, max = 100, unit = '' } = attr?.meta || {};
+  const serverValue = Number(attr?.value) || 0;
+  const displayValue = draft ?? serverValue;
+
+  const commit = () => {
+    if (draft !== null && draft !== serverValue) {
+      write.mutate({ assetId, attributeName: attrName, value: draft });
+    }
+    setDraft(null);
+  };
+
+  return (
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="text-[13px] font-semibold text-[var(--color-ink-1)]">{label}</p>
+        <p className="text-[18px] font-bold text-[var(--color-accent-400)] tabular-nums">
+          {displayValue}{unit}
+        </p>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={displayValue}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onMouseUp={commit}
+        onTouchEnd={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+        className="ha-slider w-full"
+        aria-label={label}
+      />
     </div>
   );
 }
@@ -210,31 +461,71 @@ function StateTab({ asset }) {
     return <EmptyState title="No attributes" message="This device has no reportable state." icon={Gauge} />;
   }
 
+  // Feature the primary reading first, rest follow.
+  const primaryEntry = entries.find(([n]) => n === primaryReading);
+  const restEntries = entries.filter(([n]) => n !== primaryReading);
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {entries.map(([name, attr]) => {
-        const isPrimary = name === primaryReading;
-        return (
-          <div
-            key={name}
-            className="tile"
-            style={isPrimary ? {
-              background: 'linear-gradient(135deg, color-mix(in srgb, var(--color-accent-500) 14%, var(--color-surface-1)) 0%, var(--color-surface-1) 100%)',
-              borderColor: 'color-mix(in srgb, var(--color-accent-500) 35%, transparent)',
-            } : {}}
-          >
-            <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-2)]">{prettyName(name)}</p>
-            <p className={`mt-1.5 break-all ${isPrimary ? 'text-3xl font-bold text-[var(--color-accent-400)]' : 'text-lg font-semibold text-[var(--color-ink-0)]'}`}>
-              {renderValue(attr.value, name)}
-            </p>
-            {attr.timestamp && (
-              <p className="text-[11px] text-[var(--color-ink-3)] mt-1.5">
-                {formatRelativeTime(attr.timestamp)}
-              </p>
-            )}
-          </div>
-        );
-      })}
+    <div className="space-y-3">
+      {primaryEntry && (
+        <FeatureTile name={primaryEntry[0]} attr={primaryEntry[1]} />
+      )}
+      {restEntries.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {restEntries.map(([name, attr]) => (
+            <AttrTile key={name} name={name} attr={attr} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeatureTile({ name, attr }) {
+  const unit = attr?.meta?.unit || '';
+  const displayValue = renderValue(attr.value, name);
+  // Split value and unit when the value already includes the unit
+  const numeric = typeof attr.value === 'number' ? attr.value : null;
+  return (
+    <div className="ad-feature">
+      <div className="ad-feature-accent" aria-hidden="true" />
+      <div className="relative z-[1]">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-ink-2)] font-semibold">
+          {prettyName(name)}
+        </p>
+        <div className="mt-2 flex items-end gap-2">
+          <p className="ad-feature-value">
+            {numeric != null ? numeric.toLocaleString(undefined, { maximumFractionDigits: 2 }) : displayValue}
+          </p>
+          {numeric != null && unit && <span className="ad-feature-unit">{unit}</span>}
+        </div>
+        {attr.timestamp && (
+          <p className="text-[11px] text-[var(--color-ink-3)] mt-2 inline-flex items-center gap-1.5">
+            <span className="status-dot status-dot-on" style={{ width: 6, height: 6 }} />
+            {formatRelativeTime(attr.timestamp)}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AttrTile({ name, attr }) {
+  const unit = attr?.meta?.unit || '';
+  const display = renderValue(attr.value, name);
+  return (
+    <div className="ad-attr-tile">
+      <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-3)] font-medium truncate">
+        {prettyName(name)}
+      </p>
+      <p className="mt-1.5 text-[17px] font-bold text-[var(--color-ink-0)] leading-tight break-all">
+        {display}{typeof attr.value === 'number' && unit ? ` ${unit}` : ''}
+      </p>
+      {attr.timestamp && (
+        <p className="text-[10px] text-[var(--color-ink-3)] mt-1.5">
+          {formatRelativeTime(attr.timestamp)}
+        </p>
+      )}
     </div>
   );
 }
@@ -421,7 +712,7 @@ function HistoryTab({ asset }) {
         <EmptyState title="No data in this range" message="Try a wider time window — this attribute may not have any stored datapoints yet." icon={LineIcon} />
       ) : (
         <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
             <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">

@@ -1,0 +1,148 @@
+/* ==========================================================================
+   /sites page visuals — ambient background, FAB ring, empty-state radar.
+   All motion respects prefers-reduced-motion.
+   ========================================================================== */
+
+/* ---- Ambient drifting blobs behind the page content ------------------- */
+.sites-ambient {
+  position: absolute;
+  inset: -10% -5% auto -5%;
+  height: 520px;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.sites-blob {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.55;
+  will-change: transform;
+}
+
+.sites-blob-a {
+  width: 620px;
+  height: 620px;
+  top: -220px;
+  left: -120px;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--color-accent-500) 55%, transparent) 0%,
+    transparent 70%);
+  animation: sites-drift-a 42s ease-in-out infinite;
+}
+
+.sites-blob-b {
+  width: 520px;
+  height: 520px;
+  top: -80px;
+  right: -180px;
+  background: radial-gradient(circle,
+    color-mix(in srgb, var(--color-brand-700) 60%, transparent) 0%,
+    transparent 72%);
+  animation: sites-drift-b 54s ease-in-out infinite;
+}
+
+@keyframes sites-drift-a {
+  0%, 100% { transform: translate(0, 0)       scale(1); }
+  33%      { transform: translate(80px, 40px) scale(1.08); }
+  66%      { transform: translate(-30px, 80px) scale(0.95); }
+}
+
+@keyframes sites-drift-b {
+  0%, 100% { transform: translate(0, 0)        scale(1); }
+  40%      { transform: translate(-60px, 60px) scale(1.1); }
+  75%      { transform: translate(40px, -40px) scale(0.92); }
+}
+
+/* Light-mode: blobs are too strong. Turn the opacity down. */
+:root[data-theme="light"] .sites-blob { opacity: 0.35; }
+
+/* ---- Floating action button — travelling ring ------------------------- */
+.sites-fab-ring {
+  border: 1px solid color-mix(in srgb, #fff 40%, transparent);
+  opacity: 0;
+  animation: sites-fab-pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes sites-fab-pulse {
+  0%       { opacity: 0; transform: scale(1); }
+  40%      { opacity: 0.35; }
+  100%     { opacity: 0; transform: scale(1.18); }
+}
+
+/* ---- Empty-state radar ------------------------------------------------ */
+.sites-radar {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sites-radar-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 20%, transparent);
+  animation: sites-radar-ring-pulse 3.2s ease-out infinite;
+}
+
+.sites-radar-r1 { width: 80px;  height: 80px;  animation-delay: 0s; }
+.sites-radar-r2 { width: 120px; height: 120px; animation-delay: 0.9s; }
+.sites-radar-r3 { width: 168px; height: 168px; animation-delay: 1.8s; }
+
+@keyframes sites-radar-ring-pulse {
+  0%   { opacity: 0.75; transform: scale(0.6); }
+  70%  { opacity: 0; }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+
+.sites-radar-sweep {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 168px;
+  height: 168px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    transparent 0deg,
+    transparent 300deg,
+    color-mix(in srgb, var(--color-accent-500) 32%, transparent) 345deg,
+    transparent 360deg);
+  animation: sites-radar-spin 3.6s linear infinite;
+}
+
+@keyframes sites-radar-spin {
+  to { transform: rotate(360deg); }
+}
+
+.sites-radar-core {
+  position: relative;
+  z-index: 2;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 30%,
+    color-mix(in srgb, var(--color-accent-500) 32%, transparent) 0%,
+    color-mix(in srgb, var(--color-accent-500) 12%, transparent) 60%,
+    transparent 100%);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+  box-shadow: 0 0 30px -4px color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+}
+
+/* ---- Reduced motion --------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .sites-blob,
+  .sites-fab-ring,
+  .sites-radar-ring,
+  .sites-radar-sweep {
+    animation: none !important;
+  }
+}
