@@ -235,19 +235,20 @@ export function useWriteAttribute() {
       if (ctx?.prevLists) {
         for (const [key, data] of ctx.prevLists) queryClient.setQueryData(key, data);
       }
+      // Error path must reconcile: the optimistic patch was wrong, so force a
+      // refetch to get authoritative server state back into the cache.
+      queryClient.invalidateQueries({ queryKey: ['asset', _vars.assetId] });
+      queryClient.invalidateQueries({ queryKey: ['assets'] });
       if (err.isForbidden || err.response?.status === 403) {
         toast.error('You do not have permission to control this device.');
       } else {
         toast.error(err.response?.data?.message || 'Failed to update attribute');
       }
     },
-
-    onSettled: (_data, _err, vars) => {
-      // Reconcile with authoritative server state (covers cases where the
-      // server coerces types or the optimistic guess was slightly off).
-      queryClient.invalidateQueries({ queryKey: ['asset', vars.assetId] });
-      queryClient.invalidateQueries({ queryKey: ['assets'] });
-    },
+    // No onSettled invalidation: the SMS IoT backend is eventually consistent
+    // on attribute writes, so an immediate refetch after success returns the
+    // OLD value and clobbers our optimistic patch. The 15s refetchInterval on
+    // useAssets/useAsset reconciles with authoritative state soon enough.
   });
 }
 
