@@ -19,11 +19,11 @@ import './tutorial.css';
 const STEPS = [
   {
     id: 'overview',
-    title: 'The overview',
-    tagline: 'Everything at a glance',
-    detail: 'KPIs, live readings across all sites, a 7-day alarm chart, a recent-activity strip, and exports — all driven by three cached queries. No per-widget calls.',
+    title: 'Control Centre',
+    tagline: 'Map, sites, alarms — one screen',
+    detail: 'The landing page shows every site pinned on a live map, a filterable store roster with per-site health metrics (temperature, alarms, cameras, doors), and open alarms with one-click Ack / Resolve. Everything is driven by two cached queries — no per-widget calls.',
     tryHref: '/',
-    tryLabel: 'Open overview',
+    tryLabel: 'Open Control Centre',
   },
   {
     id: 'sites',
@@ -49,6 +49,7 @@ const STEPS = [
     tryHref: '/quick',
     tryLabel: 'Open quick access',
   },
+  /* Hidden from sidebar — kept in code for future re-enable.
   {
     id: 'live',
     title: 'Live feed',
@@ -57,6 +58,7 @@ const STEPS = [
     tryHref: '/live',
     tryLabel: 'Open live feed',
   },
+  */
   {
     id: 'history',
     title: 'History',
@@ -73,6 +75,7 @@ const STEPS = [
     tryHref: '/alarms',
     tryLabel: 'Open alarms',
   },
+  /* Hidden from sidebar — map is embedded in the Control Centre overview.
   {
     id: 'map',
     title: 'Map view',
@@ -81,6 +84,7 @@ const STEPS = [
     tryHref: '/map',
     tryLabel: 'Open map',
   },
+  */
   {
     id: 'command',
     title: 'Command palette',

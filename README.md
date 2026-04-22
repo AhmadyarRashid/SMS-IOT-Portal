@@ -69,22 +69,26 @@ npm run preview
 
 ## 3. Information architecture
 
-10 authenticated routes plus the login route. Every legacy route redirects to
+Authenticated routes plus the login route. Every legacy route redirects to
 one of these.
 
-| Route | Page | Purpose |
-|---|---|---|
-| `/` | `OverviewPage` | **Dashboard.** KPIs, live readings strip, alarm pipeline + 7-day bars, device mix donut, recent activity, reports, sites strip |
-| `/sites` | `SitesPage` | **Minimal sites gallery.** One-line summary header, tactile tilt-cards, floating Quick Actions pill, ambient drifting blobs |
-| `/g/:gatewayId` | `GatewayPage` | Devices at one site — **horizontal chip filter** (All · Needs attention · per-type) + inline search, flat grid |
-| `/a/:assetId` | `AssetPage` | Device detail — drifting mood halo hero, inline primary controls (brightness/speed), pill tabs (State / Controls / History / Alarms) |
-| `/quick` | `QuickAccessPage` | **iPhone-widget control centre** — pinned controllable devices, drag to reorder, small/large size variants, per-browser IndexedDB layout |
-| `/live` | `LivePage` | **Live activity feed** — two sections (This session · Alarms), pulsing live indicator, session timer |
-| `/alarms` | `AlarmsPage` | Cross-site alarm inbox with filtering, one-click Ack/Resolve, pending-state buttons |
-| `/map` | `MapPage` | Site pins on a themed tile map (Carto dark / OSM light); sidebar or marker click flies to site |
-| `/tutorial` | `TutorialPage` | **Illustrated gallery** of 10 SVG-animated walkthrough cards with click-to-expand detail and progress ring |
-| `/settings` | `SettingsPage` | Hero profile · Appearance · Notifications (real browser alerts) · Connection status · Install as app · Data & privacy · About |
-| `/login` | `LoginPage` | OAuth2 password-grant login |
+| Route | Page | Purpose | In sidebar? |
+|---|---|---|---|
+| `/` | `OverviewPage` | **Control Centre.** Live map with pinned sites, filterable "All Store Overview" roster (search + Critical/Warning/Stable/Offline chips) with per-site metrics (temp, alarms, cameras, doors), OPEN alarms list with Ack/Resolve | yes |
+| `/dashboard` | `DashboardPage` | **Legacy KPI dashboard.** KPIs, live readings strip, alarm pipeline + 7-day bars, device mix donut, recent activity, reports, sites strip. Kept addressable via URL but hidden from the sidebar | hidden |
+| `/sites` | `SitesPage` | **Minimal sites gallery.** One-line summary header, tactile tilt-cards, floating Quick Actions pill, ambient drifting blobs | yes |
+| `/g/:gatewayId` | `GatewayPage` | Devices at one site — **horizontal chip filter** (All · Needs attention · per-type) + inline search, flat grid. Reachable from `/sites` | via Sites |
+| `/store/:gatewayId` | `StorePage` | **Site control view** — clickable target from the Control Centre overview (site cards + map popups + alarm Site cells). Shows a critical-alarm banner with live elapsed timer, 4-card KPI strip (Cameras / Active Alerts / Doors Locked / Devices), floor map (image from the gateway's `floorMap` attribute with an inline SVG fallback), sensor grid with category chip filter, Quick Access bulk controls (Lights / Doors / Alarms), and a scrolling Live panel with one-tap Ack | via Control Centre |
+| `/a/:assetId` | `AssetPage` | Device detail — drifting mood halo hero, inline primary controls (brightness/speed), pill tabs (State / Controls / History / Alarms) | via drill-down |
+| `/quick` | `QuickAccessPage` | **iPhone-widget control centre** — pinned controllable devices, drag to reorder, small/large size variants, per-browser IndexedDB layout | yes |
+| `/live` | `LivePage` | **Live activity feed** — two sections (This session · Alarms), pulsing live indicator, session timer | hidden |
+| `/alarms` | `AlarmsPage` | Cross-site alarm inbox with filtering, one-click Ack/Resolve, pending-state buttons | yes |
+| `/map` | `MapPage` | Site pins on a themed tile map (Carto dark / OSM light); sidebar or marker click flies to site | hidden |
+| `/tutorial` | `TutorialPage` | **Illustrated gallery** of SVG-animated walkthrough cards with click-to-expand detail and progress ring | yes |
+| `/settings` | `SettingsPage` | Hero profile · Appearance · Notifications (real browser alerts) · Connection status · Install as app · Data & privacy · About | yes |
+| `/login` | `LoginPage` | OAuth2 password-grant login | — |
+
+**Sidebar today** shows five primary items — **Overview · Sites · Quick access · Alarms · Tutorial** — plus Settings at the foot. `/dashboard`, `/live`, and `/map` are commented out of `Sidebar.jsx#nav` but remain fully functional at their URLs (the Control Centre at `/` embeds a live map and surfaces open alarms inline, so the standalone Map/Live nav entries became redundant; the Dashboard is kept as an optional "classic KPIs" view).
 
 **Global command palette (⌘K / Ctrl+K)** — launched from any authenticated
 route, fuzzy searches sites, devices, pages, and actions (bulk lock / arm /
@@ -97,9 +101,11 @@ Legacy redirects in `App.jsx`: `/monitoring`, `/devices`, `/devices/:id`,
 client portal.
 
 **Navigation highlighting (`Sidebar.jsx`):** the **Sites** sidebar item is
-active for `/sites`, `/g/:id`, and `/a/:id` — so drilling into a site keeps
-that item highlighted. The **Alarms** entry has a pulsing red badge driven
-by `useAlarms({status:'OPEN'}).length`.
+active for `/sites`, `/g/:id`, and `/a/:id` — so drilling into a site from
+the Sites gallery keeps that item highlighted. Drilling in from the
+Control Centre lands on `/store/:id`, which is a separate route and does
+not highlight any sidebar entry. The **Alarms** entry has a pulsing red
+badge driven by `useAlarms({status:'OPEN'}).length`.
 
 ---
 
@@ -429,8 +435,11 @@ src/
 │
 ├── pages/                        One file per route + per-page CSS modules
 │                                 (sites.css, gateway/asset-detail.css, quick-access.css,
-│                                  live.css, tutorial.css, settings.css,
-│                                  tutorial-illustrations.jsx = inline SVG scenes)
+│                                  live.css, tutorial.css, settings.css, alarms.css,
+│                                  tutorial-illustrations.jsx = inline SVG scenes).
+│                                 OverviewPage.jsx = Control Centre (/),
+│                                 DashboardPage.jsx = legacy KPI dashboard (/dashboard),
+│                                 StorePage.jsx = /store/:id site control view
 │
 ├── store/
 │   ├── authStore.js              user, token, isAuthenticated, login/logout
@@ -447,7 +456,9 @@ src/
     ├── gateways.js       isGatewayAsset, pickGateways, pickAllDevices,
     │                     pickGatewayChildren (path-aware),
     │                     isDescendantOfGateway, findGatewayForAsset,
-    │                     groupByCustomType, summariseGateway
+    │                     groupByCustomType, summariseGateway,
+    │                     alarmBelongsToGateway + pickAlarmsForGateway
+    │                     (shared alarm↔site resolver), getFloorMapUrl
     ├── prefs.js          IndexedDB-backed preferences via idb-keyval —
     │                     tips dismissal, tutorial progress, quick-access layout,
     │                     plus clearAllPrefs() and a localStorage fallback.
@@ -558,10 +569,51 @@ the owning site. The button label also reflects the site name dynamically
 
 ---
 
-## 9. Dashboard (`OverviewPage.jsx`)
+## 9. Control Centre landing (`OverviewPage.jsx` @ `/`)
 
-Every widget on `/` is computed from the two cached queries (`useAssets` +
-`useAlarms`) plus the in-memory activity store. **No extra API calls.**
+The current `/` landing page. **Map + site roster + OPEN alarms in one
+screen**, all derived from the two cached queries (`useAssets` +
+`useAlarms({status:'OPEN'})`) — no extra API calls.
+
+- **Top bar** — "Control Centre" title + live wall clock.
+- **Left column** — Leaflet map (same tile-theme logic as `/map`) with
+  colour-coded `DivIcon` pins (Critical red / Warning amber / Stable cyan /
+  Offline grey) and a short site code as the label; clicking a pin or a
+  site card flies to + opens the popup. Alarms list sits below the map.
+- **Right column — "All Store Overview"** — search input +
+  `All · Critical · Warning · Stable · Offline` chip filter with counts;
+  site cards show a single-tone health bar (red/amber/green filled to a
+  qualitative `healthPct` score), temperature, open-alarm count, cameras
+  `online/total`, doors `unlocked/total` (each metric pill only renders
+  when the site has assets of that type).
+- **Alarms list below the map** — `useAlarms({status:'OPEN'})`, newest
+  first. Each row: severity-coloured left rail, severity pill next to the
+  title, 4-column info grid (Site → `/store/:id`, Device → `/a/:id`,
+  Location, Raised), and Ack / Resolve buttons on the right
+  (`useUpdateAlarmStatus`).
+
+Per-site health category rules:
+
+- `offline` when `gateway.attributes.connected.value === false`,
+- else `critical` when any OPEN alarm here is CRITICAL/HIGH,
+- else `warning` when any other OPEN alarm,
+- else `stable`.
+
+Alarm→site linkage goes through
+`alarmBelongsToGateway(alarm, gatewayId, assetById, gateways)` in
+`utils/gateways.js` — a shared helper that tries `alarm.asset[0]`
+(SMS IoT's canonical shape), `alarm.assets[]`, `alarm.linkedAssets[]`,
+`alarm.assetId`, and `alarm.sourceId` (when `source=INTERNAL`/`CLIENT`)
+in order, then walks `findGatewayForAsset`. `SitesPage` + `GatewayCard`
++ `GatewayPage` + `StorePage` all go through the same helper so counts
+don't drift.
+
+## 9a. Legacy KPI dashboard (`DashboardPage.jsx` @ `/dashboard`)
+
+This is the **previous** landing page, moved aside and hidden from the
+sidebar. Still addressable via `/dashboard`. Every widget computes from
+`useAssets` + `useAlarms` + the in-memory activity store. **No extra API
+calls.**
 
 | Widget | Derivation |
 |---|---|
@@ -582,6 +634,23 @@ The Automations widget was removed — rule management lives on the backend
 only. All charts use Recharts with `minWidth={0} minHeight={0} debounce={50}`
 to silence the `-1` measurement warning during route transitions. Tooltip
 styling is pulled from theme tokens so it matches both light and dark mode.
+
+## 9b. Store control (`StorePage.jsx` @ `/store/:id`)
+
+Click target from every "Enter site" surface on the Control Centre
+(site card, map popup, alarm "Site" cell). Layout: KPI strip → two-column
+grid `[Floor Map + Sensors | Quick Access + Live]` at ≈70/30, right column
+auto-stretches to match left column height.
+
+| Section | Content |
+|---|---|
+| **Close Store** | Back link to `/` |
+| **Critical banner** | Top OPEN alarm at this site (severity sort). Severity pill + title + live elapsed timer (`MM:SS` under an hour, `HH:MM:SS` beyond). Breathing pulse for CRITICAL/HIGH |
+| **KPI strip** (4 cards) | Cameras `online/total`, Active Alerts with critical call-out, Doors Locked `locked/total`, Devices `healthy/total` (healthy = connected AND not alarming) |
+| **Floor Map** | Image from the gateway's `floorMap` string attribute via `getFloorMapUrl(asset)`; inline SVG fallback + "Default" badge when unset or the image fails to load. 16:9 with `object-fit: contain` |
+| **Sensors** | Category chip filter — `All · Security · Emergency · Smoke · Doors · Presence · Temperature · Vibration · Cameras · Lights · Plugs · Fans` — chips only render for categories actually present at the site. Grid reuses `<AssetTile>` so icon-tap toggle, detail navigation, and optimistic updates are unchanged |
+| **Quick Access** | Bulk controls, conditional per type: Turn On/Off Lights (`LightAsset`), Lock/Open All Doors (`DoorLockAsset`), Trigger Alarm / Silent Alarms (`AlarmAsset`). Each button fires `useWriteAttribute` per target device |
+| **Live panel** | `flex-1` so it fills the right column. "This session" sources from `activityStore` filtered to this site's asset IDs; "Alarms" lists OPEN alarms scoped via `alarmBelongsToGateway`, each row has a compact Ack button (`useUpdateAlarmStatus`). The whole list is in a `flex-1 min-h-0 overflow-y-auto` scroll region so long feeds don't push the page |
 
 ---
 

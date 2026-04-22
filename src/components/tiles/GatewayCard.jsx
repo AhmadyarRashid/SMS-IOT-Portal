@@ -18,14 +18,17 @@ import './gateway-card.css';
  *   • mood-keyed radial glow that slowly drifts
  *   • spring on tap, counting-up numbers on mount
  */
-export default function GatewayCard({ gateway, assets = [] }) {
+export default function GatewayCard({ gateway, assets = [], alarmsCount = null }) {
   const reduceMotion = useReducedMotion();
   const cardRef = useRef(null);
   const [hovered, setHovered] = useState(false);
 
   // ---- Derived stats ----------------------------------------------------
   const children = useMemo(() => pickGatewayChildren(assets, gateway.id), [assets, gateway.id]);
-  const { total, online, offline, alarming } = summariseGateway(children);
+  const { total, online, offline, alarming: attrAlarming } = summariseGateway(children);
+  // Prefer the real OPEN-alarm count from the `/alarm` list (passed by parent).
+  // Fall back to attribute-state alarming for callers that don't pass it.
+  const alarming = alarmsCount ?? attrAlarming;
   const connected = gateway.attributes?.connected?.value !== false;
 
   const power = useMemo(() => children

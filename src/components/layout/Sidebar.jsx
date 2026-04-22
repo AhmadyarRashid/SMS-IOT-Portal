@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Building2, Bell, MapPin, Sparkles, BookOpen, Activity,
-  Settings, ChevronLeft, ChevronRight, X, LogOut, ShieldCheck,
+  Settings, ChevronLeft, ChevronRight, X, LogOut, ShieldCheck, Gauge,
 } from 'lucide-react';
 import useAppStore from '../../store/appStore';
 import useAuthStore from '../../store/authStore';
@@ -10,11 +10,12 @@ import { useAlarms } from '../../hooks/useAssets';
 
 const nav = [
   { path: '/', icon: LayoutGrid, label: 'Overview', exact: true },
+  // { path: '/dashboard', icon: Gauge, label: 'Dashboard' },
   { path: '/sites', icon: Building2, label: 'Sites' },
   { path: '/quick', icon: Sparkles, label: 'Quick access' },
   { path: '/alarms', icon: Bell, label: 'Alarms', badgeKey: 'openAlarms' },
-  { path: '/live', icon: Activity, label: 'Live' },
-  { path: '/map', icon: MapPin, label: 'Map' },
+  // { path: '/live', icon: Activity, label: 'Live' },
+  // { path: '/map', icon: MapPin, label: 'Map' },
   { path: '/tutorial', icon: BookOpen, label: 'Tutorial' },
 ];
 

@@ -6,7 +6,7 @@ import {
   Search, X, Sparkles,
 } from 'lucide-react';
 import { useAssets, useAlarms, useWriteAttribute } from '../hooks/useAssets';
-import { pickGateways, pickAllDevices } from '../utils/gateways';
+import { pickGateways, pickAllDevices, alarmBelongsToGateway } from '../utils/gateways';
 import { getCustomAssetType } from '../utils/assetIcons';
 import { Skeleton } from '../components/ui';
 import GatewayCard from '../components/tiles/GatewayCard';
@@ -17,6 +17,14 @@ export default function SitesPage() {
   const { data: alarms = [] } = useAlarms({ status: 'OPEN' });
   const gateways = useMemo(() => pickGateways(assets), [assets]);
   const allDevices = useMemo(() => pickAllDevices(assets), [assets]);
+  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const alarmsByGateway = useMemo(() => {
+    const m = new Map();
+    for (const g of gateways) {
+      m.set(g.id, (alarms || []).filter((al) => alarmBelongsToGateway(al, g.id, assetById, gateways)).length);
+    }
+    return m;
+  }, [alarms, gateways, assetById]);
   const write = useWriteAttribute();
 
   const [working, setWorking] = useState(null);
@@ -164,7 +172,7 @@ export default function SitesPage() {
                         delay: Math.min(idx * 0.025, 0.12),
                       }}
                     >
-                      <GatewayCard gateway={g} assets={assets} />
+                      <GatewayCard gateway={g} assets={assets} alarmsCount={alarmsByGateway.get(g.id) ?? 0} />
                     </motion.div>
                   ))}
                 </AnimatePresence>

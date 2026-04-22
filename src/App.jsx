@@ -7,6 +7,8 @@ import { LoadingSpinner } from './components/ui';
 const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const StorePage = lazy(() => import('./pages/StorePage'));
 const SitesPage = lazy(() => import('./pages/SitesPage'));
 const GatewayPage = lazy(() => import('./pages/GatewayPage'));
 const AssetPage = lazy(() => import('./pages/AssetPage'));
@@ -56,8 +58,10 @@ export default function App() {
               }
             >
               <Route index element={<OverviewPage />} />
+              <Route path="dashboard" element={<DashboardPage />} />
               <Route path="sites" element={<SitesPage />} />
               <Route path="g/:id" element={<GatewayPage />} />
+              <Route path="store/:id" element={<StorePage />} />
               <Route path="a/:id" element={<AssetPage />} />
               <Route path="alarms" element={<AlarmsPage />} />
               <Route path="automations" element={<AutomationsPage />} />
