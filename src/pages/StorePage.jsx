@@ -4,7 +4,7 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
   ArrowLeft, Clock, Video, Bell, BellOff, Lock, LockOpen, Siren,
   Lightbulb, LightbulbOff, Activity, AlertTriangle, AlertCircle, Info,
-  ChevronRight, Check,
+  Check,
 } from 'lucide-react';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
@@ -690,17 +690,9 @@ const SEVERITY_META = {
 function LivePanel({ sessionEvents, siteAlarms, lastUpdate, alarmUpdate }) {
   return (
     <section className="panel p-4 flex flex-col h-full min-h-[320px]">
-      <div className="flex items-center justify-between mb-1 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="alarm-live-dot" aria-hidden="true" />
-          <h3 className="text-sm font-bold text-[var(--color-ink-0)]">Live</h3>
-        </div>
-        <Link
-          to="/live"
-          className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5"
-        >
-          Details <ChevronRight className="w-3 h-3" />
-        </Link>
+      <div className="flex items-center gap-2 mb-1 flex-shrink-0">
+        <span className="alarm-live-dot" aria-hidden="true" />
+        <h3 className="text-sm font-bold text-[var(--color-ink-0)]">Live</h3>
       </div>
       <p className="text-[11px] text-[var(--color-ink-3)] mb-3 flex-shrink-0">
         {lastUpdate
