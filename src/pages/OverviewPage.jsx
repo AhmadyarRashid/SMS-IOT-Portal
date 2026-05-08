@@ -13,6 +13,7 @@ import { format, formatDistanceToNowStrict } from 'date-fns';
 import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
   pickGateways, pickGatewayChildren, findGatewayForAsset, alarmBelongsToGateway,
+  extractLocation,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, isAssetActive,
@@ -75,18 +76,6 @@ function escapeHtml(s) {
 }
 
 /* ---------------- Map helpers (mirror MapPage) ---------------- */
-
-function extractLocation(asset) {
-  const loc = asset?.attributes?.location?.value;
-  if (!loc) return null;
-  if (loc.type === 'Point' && Array.isArray(loc.coordinates) && loc.coordinates.length >= 2) {
-    const [lng, lat] = loc.coordinates;
-    if (typeof lat === 'number' && typeof lng === 'number') return [lat, lng];
-  }
-  if (typeof loc.lat === 'number' && typeof loc.lng === 'number') return [loc.lat, loc.lng];
-  if (typeof loc.latitude === 'number' && typeof loc.longitude === 'number') return [loc.latitude, loc.longitude];
-  return null;
-}
 
 function FitBoundsOnce({ positions }) {
   const map = useMap();

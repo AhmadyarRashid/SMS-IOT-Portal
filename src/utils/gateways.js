@@ -1,16 +1,28 @@
 /**
  * Gateway helpers — a "gateway" is a location/site. Each child asset belongs to
  * exactly one gateway. We identify gateways by the SMS IoT asset `type`
- * (GatewayAsset) first, then by a custom type attribute as a fallback.
+ * (GatewayAsset / BuildingAsset) first, then by a custom type attribute as a
+ * fallback. Realms that model their locations as buildings (e.g. retail
+ * outlets) surface them under `BuildingAsset`; older realms use
+ * `GatewayAsset`. Both shapes are treated as sites here.
  */
 
 import { isDeviceAsset } from './assetIcons';
 
+const SITE_TYPES = new Set(['GatewayAsset', 'BuildingAsset']);
+
 export function isGatewayAsset(asset) {
   if (!asset) return false;
-  if (asset.type === 'GatewayAsset') return true;
-  if (asset.attributes?.customAssetType?.value === 'GatewayAsset') return true;
-  return false;
+  const type = SITE_TYPES.has(asset.type)
+    ? asset.type
+    : SITE_TYPES.has(asset.attributes?.customAssetType?.value)
+      ? asset.attributes.customAssetType.value
+      : null;
+  if (!type) return false;
+  // Exclude the root BuildingAsset (the realm-level container that wraps every
+  // outlet) — only nested buildings represent actual sites in the J-Dot realm.
+  if (type === 'BuildingAsset' && !asset.parentId) return false;
+  return true;
 }
 
 /**
@@ -148,6 +160,37 @@ export function pickAlarmsForGateway(alarms = [], gatewayId, assets = [], gatewa
   if (!alarms.length || !gatewayId) return [];
   const assetById = new Map(assets.map((a) => [a.id, a]));
   return alarms.filter((al) => alarmBelongsToGateway(al, gatewayId, assetById, gateways));
+}
+
+/**
+ * Extract a [lat, lng] tuple from an asset. We prefer `customLocation` because
+ * J-Dot stores its outlet coordinates there; fall back to OpenRemote's standard
+ * `location` attribute for realms that use the built-in field. Both accept the
+ * GeoJSON Point shape (`{ type: 'Point', coordinates: [lng, lat] }`) plus the
+ * `{ lat, lng }` / `{ latitude, longitude }` object shapes, and a plain
+ * `"lat,lng"` string as a last resort.
+ */
+function readPoint(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const m = value.split(',').map((s) => Number(s.trim()));
+    if (m.length === 2 && m.every(Number.isFinite)) return [m[0], m[1]];
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  if (value.type === 'Point' && Array.isArray(value.coordinates) && value.coordinates.length >= 2) {
+    const [lng, lat] = value.coordinates;
+    if (typeof lat === 'number' && typeof lng === 'number') return [lat, lng];
+  }
+  if (typeof value.lat === 'number' && typeof value.lng === 'number') return [value.lat, value.lng];
+  if (typeof value.latitude === 'number' && typeof value.longitude === 'number') return [value.latitude, value.longitude];
+  return null;
+}
+
+export function extractLocation(asset) {
+  const a = asset?.attributes;
+  if (!a) return null;
+  return readPoint(a.customLocation?.value) || readPoint(a.location?.value);
 }
 
 /**

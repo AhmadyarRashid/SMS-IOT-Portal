@@ -252,11 +252,11 @@ function Hero({ asset, gateway }) {
 }
 
 /* ---------------- Editable name ----------------
- * Inline-rename UI on the hero. Writes the chosen name to the standard OR
- * `notes` attribute via useWriteAttribute — already optimistically patched
- * into the React Query cache, so every tile / card / search result that
- * uses getAssetDisplayName() re-renders instantly with the new label. Name
- * persists server-side, so it syncs across every browser the user signs
+ * Inline-rename UI on the hero. Writes the chosen name to the
+ * `customDisplayName` attribute via useWriteAttribute — already optimistically
+ * patched into the React Query cache, so every tile / card / search result
+ * that uses getAssetDisplayName() re-renders instantly with the new label.
+ * Name persists server-side, so it syncs across every browser the user signs
  * in from.
  *
  * The underlying asset.name is never mutated — that endpoint needs admin
@@ -271,9 +271,9 @@ function EditableName({ asset }) {
   const inputRef = useRef(null);
   const write = useWriteAttribute();
 
-  // Asset types where the backend reuses `notes` for structured data (see
-  // NOTES_USED_FOR_DATA in assetIcons.js) — we show the server name without
-  // any edit affordance so we can't accidentally overwrite real data.
+  // Assets without `customDisplayName` declared on them can't be renamed —
+  // OpenRemote rejects writes to undeclared attributes. Show the server name
+  // without any edit affordance.
   if (!renameable) {
     return <h1 className="ad-hero-name">{currentName}</h1>;
   }

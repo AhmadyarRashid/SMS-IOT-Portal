@@ -4,7 +4,7 @@ import {
   motion, useMotionValue, useSpring, useTransform, useReducedMotion,
 } from 'framer-motion';
 import {
-  Server, Zap, Thermometer, Unlock, Bell, Activity,
+  Server, Building2, Zap, Thermometer, Unlock, Bell, Activity,
   ArrowRight, Wifi, WifiOff,
 } from 'lucide-react';
 import { pickGatewayChildren, summariseGateway } from '../../utils/gateways';
@@ -60,6 +60,9 @@ export default function GatewayCard({ gateway, assets = [], alarmsCount = null }
 
   const healthPct = total > 0 ? Math.round((online / total) * 100) : 100;
   const mood = alarming > 0 ? 'alarm' : offline > 0 ? 'warning' : 'ok';
+  const isBuilding = (gateway.type === 'BuildingAsset')
+    || (gateway.attributes?.customAssetType?.value === 'BuildingAsset');
+  const SiteIcon = isBuilding ? Building2 : Server;
 
   // ---- 3D tilt (mouse-follow) -------------------------------------------
   const mx = useMotionValue(0.5);
@@ -122,7 +125,7 @@ export default function GatewayCard({ gateway, assets = [], alarmsCount = null }
               transition={{ duration: 0.6 }}
               className="gw-card-badge"
             >
-              <Server className="w-6 h-6" strokeWidth={1.75} />
+              <SiteIcon className="w-6 h-6" strokeWidth={1.75} />
             </motion.div>
             <div className="flex-1 min-w-0">
               <h3 className="text-[19px] font-bold text-[var(--color-ink-0)] truncate leading-tight">
@@ -137,7 +140,7 @@ export default function GatewayCard({ gateway, assets = [], alarmsCount = null }
                 ) : (
                   <>
                     <WifiOff className="w-3 h-3 text-[var(--color-ink-3)]" />
-                    <span>Offline gateway</span>
+                    <span>Offline</span>
                   </>
                 )}
                 <span className="text-[var(--color-ink-3)]">·</span>

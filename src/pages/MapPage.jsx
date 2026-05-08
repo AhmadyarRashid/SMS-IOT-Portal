@@ -9,7 +9,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { useAssets } from '../hooks/useAssets';
-import { pickGateways, pickGatewayChildren, summariseGateway } from '../utils/gateways';
+import { pickGateways, pickGatewayChildren, summariseGateway, extractLocation } from '../utils/gateways';
 import { getAssetDisplayName } from '../utils/assetIcons';
 import useAppStore from '../store/appStore';
 import { LoadingSpinner, EmptyState } from '../components/ui';
@@ -23,18 +23,6 @@ L.Icon.Default.mergeOptions({
 
 const DEFAULT_CENTER = [30.3753, 69.3451]; // Pakistan centroid
 const DEFAULT_ZOOM = 5;
-
-function extractLocation(asset) {
-  const loc = asset?.attributes?.location?.value;
-  if (!loc) return null;
-  if (loc.type === 'Point' && Array.isArray(loc.coordinates) && loc.coordinates.length >= 2) {
-    const [lng, lat] = loc.coordinates;
-    if (typeof lat === 'number' && typeof lng === 'number') return [lat, lng];
-  }
-  if (typeof loc.lat === 'number' && typeof loc.lng === 'number') return [loc.lat, loc.lng];
-  if (typeof loc.latitude === 'number' && typeof loc.longitude === 'number') return [loc.latitude, loc.longitude];
-  return null;
-}
 
 /**
  * Fits the map to every marker the first time they appear. Re-fits only if

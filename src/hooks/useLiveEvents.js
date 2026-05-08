@@ -280,6 +280,8 @@ const SKIP_ATTRS = new Set([
   'lastModified',
   'timestamp',
   'notes',
+  'customDisplayName',
+  'customLocation',
   'tags',
 ]);
 
