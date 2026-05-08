@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import {
@@ -19,6 +19,7 @@ import AssetGlyph from './AssetGlyph';
  */
 export default function AssetTile({ asset }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const customType = getCustomAssetType(asset);
   const active = isAssetActive(asset, customType);
   const alarm = isAssetAlarming(asset, customType);
@@ -45,7 +46,7 @@ export default function AssetTile({ asset }) {
       return;
     }
     // Sensors: clicking the icon opens the detail view (nothing to toggle).
-    navigate(`/a/${asset.id}`);
+    navigate(`/a/${asset.id}`, { state: { from: location.pathname + location.search } });
   };
 
   return (
@@ -80,6 +81,7 @@ export default function AssetTile({ asset }) {
       {/* Body opens detail */}
       <Link
         to={`/a/${asset.id}`}
+        state={{ from: location.pathname + location.search }}
         className="flex-1 min-w-0 flex items-center gap-2 group"
         aria-label={`Open ${displayName}`}
       >

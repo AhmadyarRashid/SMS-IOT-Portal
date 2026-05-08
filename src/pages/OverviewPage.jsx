@@ -517,7 +517,7 @@ function FilterChips({ value, onChange, counts }) {
     { id: 'offline',  label: 'Offline' },
   ];
   return (
-    <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1 -mx-1 px-1">
+    <div className="flex items-center flex-wrap gap-2 mt-3 pb-1">
       {chips.map((c) => {
         const active = value === c.id;
         const n = counts[c.id] || 0;
@@ -525,7 +525,7 @@ function FilterChips({ value, onChange, counts }) {
           <button
             key={c.id}
             onClick={() => onChange(c.id)}
-            className="alarm-chip flex-shrink-0"
+            className="alarm-chip"
             style={active ? {
               color: 'var(--color-accent-400)',
               background: 'color-mix(in srgb, var(--color-accent-500) 14%, transparent)',
