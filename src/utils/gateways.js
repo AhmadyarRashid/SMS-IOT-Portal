@@ -1,16 +1,28 @@
 /**
  * Gateway helpers — a "gateway" is a location/site. Each child asset belongs to
  * exactly one gateway. We identify gateways by the SMS IoT asset `type`
- * (GatewayAsset) first, then by a custom type attribute as a fallback.
+ * (GatewayAsset / BuildingAsset) first, then by a custom type attribute as a
+ * fallback. Realms that model their locations as buildings (e.g. retail
+ * outlets) surface them under `BuildingAsset`; older realms use
+ * `GatewayAsset`. Both shapes are treated as sites here.
  */
 
 import { isDeviceAsset } from './assetIcons';
 
+const SITE_TYPES = new Set(['GatewayAsset', 'BuildingAsset']);
+
 export function isGatewayAsset(asset) {
   if (!asset) return false;
-  if (asset.type === 'GatewayAsset') return true;
-  if (asset.attributes?.customAssetType?.value === 'GatewayAsset') return true;
-  return false;
+  const type = SITE_TYPES.has(asset.type)
+    ? asset.type
+    : SITE_TYPES.has(asset.attributes?.customAssetType?.value)
+      ? asset.attributes.customAssetType.value
+      : null;
+  if (!type) return false;
+  // Exclude the root BuildingAsset (the realm-level container that wraps every
+  // outlet) — only nested buildings represent actual sites in the J-Dot realm.
+  if (type === 'BuildingAsset' && !asset.parentId) return false;
+  return true;
 }
 
 /**
@@ -88,6 +100,112 @@ export function groupByCustomType(assets = []) {
     out[t].push(a);
   }
   return out;
+}
+
+/**
+ * Resolve which gateway an alarm belongs to and return a filter predicate.
+ *
+ * Alarms carry site linkage in multiple shapes depending on how they were
+ * raised. We check them in order:
+ *   1. `alarm.asset[0]` — SMS IoT's canonical array of linked assets.
+ *      Use the cached full asset if available (it has `path`); fall back to
+ *      the stub on the alarm itself.
+ *   2. `alarm.assets` / `alarm.linkedAssets` — variant shapes.
+ *   3. id-only fields: `assetId`, and `sourceId` when `source` is INTERNAL
+ *      or CLIENT.
+ *
+ * For each candidate we walk the path via `findGatewayForAsset` to see if it
+ * lives under `gatewayId` — which correctly handles both devices inside
+ * groups (nested parent) and alarms raised at the gateway itself.
+ */
+export function alarmBelongsToGateway(alarm, gatewayId, assetById, gateways) {
+  if (!alarm || !gatewayId || !gateways?.length) return false;
+
+  const tryAsset = (assetLike) => {
+    if (!assetLike) return false;
+    const id = typeof assetLike === 'string' ? assetLike : assetLike.id;
+    if (!id) return false;
+    // Prefer the full cached asset (has `path`); fall back to the stub.
+    const asset = (assetById && assetById.get(id)) || assetLike;
+    const owner = findGatewayForAsset(asset, gateways);
+    return owner?.id === gatewayId;
+  };
+
+  if (Array.isArray(alarm.asset)) {
+    for (const a of alarm.asset) if (tryAsset(a)) return true;
+  } else if (alarm.asset && typeof alarm.asset === 'object') {
+    if (tryAsset(alarm.asset)) return true;
+  }
+
+  if (Array.isArray(alarm.assets)) {
+    for (const a of alarm.assets) if (tryAsset(a)) return true;
+  }
+  if (Array.isArray(alarm.linkedAssets)) {
+    for (const a of alarm.linkedAssets) if (tryAsset(a)) return true;
+  }
+
+  if (alarm.assetId && tryAsset(alarm.assetId)) return true;
+  if ((alarm.source === 'INTERNAL' || alarm.source === 'CLIENT') && alarm.sourceId && tryAsset(alarm.sourceId)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Return only the alarms that belong to the given gateway, using the same
+ * resolution rules as `alarmBelongsToGateway`.
+ */
+export function pickAlarmsForGateway(alarms = [], gatewayId, assets = [], gateways = []) {
+  if (!alarms.length || !gatewayId) return [];
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+  return alarms.filter((al) => alarmBelongsToGateway(al, gatewayId, assetById, gateways));
+}
+
+/**
+ * Extract a [lat, lng] tuple from an asset. We prefer `customLocation` because
+ * J-Dot stores its outlet coordinates there; fall back to OpenRemote's standard
+ * `location` attribute for realms that use the built-in field. Both accept the
+ * GeoJSON Point shape (`{ type: 'Point', coordinates: [lng, lat] }`) plus the
+ * `{ lat, lng }` / `{ latitude, longitude }` object shapes, and a plain
+ * `"lat,lng"` string as a last resort.
+ */
+function readPoint(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const m = value.split(',').map((s) => Number(s.trim()));
+    if (m.length === 2 && m.every(Number.isFinite)) return [m[0], m[1]];
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  if (value.type === 'Point' && Array.isArray(value.coordinates) && value.coordinates.length >= 2) {
+    const [lng, lat] = value.coordinates;
+    if (typeof lat === 'number' && typeof lng === 'number') return [lat, lng];
+  }
+  if (typeof value.lat === 'number' && typeof value.lng === 'number') return [value.lat, value.lng];
+  if (typeof value.latitude === 'number' && typeof value.longitude === 'number') return [value.latitude, value.longitude];
+  return null;
+}
+
+export function extractLocation(asset) {
+  const a = asset?.attributes;
+  if (!a) return null;
+  return readPoint(a.customLocation?.value) || readPoint(a.location?.value);
+}
+
+/**
+ * Read the floor-map image URL from a gateway's `floorMap` attribute.
+ * Returns the trimmed URL when it looks like a valid http(s) URL,
+ * otherwise null. Callers should fall back to an inline placeholder
+ * when null is returned.
+ */
+export function getFloorMapUrl(asset) {
+  const raw = asset?.attributes?.floorMap?.value;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  return trimmed;
 }
 
 /**

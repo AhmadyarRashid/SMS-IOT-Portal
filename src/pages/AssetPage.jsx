@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -34,12 +34,30 @@ const TABS = [
 
 export default function AssetPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { data: asset, isLoading } = useAsset(id);
   const { data: gateways = [] } = useGateways();
   const [tab, setTab] = useState('state');
 
   const gateway = useMemo(() => findGatewayForAsset(asset, gateways), [asset, gateways]);
-  const backTo = gateway ? `/g/${gateway.id}` : '/sites';
+  // Prefer the page the user came from (passed in `state.from` by the Link
+  // that opened this view) so back returns to /store/:id, /g/:id, /, etc. —
+  // whichever launched the detail. Falls back to the gateway page when the
+  // URL is opened directly (no history entry to step back to).
+  const backFrom = location.state?.from;
+  const fallbackBack = gateway ? `/g/${gateway.id}` : '/sites';
+  const backTo = backFrom || fallbackBack;
+  const backLabel = backFrom
+    ? 'Back'
+    : gateway
+      ? `Back to ${getAssetDisplayName(gateway)}`
+      : 'Back to sites';
+  const goBack = (e) => {
+    if (!backFrom) return; // let <Link to={fallbackBack}> handle it
+    e.preventDefault();
+    navigate(-1);
+  };
   const isControllable = asset
     ? CONTROLLABLE_TYPES.includes(getCustomAssetType(asset))
     : false;
@@ -75,10 +93,11 @@ export default function AssetPage() {
     <div className="p-4 md:p-6 max-w-[1100px] mx-auto space-y-5">
       <Link
         to={backTo}
+        onClick={goBack}
         className="inline-flex items-center gap-1.5 text-xs text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        {gateway ? `Back to ${getAssetDisplayName(gateway)}` : 'Back to sites'}
+        {backLabel}
       </Link>
 
       <Hero asset={asset} gateway={gateway} />
@@ -252,11 +271,11 @@ function Hero({ asset, gateway }) {
 }
 
 /* ---------------- Editable name ----------------
- * Inline-rename UI on the hero. Writes the chosen name to the standard OR
- * `notes` attribute via useWriteAttribute — already optimistically patched
- * into the React Query cache, so every tile / card / search result that
- * uses getAssetDisplayName() re-renders instantly with the new label. Name
- * persists server-side, so it syncs across every browser the user signs
+ * Inline-rename UI on the hero. Writes the chosen name to the
+ * `customDisplayName` attribute via useWriteAttribute — already optimistically
+ * patched into the React Query cache, so every tile / card / search result
+ * that uses getAssetDisplayName() re-renders instantly with the new label.
+ * Name persists server-side, so it syncs across every browser the user signs
  * in from.
  *
  * The underlying asset.name is never mutated — that endpoint needs admin
@@ -271,9 +290,9 @@ function EditableName({ asset }) {
   const inputRef = useRef(null);
   const write = useWriteAttribute();
 
-  // Asset types where the backend reuses `notes` for structured data (see
-  // NOTES_USED_FOR_DATA in assetIcons.js) — we show the server name without
-  // any edit affordance so we can't accidentally overwrite real data.
+  // Assets without `customDisplayName` declared on them can't be renamed —
+  // OpenRemote rejects writes to undeclared attributes. Show the server name
+  // without any edit affordance.
   if (!renameable) {
     return <h1 className="ad-hero-name">{currentName}</h1>;
   }

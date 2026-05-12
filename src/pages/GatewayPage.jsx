@@ -5,8 +5,8 @@ import {
   ArrowLeft, Server, Cpu, Bell, Wifi, WifiOff,
   AlertTriangle, Search, X, LayoutGrid,
 } from 'lucide-react';
-import { useAsset, useGatewayChildren, useAlarms } from '../hooks/useAssets';
-import { summariseGateway } from '../utils/gateways';
+import { useAsset, useGatewayChildren, useAlarms, useAssets } from '../hooks/useAssets';
+import { summariseGateway, pickGateways, alarmBelongsToGateway } from '../utils/gateways';
 import {
   getCustomAssetType, getAssetTypeLabel, isAssetAlarming, getAssetDisplayName,
 } from '../utils/assetIcons';
@@ -51,6 +51,9 @@ export default function GatewayPage() {
   const { data: gateway, isLoading: gLoad } = useAsset(id);
   const { data: children = [], isLoading: cLoad } = useGatewayChildren(id);
   const { data: alarms = [] } = useAlarms({ status: 'OPEN' });
+  const { data: allAssets = [] } = useAssets({});
+  const gateways = useMemo(() => pickGateways(allAssets), [allAssets]);
+  const assetById = useMemo(() => new Map(allAssets.map((a) => [a.id, a])), [allAssets]);
 
   const [activeChip, setActiveChip] = useState(ALL);
   const [search, setSearch] = useState('');
@@ -58,8 +61,9 @@ export default function GatewayPage() {
 
   // --- Flatten children, compute per-type counts + "needs attention" set ----
   const summary = summariseGateway(children);
-  const gatewayAlarms = (alarms || []).filter(
-    (a) => children.some((c) => c.id === a.assetId) || a.assetId === id
+  const gatewayAlarms = useMemo(
+    () => (alarms || []).filter((al) => alarmBelongsToGateway(al, id, assetById, gateways)),
+    [alarms, id, assetById, gateways]
   );
 
   const typedChildren = useMemo(() => children.map((c) => ({
