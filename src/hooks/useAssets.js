@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+// Phase 0: hooks now consume the translated IoT layer, not raw endpoints.
+// The translator preserves attribute/path/createdOn shapes used by existing
+// components, while normalising ids to strings and adding ISO timestamps.
 import {
   queryAssets, getAsset, writeAttributeValue, updateAsset, getUserAssets,
-} from '../api/assets';
-import { getDatapoints } from '../api/datapoints';
-import { getAlarms, updateAlarm } from '../api/alarms';
+  getDatapoints, getAlarms, updateAlarm,
+} from '../api/iot';
 import { getRules, createRule as apiCreateRule, updateRule as apiUpdateRule, deleteRule as apiDeleteRule } from '../api/rules';
 import { pickGateways, pickGatewayChildren } from '../utils/gateways';
 import toast from 'react-hot-toast';

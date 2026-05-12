@@ -1,0 +1,775 @@
+openapi: 3.1.0
+info:
+  title: SMS One-Box Solution API
+  version: 0.1.0
+  description: |
+    Unified gateway over Odoo, OpenRemote (IoT), Frigate (VMS), ANPR, and the
+    person-tracking service. The portal speaks only to this surface; per-module
+    vendor specifics are normalised server-side.
+
+    Served as a mock by Prism (`npm run mock`). Every response below carries
+    an `example` payload — that is what the mock returns. Prism is stateless,
+    so writes never alter the read responses; stateful demos arrive in later
+    phases via a small dynamic overlay if needed.
+
+servers:
+  - url: /api/{realm}
+    description: Gateway, realm-scoped
+    variables:
+      realm:
+        default: sms-iot
+
+tags:
+  - { name: identity,        description: Current user + enabled-modules }
+  - { name: auth,            description: OAuth2 token endpoint (Keycloak-compatible) }
+  - { name: iot.assets,      description: IoT assets (devices, gateways, groups) }
+  - { name: iot.alarms,      description: Alarms (cross-module triage) }
+  - { name: iot.datapoints,  description: Time-series history for asset attributes }
+
+paths:
+  /auth/realms/{realm}/protocol/openid-connect/token:
+    post:
+      tags: [auth]
+      summary: OAuth2 token endpoint (password / refresh / client-credentials)
+      operationId: tokenExchange
+      parameters:
+        - name: realm
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                grant_type:    { type: string, enum: [password, refresh_token, client_credentials] }
+                client_id:     { type: string }
+                client_secret: { type: string }
+                username:      { type: string }
+                password:      { type: string }
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: Token grant
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, expires_in]
+                properties:
+                  access_token:        { type: string }
+                  refresh_token:       { type: string }
+                  token_type:          { type: string }
+                  expires_in:          { type: integer }
+                  refresh_expires_in:  { type: integer }
+                  scope:               { type: string }
+              example:
+                access_token: eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ1LTEiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJkZW1vIiwibmFtZSI6IkRlbW8gT3BlcmF0b3IiLCJlbWFpbCI6ImRlbW9Ac21zLmV4YW1wbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaWF0IjoxNzE1MDAwMDAwLCJleHAiOjQwNzA5MDg4MDAsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJyZWFkOmFzc2V0cyIsIndyaXRlOmFzc2V0cyIsInJlYWQ6YWxhcm1zIiwid3JpdGU6YWxhcm1zIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnt9fQ.
+                refresh_token: eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ1LTEiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJkZW1vIiwibmFtZSI6IkRlbW8gT3BlcmF0b3IiLCJlbWFpbCI6ImRlbW9Ac21zLmV4YW1wbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaWF0IjoxNzE1MDAwMDAwLCJleHAiOjQwNzA5MDg4MDAsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJyZWFkOmFzc2V0cyIsIndyaXRlOmFzc2V0cyIsInJlYWQ6YWxhcm1zIiwid3JpdGU6YWxhcm1zIl19LCJyZXNvdXJjZV9hY2Nlc3MiOnt9fQ.
+                token_type: Bearer
+                expires_in: 28800
+                refresh_expires_in: 86400
+                scope: profile email
+
+
+  /me:
+    get:
+      tags: [identity]
+      summary: Current user + enabled modules + permissions
+      operationId: getMe
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+              example:
+                user:
+                  id: u-1
+                  name: Demo Operator
+                  username: demo
+                  email: demo@sms.example
+                  avatarUrl: null
+                modules:
+                  - { code: iot,       enabled: true  }
+                  - { code: vms,       enabled: false }
+                  - { code: ams,       enabled: false }
+                  - { code: visitors,  enabled: false }
+                  - { code: anpr,      enabled: false }
+                  - { code: tracking,  enabled: false }
+                  - { code: alarms,    enabled: true  }
+                  - { code: admin,     enabled: true  }
+                permissions:
+                  - iot.read
+                  - iot.write
+                  - alarms.read
+                  - alarms.write
+                  - admin.read
+
+  /asset/query:
+    post:
+      tags: [iot.assets]
+      summary: Query assets
+      operationId: queryAssets
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssetQuery' }
+      responses:
+        '200':
+          description: Asset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Asset' }
+              example: { $ref: '#/components/examples/AssetList/value' }
+
+  /asset/{assetId}:
+    get:
+      tags: [iot.assets]
+      summary: Get one asset
+      operationId: getAsset
+      parameters: [{ $ref: '#/components/parameters/AssetId' }]
+      responses:
+        '200':
+          description: Asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+              example: { $ref: '#/components/examples/Asset_LobbyLight/value' }
+    put:
+      tags: [iot.assets]
+      summary: Update an asset (rename, attribute structure)
+      operationId: updateAsset
+      parameters: [{ $ref: '#/components/parameters/AssetId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Asset' }
+      responses:
+        '200':
+          description: Updated asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+              example: { $ref: '#/components/examples/Asset_LobbyLight/value' }
+
+  /asset/{assetId}/attribute/{attributeName}:
+    put:
+      tags: [iot.assets]
+      summary: Write one attribute value (toggle / set)
+      operationId: writeAttributeValue
+      parameters:
+        - { $ref: '#/components/parameters/AssetId' }
+        - name: attributeName
+          in: path
+          required: true
+          schema: { type: string }
+      # NOTE: the real backend accepts a bare JSON primitive (`true`,
+      # `"text"`, `42`, ...) as the body. Prism's body parser can't validate
+      # bare primitives reliably, so we leave the body undocumented here and
+      # mark the response 204. Backend implementation must still accept
+      # arbitrary JSON.
+      responses:
+        '204': { description: Written }
+
+  /asset/user/current:
+    get:
+      tags: [iot.assets]
+      summary: Assets linked to current user (restricted-user fallback)
+      operationId: getUserAssets
+      responses:
+        '200':
+          description: Linked assets or asset ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Asset' }
+              example: { $ref: '#/components/examples/AssetList/value' }
+
+  /asset/datapoint/{assetId}/{attributeName}:
+    post:
+      tags: [iot.datapoints]
+      summary: Time-series datapoints for an attribute
+      operationId: getDatapoints
+      parameters:
+        - { $ref: '#/components/parameters/AssetId' }
+        - name: attributeName
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DatapointQuery' }
+      responses:
+        '200':
+          description: Datapoint series
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Datapoint' }
+              example:
+                - [1715500000000, 21.2]
+                - [1715503600000, 21.6]
+                - [1715507200000, 22.1]
+                - [1715510800000, 22.4]
+                - [1715514400000, 22.0]
+                - [1715518000000, 21.8]
+                - [1715521600000, 21.5]
+                - [1715525200000, 21.7]
+
+  /alarm:
+    get:
+      tags: [iot.alarms]
+      summary: List alarms
+      operationId: getAlarms
+      parameters:
+        - { name: status,   in: query, schema: { $ref: '#/components/schemas/AlarmStatus' } }
+        - { name: severity, in: query, schema: { $ref: '#/components/schemas/AlarmSeverity' } }
+        - { name: assetId,  in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Alarms
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Alarm' }
+              example: { $ref: '#/components/examples/AlarmList/value' }
+
+  /alarm/{alarmId}:
+    get:
+      tags: [iot.alarms]
+      summary: Get one alarm
+      operationId: getAlarm
+      parameters:
+        - { name: alarmId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Alarm
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alarm' }
+              example: { $ref: '#/components/examples/Alarm_Smoke/value' }
+    put:
+      tags: [iot.alarms]
+      summary: Update an alarm (ack, resolve, close)
+      operationId: updateAlarm
+      parameters:
+        - { name: alarmId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlarmUpdate' }
+      responses:
+        '200':
+          description: Updated alarm
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alarm' }
+              example: { $ref: '#/components/examples/Alarm_Smoke/value' }
+
+components:
+  parameters:
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string }
+
+  # ---------- examples (referenced from responses) ----------
+  examples:
+    AssetList:
+      summary: Three sites with a mix of devices
+      value:
+        - id: gw-head-office
+          name: Head Office
+          type: GatewayAsset
+          parentId: null
+          realm: sms-iot
+          path: [gw-head-office]
+          version: 1
+          createdOn: 1714900000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: GatewayAsset, timestamp: 1714900000000 }
+            connected:       { name: connected,       type: boolean, value: true,         timestamp: 1715520000000 }
+            location:        { name: location,        type: GEO_JSONPoint, value: { type: Point, coordinates: [74.3587, 31.5204] }, timestamp: 1714900000000 }
+        - id: gw-warehouse
+          name: Warehouse
+          type: GatewayAsset
+          parentId: null
+          realm: sms-iot
+          path: [gw-warehouse]
+          version: 1
+          createdOn: 1714900000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: GatewayAsset, timestamp: 1714900000000 }
+            connected:       { name: connected,       type: boolean, value: true,         timestamp: 1715520000000 }
+            location:        { name: location,        type: GEO_JSONPoint, value: { type: Point, coordinates: [74.3500, 31.5300] }, timestamp: 1714900000000 }
+        - id: gw-retail
+          name: Retail Shop
+          type: GatewayAsset
+          parentId: null
+          realm: sms-iot
+          path: [gw-retail]
+          version: 1
+          createdOn: 1714900000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: GatewayAsset, timestamp: 1714900000000 }
+            connected:       { name: connected,       type: boolean, value: true,         timestamp: 1715520000000 }
+            location:        { name: location,        type: GEO_JSONPoint, value: { type: Point, coordinates: [74.3700, 31.5150] }, timestamp: 1714900000000 }
+        - id: dev-lobby-light
+          name: Lobby Light
+          type: LightAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-lobby-light]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: LightAsset,  timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,        timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: true,        timestamp: 1715520000000 }
+            brightness:      { name: brightness,      type: number,  value: 75,          timestamp: 1715520000000 }
+        - id: dev-lobby-camera
+          name: Lobby Camera
+          type: CameraAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-lobby-camera]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: CameraAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,        timestamp: 1715520000000 }
+        - id: dev-front-door
+          name: Front Door
+          type: DoorLockAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-front-door]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: DoorLockAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,          timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: true,          timestamp: 1715520000000 }
+        - id: dev-main-alarm
+          name: Main Alarm
+          type: AlarmAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-main-alarm]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: AlarmAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,       timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: false,      timestamp: 1715520000000 }
+        - id: dev-lobby-motion
+          name: Lobby Motion
+          type: MotionSensorAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-lobby-motion]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: MotionSensorAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,              timestamp: 1715520000000 }
+            motionDetected:  { name: motionDetected,  type: boolean, value: false,             timestamp: 1715520000000 }
+        - id: dev-server-temp
+          name: Server Room Temp
+          type: HeatSensorAsset
+          parentId: gw-head-office
+          realm: sms-iot
+          path: [gw-head-office, dev-server-temp]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: HeatSensorAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,            timestamp: 1715520000000 }
+            temperature:     { name: temperature,     type: number,  value: 22.4,            timestamp: 1715520000000 }
+        - id: dev-wh-light-a
+          name: Bay A Light
+          type: LightAsset
+          parentId: gw-warehouse
+          realm: sms-iot
+          path: [gw-warehouse, dev-wh-light-a]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: LightAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,       timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: true,       timestamp: 1715520000000 }
+        - id: dev-wh-plug-1
+          name: Compressor
+          type: PlugAsset
+          parentId: gw-warehouse
+          realm: sms-iot
+          path: [gw-warehouse, dev-wh-plug-1]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: PlugAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,      timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: true,      timestamp: 1715520000000 }
+            power:           { name: power,           type: number,  value: 1240,      timestamp: 1715520000000 }
+        - id: dev-wh-smoke
+          name: Smoke Sensor
+          type: SmokeSensorAsset
+          parentId: gw-warehouse
+          realm: sms-iot
+          path: [gw-warehouse, dev-wh-smoke]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: SmokeSensorAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,             timestamp: 1715520000000 }
+            smokeDetected:   { name: smokeDetected,   type: boolean, value: true,             timestamp: 1715519000000 }
+        - id: dev-retail-light
+          name: Shop Light
+          type: LightAsset
+          parentId: gw-retail
+          realm: sms-iot
+          path: [gw-retail, dev-retail-light]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: LightAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,       timestamp: 1715520000000 }
+            onOff:           { name: onOff,           type: boolean, value: true,       timestamp: 1715520000000 }
+        - id: dev-retail-fan
+          name: Ceiling Fan
+          type: FanAsset
+          parentId: gw-retail
+          realm: sms-iot
+          path: [gw-retail, dev-retail-fan]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: FanAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,     timestamp: 1715520000000 }
+            Fan:             { name: Fan,             type: boolean, value: true,     timestamp: 1715520000000 }
+            speed:           { name: speed,           type: number,  value: 2,        timestamp: 1715520000000 }
+        - id: dev-retail-camera
+          name: Counter Camera
+          type: CameraAsset
+          parentId: gw-retail
+          realm: sms-iot
+          path: [gw-retail, dev-retail-camera]
+          version: 1
+          createdOn: 1714960000000
+          attributes:
+            customAssetType: { name: customAssetType, type: string,  value: CameraAsset, timestamp: 1714960000000 }
+            connected:       { name: connected,       type: boolean, value: true,        timestamp: 1715520000000 }
+
+    Asset_LobbyLight:
+      summary: Single asset response
+      value:
+        id: dev-lobby-light
+        name: Lobby Light
+        type: LightAsset
+        parentId: gw-head-office
+        realm: sms-iot
+        path: [gw-head-office, dev-lobby-light]
+        version: 1
+        createdOn: 1714960000000
+        attributes:
+          customAssetType: { name: customAssetType, type: string,  value: LightAsset, timestamp: 1714960000000 }
+          connected:       { name: connected,       type: boolean, value: true,       timestamp: 1715520000000 }
+          onOff:           { name: onOff,           type: boolean, value: true,       timestamp: 1715520000000 }
+          brightness:      { name: brightness,      type: number,  value: 75,         timestamp: 1715520000000 }
+
+    AlarmList:
+      summary: Four alarms across severities and statuses
+      value:
+        - id: al-1
+          realm: sms-iot
+          title: Smoke detected in Warehouse
+          content: Smoke sensor reported smoke at 14:02.
+          severity: CRITICAL
+          status: OPEN
+          source: INTERNAL
+          sourceId: rule-smoke-warehouse
+          sourceName: Smoke escalation
+          assetId: dev-wh-smoke
+          assigneeId: null
+          createdOn: 1715519000000
+          lastModified: 1715519000000
+          asset:
+            - id: dev-wh-smoke
+              name: Smoke Sensor
+              type: SmokeSensorAsset
+              parentId: gw-warehouse
+              realm: sms-iot
+              path: [gw-warehouse, dev-wh-smoke]
+              version: 1
+              createdOn: 1714960000000
+              attributes:
+                customAssetType: { name: customAssetType, type: string,  value: SmokeSensorAsset, timestamp: 1714960000000 }
+                connected:       { name: connected,       type: boolean, value: true,             timestamp: 1715520000000 }
+                smokeDetected:   { name: smokeDetected,   type: boolean, value: true,             timestamp: 1715519000000 }
+        - id: al-2
+          realm: sms-iot
+          title: Front Door left unlocked
+          content: Front Door has been unlocked for more than 5 minutes.
+          severity: HIGH
+          status: OPEN
+          source: INTERNAL
+          sourceId: rule-front-door
+          sourceName: Door watch
+          assetId: dev-front-door
+          assigneeId: null
+          createdOn: 1715517000000
+          lastModified: 1715517000000
+          asset: []
+        - id: al-3
+          realm: sms-iot
+          title: Lobby motion at 02:14
+          content: Lobby motion sensor triggered outside hours.
+          severity: MEDIUM
+          status: ACKNOWLEDGED
+          source: INTERNAL
+          sourceId: rule-after-hours
+          sourceName: After-hours watch
+          assetId: dev-lobby-motion
+          assigneeId: u-1
+          createdOn: 1715490000000
+          lastModified: 1715494000000
+          acknowledgedOn: 1715494000000
+          acknowledgedBy: demo
+          asset: []
+        - id: al-4
+          realm: sms-iot
+          title: Compressor draw above threshold
+          content: Compressor plug power exceeded 1500 W briefly.
+          severity: LOW
+          status: RESOLVED
+          source: INTERNAL
+          sourceId: rule-power
+          sourceName: Power watch
+          assetId: dev-wh-plug-1
+          assigneeId: u-1
+          createdOn: 1715430000000
+          lastModified: 1715434000000
+          asset: []
+
+    Alarm_Smoke:
+      summary: Single critical alarm
+      value:
+        id: al-1
+        realm: sms-iot
+        title: Smoke detected in Warehouse
+        content: Smoke sensor reported smoke at 14:02.
+        severity: CRITICAL
+        status: OPEN
+        source: INTERNAL
+        sourceId: rule-smoke-warehouse
+        sourceName: Smoke escalation
+        assetId: dev-wh-smoke
+        assigneeId: null
+        createdOn: 1715519000000
+        lastModified: 1715519000000
+        asset: []
+
+  schemas:
+    # ---------- identity ----------
+    Me:
+      type: object
+      required: [user, modules, permissions]
+      properties:
+        user:    { $ref: '#/components/schemas/User' }
+        modules:
+          type: array
+          items: { $ref: '#/components/schemas/ModuleFlag' }
+        permissions:
+          type: array
+          items: { type: string }
+
+    User:
+      type: object
+      required: [id, name]
+      properties:
+        id:        { type: string }
+        name:      { type: string }
+        username:  { type: string, nullable: true }
+        email:     { type: string, nullable: true }
+        avatarUrl: { type: string, nullable: true }
+
+    ModuleFlag:
+      type: object
+      required: [code, enabled]
+      properties:
+        code:
+          type: string
+          enum: [iot, vms, ams, visitors, anpr, tracking, alarms, admin]
+        enabled: { type: boolean }
+
+    # ---------- IoT ----------
+    AssetQuery:
+      type: object
+      properties:
+        ids:     { type: array, items: { type: string } }
+        types:   { type: array, items: { type: string } }
+        parents:
+          type: array
+          items:
+            type: object
+            properties:
+              id:        { type: string }
+              recursive: { type: boolean }
+
+    Asset:
+      type: object
+      required: [id, name, type]
+      properties:
+        id:        { type: string }
+        name:      { type: string }
+        type:      { type: string }
+        parentId:  { type: string, nullable: true }
+        realm:     { type: string }
+        path:
+          type: array
+          items: { type: string }
+        version:           { type: integer, nullable: true }
+        createdOn:         { type: integer, nullable: true }
+        accessPublicRead:  { type: boolean, nullable: true }
+        attributes:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/Attribute' }
+
+    Attribute:
+      type: object
+      required: [name]
+      properties:
+        name:      { type: string }
+        type:      { type: string, nullable: true }
+        value:     { description: Current value — any JSON }
+        timestamp: { type: integer, nullable: true }
+        meta:      { type: object, additionalProperties: true, nullable: true }
+
+    DatapointQuery:
+      type: object
+      properties:
+        fromTimestamp:  { type: integer }
+        toTimestamp:    { type: integer }
+        type:           { type: string, default: LTTB }
+        amountOfPoints: { type: integer, default: 100 }
+
+    Datapoint:
+      description: Tuple `[ts, value]` or object `{x, y}`. Translator normalises.
+      oneOf:
+        - type: array
+          minItems: 2
+          maxItems: 2
+          items: {}
+        - type: object
+          properties:
+            x:     { type: integer }
+            y:     {}
+            ts:    { type: integer }
+            value: {}
+
+    # ---------- alarms ----------
+    AlarmSeverity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+
+    AlarmStatus:
+      type: string
+      enum: [OPEN, ACKNOWLEDGED, IN_PROGRESS, RESOLVED, CLOSED]
+
+    Alarm:
+      type: object
+      required: [id, title, severity, status]
+      properties:
+        id:             { type: string }
+        realm:          { type: string, nullable: true }
+        title:          { type: string }
+        content:        { type: string, nullable: true }
+        severity:       { $ref: '#/components/schemas/AlarmSeverity' }
+        status:         { $ref: '#/components/schemas/AlarmStatus' }
+        source:         { type: string, nullable: true }
+        sourceId:       { type: string, nullable: true }
+        sourceName:     { type: string, nullable: true }
+        assetId:        { type: string, nullable: true }
+        assigneeId:     { type: string, nullable: true }
+        createdOn:      { type: integer, nullable: true }
+        lastModified:   { type: integer, nullable: true }
+        acknowledgedOn: { type: integer, nullable: true }
+        acknowledgedBy: { type: string, nullable: true }
+        asset:
+          type: array
+          items: { $ref: '#/components/schemas/Asset' }
+
+    AlarmUpdate:
+      type: object
+      required: [id, status]
+      properties:
+        id:         { type: string }
+        realm:      { type: string, nullable: true }
+        title:      { type: string, nullable: true }
+        content:    { type: string, nullable: true }
+        severity:   { $ref: '#/components/schemas/AlarmSeverity' }
+        source:     { type: string, nullable: true }
+        sourceId:   { type: string, nullable: true }
+        status:     { $ref: '#/components/schemas/AlarmStatus' }
+        assigneeId: { type: string, nullable: true }
+
+    # ---------- cross-module event stream ----------
+    OpsEvent:
+      type: object
+      required: [id, source, kind, severity, timestamp]
+      properties:
+        id:        { type: string }
+        source:    { type: string, enum: [iot, vms, ams, visitors, anpr, tracking] }
+        kind:
+          type: string
+          enum: [check_in, check_out, gate_open, ai_alert, visitor_approved, visitor_expired, alarm_raised, alarm_resolved, zone_violation, crowd_warning, unknown_plate]
+        severity:  { type: string, enum: [info, warn, critical] }
+        timestamp: { type: string, format: date-time }
+        payload:   { type: object, additionalProperties: true }
+        actions:
+          type: array
+          items:
+            type: object
+            required: [label, href]
+            properties:
+              label: { type: string }
+              href:  { type: string }
+
+    AccessGrant:
+      type: object
+      required: [id, subjectId, subjectKind, scope, startsAt, expiresAt, status]
+      properties:
+        id:           { type: string }
+        subjectId:    { type: string }
+        subjectKind:  { type: string, enum: [visitor, employee] }
+        scope:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [floor, room, lift, zone] }
+              id:   { type: string }
+        startsAt:  { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        status:    { type: string, enum: [active, expired, revoked] }
+
+    Error:
+      type: object
+      properties:
+        code:    { type: string }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }

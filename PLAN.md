@@ -6,6 +6,9 @@
 
 ---
 
+> **See also:** `PLAN-IMPLEMENTATION.md` for the delivered-vs-deferred
+> log per phase. Update both files in step when scope changes.
+
 ## 1. Vision
 
 The current portal is a thin OpenRemote IoT client. We are turning it into a
@@ -186,34 +189,39 @@ openapi/
 Spec is the contract handed to backend. The team can change the spec to
 match Odoo's reality; the portal stays insulated via the translator layer.
 
-### 5.2 Mock server
+### 5.2 Mock server — Prism
 
-**DECISION:** Node + Express + `@apidevtools/swagger-parser`. Standalone
-process on `:4010`. Vite proxy points at it when `VITE_API_BASE=mock`.
+**DECISION (revised 2026-05-12):** Stoplight Prism CLI serving
+`openapi/spec.yaml` directly. No hand-written Express. The spec IS the
+mock. Listens on `:4010`; Vite proxy points at it when
+`VITE_API_BASE=mock`.
 
 ```
-mock-server/
-  index.js                   # boots, registers routes from spec
-  state.js                   # in-memory tables (employees, visitors, plates, etc.)
-  ticker.js                  # mutates state on a 2-5s interval
-  handlers/                  # per-endpoint dynamic logic
-  fixtures/                  # seed JSON
-  package.json
+openapi/
+  spec.yaml                  # contract + every example payload
+  package.json               # one dev dep: @stoplight/prism-cli
+  README.md
 ```
 
-**Liveness budget:** ticker emits at most one event per 2 seconds across
-all sources, so the demo feels alive without being chaotic.
+Run with `npm run mock` (delegates to `openapi/`).
 
-**Faked smart responses:**
+**Tradeoff accepted:** Prism is stateless — toggles return 204 but the
+next GET returns the same baked example. Polling reconciles the UI
+back to the example state. That's fine for Phase 0 (spec + translator
+validation) and most of Phase 1 (read-heavy admin surfaces).
 
-| Endpoint | Mocked behaviour |
+**Faked smart responses arrive when a phase needs them.** If/when a
+later phase needs flows that must stick (visitor approval → countdown
+ring → auto-expire; ANPR plate reads ticking; tracking dots drifting),
+we add a tiny dynamic overlay *in addition to* Prism, not replacing
+it. Most likely targets:
+
+| Endpoint | Why dynamic |
 |---|---|
-| `POST /visitors/scan-id` | 800 ms delay → fake CNIC parse |
-| `POST /visitors/{id}/approve` | Flip status, start countdown, push event |
-| `GET /tracking/positions` | 30 drifting people, smooth between calls |
-| `GET /vms/events` | New AI alert every ~5 min, fixture clip URL |
-| `GET /anpr/reads` | Plate read every ~30 s, mix of registered + unknown |
-| `GET /ams/today` | Headcount evolves over the working day curve |
+| `POST /visitors/{id}/approve` | Status must persist for the countdown |
+| `GET /tracking/positions` | Smooth motion needs an interpolating source |
+| `GET /vms/events` (or `/ws/vms`) | New AI alerts need to arrive over time |
+| `GET /anpr/reads` | Plate-read feed needs a tick |
 
 ### 5.3 Switching between mock and real
 
@@ -230,73 +238,71 @@ VITE_API_BASE=staging   npm run dev     # real gateway
 
 ### 6.1 Folder layout
 
+Layout below shows both what's **in repo today** (Phase 0 delivered) and
+what **arrives by phase** so the target shape is visible without a
+separate roadmap doc. See `PLAN-IMPLEMENTATION.md` for the exact
+delivery state.
+
 ```
 src/
-  shell/                     # auth, layout, sidebar, header, ⌘K, theme, install
-    DashboardLayout.jsx
-    Sidebar.jsx              # grouped by module; gated by enabled modules
-    Header.jsx
-    CommandPalette.jsx       # module-aware
-    moduleRegistry.js        # MODULES = [{ code, label, icon, routes, sidebar, commands }]
+  components/                # existing — layout, tiles, commandpalette, ui, …
+                             # (Phase 1: split into shell/ + per-module/)
 
-  modules/
-    iot/                     # existing pages refactored under here
-    vms/
-    ams/
-    visitors/
-    anpr/
-    tracking/
-    alarms/
-    admin/
-
-  models/                    # internal shapes (JSDoc)
-    common.js                # User, OpsEvent, AccessGrant, Page<T>
-    facility.js
-    iot.js
-    vms.js
-    ams.js
-    visitors.js
-    anpr.js
-    tracking.js
+  pages/                     # existing IoT pages — stay put until a phase
+                             # needs them moved (avoids 14-file shuffle PR)
 
   api/
-    client.js                # axios instance + interceptors (existing)
-    safeGet.js               # tiny defensive getter for translators
-    <module>/
-      endpoints.js           # raw HTTP — returns server DTOs untouched
-      translators.js         # toInternal / toServer per resource
-      index.js               # public — composes endpoints + translators
-      __tests__/             # snapshot tests for translators (manual run for now)
+    client.js                # axios instance + interceptors                            [done]
+    safeGet.js               # defensive getter + mapArray + toId                       [done]
+    iot/
+      index.js               # HTTP + translation, public surface                       [done]
+      translators.js         # toAsset / toAlarm / toAlarmUpdate / toDatapoint          [done]
+    # ↓ added in later phases
+    identity.js              # /me — module enablement + permissions                    [Phase 1]
+    facility.js                                                                          [Phase 1]
+    admin.js                                                                             [Phase 1]
+    visitors/                                                                            [Phase 2]
+    vms/                                                                                 [Phase 3]
+    anpr/                                                                                [Phase 4]
+    ams/        + tracking/                                                              [Phase 5]
 
   hooks/
-    useEnabledModules.js     # reads /me, exposes { isEnabled(code), modules }
-    useOpsEvents.js          # subscribes to unified event stream
-    useLiveEvents.js         # existing — extend to multi-source
-    useAlarmNotifications.js # existing — extend module-awareness
+    useAssets.js             # existing — now consumes api/iot                           [done]
+    useLiveEvents.js         # existing
+    useAlarmNotifications.js # existing
+    # ↓ added in later phases
+    useEnabledModules.js     # reads /me                                                 [Phase 1]
+    useOpsEvents.js          # unified event stream                                      [Phase 2+]
 
-  store/                     # zustand stores (existing + new)
-    authStore.js
-    appStore.js
-    activityStore.js
-    pwaStore.js
-    sessionStore.js          # NEW — selected facility, last-visited module
+  shell/                                                                                 [Phase 1]
+    moduleRegistry.js        # single registry; routes/sidebar/palette read from here
 
-  utils/
-    assetIcons.js
-    gateways.js
-    helpers.js
-    csv.js
-    prefs.js
-    motion.js                # NEW — shared motion presets + reduced-motion gate
+  modules/                                                                               [Phase 1+]
+    iot/        # registry entry; pages may physically relocate here later
+    vms/        # …                                                                       [Phase 3]
+    ...
 
-openapi/                     # see §5
-mock-server/                 # see §5
-public/                      # sw.js, manifest, icons
+  models/                                                                                [Phase 1+]
+    common.js                # User, OpsEvent, AccessGrant — added when a hook reads them
+    iot.js                   # added when the translated shape diverges from wire
+
+  store/                     # existing zustand stores
+  utils/                     # existing utils — assetIcons, gateways, helpers, csv, prefs
+
+openapi/
+  spec.yaml                  # contract + Prism examples                                 [done, grows per phase]
+  package.json               # Prism CLI                                                 [done]
+  README.md                                                                              [done]
+
+public/                      # sw.js, manifest, icons (existing)
 ```
 
-### 6.2 Module registry contract
+**Principle:** the chassis is added **just before** the consumer that
+needs it. We avoid orphan-flagging files that no component imports.
 
-Every module exports a registry entry:
+### 6.2 Module registry contract  *(Phase 1 — not yet in repo)*
+
+Every module will export a registry entry:
 
 ```js
 // src/modules/visitors/index.js
@@ -517,38 +523,56 @@ zone-violations all funnel through the same triage UI.
 
 ### Phase 0 — Foundations (no user-visible change)
 **Goal:** ship the chassis so every later phase is straight-line work.
+**Status:** delivered 2026-05-12. See `PLAN-IMPLEMENTATION.md` for the
+per-item log; summary below reflects what's actually in repo.
 
-- `openapi/spec.yaml` skeleton + common schemas + IoT endpoints (the ones
-  we already use)
-- `mock-server/` boots from spec, serves IoT endpoints with examples,
-  ticker mutates a couple of fields
-- `src/api/safeGet.js`
-- `src/models/common.js` + `src/models/iot.js`
-- Refactor existing IoT API calls behind translators
-- `src/shell/moduleRegistry.js` + `useEnabledModules()` hook
-- Move existing pages into `src/modules/iot/` (cosmetic move; routes
-  unchanged via legacy redirects)
-- `motion.js` util + extract shared presets
+Delivered:
+- `openapi/spec.yaml` + `openapi/package.json` (Prism) + README — identity,
+  auth (token endpoint), IoT (assets, alarms, datapoints) with inline
+  examples.
+- `npm run mock` + `npm run dev:mock` scripts.
+- `vite.config.js` — `VITE_API_BASE` switching, `/api/{realm}` rewrite for
+  Prism, attribute-write bypass middleware.
+- `src/api/safeGet.js`.
+- `src/api/iot/{index,translators}.js` — HTTP + translator, single file pair.
+- `src/hooks/useAssets.js` migrated to consume `api/iot`.
 
-**Acceptance:**
-- Existing portal still works identically against real backend and mock.
-- `VITE_API_BASE=mock npm run dev` boots without backend.
-- Disabling the `iot` module via mock `/me` response hides every IoT
-  surface (sidebar, palette, Overview tile, routes redirect to "no
-  module enabled" page).
+Pushed to Phase 1 (no consumer yet):
+- `src/shell/moduleRegistry.js`, `src/hooks/useEnabledModules.js`,
+  `src/models/*` JSDoc typedefs.
+- IoT page physical move under `src/modules/iot/pages/`.
+- `motion.js` util.
+
+**Acceptance (re-checked 2026-05-12):**
+- Existing portal works identically against real backend and mock — yes.
+- `VITE_API_BASE=mock npm run dev` boots without backend — yes.
+- `npm run lint` + `npm run build` clean — yes.
+- ~~Disabling `iot` module via `/me` hides every IoT surface~~ — moved to
+  Phase 1 with the registry.
 
 ### Phase 1 — Admin + new Overview shell
-- Facility model schema in spec
+
+**Pre-work (deferred chassis from Phase 0 — do first):**
+- `src/models/common.js`, `src/models/iot.js` JSDoc typedefs.
+- `src/shell/moduleRegistry.js` + per-module entry contract (see §6.2).
+- `src/hooks/useEnabledModules.js` reading `/me`.
+- Wire `Sidebar.jsx` (currently hardcoded nav) to render from the registry.
+- Add `GET /me` translator + endpoint to `src/api/identity.js`.
+- `src/utils/motion.js` shared presets + `prefers-reduced-motion` gate.
+
+**Features:**
+- Facility model schema in spec.
 - `/admin/users`, `/admin/roles`, `/admin/facility`, `/admin/modules`,
-  `/admin/audit`
+  `/admin/audit`.
 - New animated Overview with per-module tile slots (only IoT tile lit
-  in this phase) and unified event stream column
-- Sidebar grouping (Security / People / Site / Admin) with gated items
+  in this phase) and unified event stream column.
+- Sidebar grouping (Security / People / Site / Admin) with gated items.
 
 **Acceptance:**
 - Customer admin can build the facility graph and toggle modules from
   the UI.
 - Disabling a module hides every surface within 1 render.
+- All Phase 0 acceptance criteria still pass.
 
 ### Phase 2 — Visitors
 - `/visitors/*` routes per §8.3
@@ -633,10 +657,10 @@ that unblocks work; reply to override.
    Aligns with existing JSX-only constraint in README §1.
    **DECISION:** JSDoc.
 
-6. **Mock-server stack** — Node + Express +
-   `@apidevtools/swagger-parser` + `swagger-ui-express` for a `/docs`
-   page on the mock.
-   **DECISION:** Node + Express.
+6. **Mock-server stack** — Stoplight Prism CLI reading
+   `openapi/spec.yaml`. Zero hand-written handlers. Statefulness
+   added as a small overlay only if/when a phase needs it.
+   **DECISION:** Prism (revised 2026-05-12).
 
 7. **Camera streams** — HLS for v1 (broadest browser support, single
    `<video>` element with `hls.js` polyfill on Chrome/Firefox; native on
@@ -715,19 +739,18 @@ These don't block Phase 0. Confirm before the corresponding phase starts.
 
 ## 15. Next step
 
-If §10 decisions are acceptable, the very next task is **Phase 0 setup**:
+Phase 0 is delivered (see `PLAN-IMPLEMENTATION.md`). The next task is
+**Phase 1 pre-work**:
 
-1. Add `openapi/` skeleton with the common + IoT schemas.
-2. Add `mock-server/` Express boot.
-3. Add `npm run mock` script and `VITE_API_BASE` wiring in
-   `vite.config.js`.
-4. Create `src/models/common.js`, `src/models/iot.js`,
-   `src/api/safeGet.js`.
-5. Refactor `src/api/assets.js`, `alarms.js`, `datapoints.js` to go
-   through translators.
-6. Add `src/shell/moduleRegistry.js` + `useEnabledModules` hook.
-7. Move IoT pages under `src/modules/iot/` with legacy import paths
-   re-exported so nothing else breaks.
+1. Add `src/models/common.js`, `src/models/iot.js` JSDoc typedefs (only
+   the fields a Phase 1 component will actually read).
+2. Add `GET /me` to `openapi/spec.yaml`, add `src/api/identity.js`
+   (`fetchMe` + `toMe`).
+3. Add `src/shell/moduleRegistry.js` + an IoT entry; refactor
+   `Sidebar.jsx` to render from the registry.
+4. Add `src/hooks/useEnabledModules.js` and wire it into the sidebar
+   gating.
+5. Verify: flipping `iot.enabled: false` in the mock's `/me` example
+   hides every IoT sidebar item within one render.
 
-Each numbered step above is one PR. Phase 0 should take ~1 working
-week.
+Then Phase 1 features proper (facility model + admin pages).

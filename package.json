@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "VITE_API_BASE=mock vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mock": "cd openapi && npm install --silent && npm run mock",
+    "mock:dynamic": "cd openapi && npm install --silent && npm run mock:dynamic"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,0 +1,15 @@
+{
+  "name": "sms-onebox-openapi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OpenAPI contract for the SMS One-Box portal. Served as a mock by Prism.",
+  "scripts": {
+    "mock": "prism mock spec.yaml --host 0.0.0.0 --port 4010 --errors=false",
+    "mock:dynamic": "prism mock spec.yaml --host 0.0.0.0 --port 4010 --errors=false --dynamic",
+    "validate": "prism proxy spec.yaml --help >/dev/null && swagger-cli validate spec.yaml || true",
+    "lint": "spectral lint spec.yaml || true"
+  },
+  "devDependencies": {
+    "@stoplight/prism-cli": "^5.14.2"
+  }
+}
