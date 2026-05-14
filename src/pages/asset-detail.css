@@ -4,7 +4,7 @@
    ========================================================================== */
 
 /* ---------------- Hero --------------------------------------------------- */
-.ad-hero {
+.adp-hero {
   position: relative;
   border-radius: var(--radius-card);
   padding: 24px;
@@ -18,57 +18,57 @@
     box-shadow 260ms cubic-bezier(.2,.8,.2,1);
 }
 
-.ad-hero[data-mood="on"] {
-  --ad-accent: var(--color-accent-500);
-  --ad-accent-bright: var(--color-accent-400);
-  border-color: color-mix(in srgb, var(--ad-accent) 32%, transparent);
+.adp-hero[data-mood="on"] {
+  --adp-accent: var(--color-accent-500);
+  --adp-accent-bright: var(--color-accent-400);
+  border-color: color-mix(in srgb, var(--adp-accent) 32%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ad-accent) 14%, transparent),
-    0 22px 60px -28px color-mix(in srgb, var(--ad-accent) 55%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--adp-accent) 14%, transparent),
+    0 22px 60px -28px color-mix(in srgb, var(--adp-accent) 55%, transparent);
 }
-.ad-hero[data-mood="alarm"] {
-  --ad-accent: var(--color-danger-500);
-  --ad-accent-bright: var(--color-danger-400);
-  border-color: color-mix(in srgb, var(--ad-accent) 40%, transparent);
+.adp-hero[data-mood="alarm"] {
+  --adp-accent: var(--color-danger-500);
+  --adp-accent-bright: var(--color-danger-400);
+  border-color: color-mix(in srgb, var(--adp-accent) 40%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ad-accent) 20%, transparent),
-    0 22px 60px -28px color-mix(in srgb, var(--ad-accent) 55%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--adp-accent) 20%, transparent),
+    0 22px 60px -28px color-mix(in srgb, var(--adp-accent) 55%, transparent);
 }
-.ad-hero[data-mood="off"] {
-  --ad-accent: var(--color-accent-500);
-  --ad-accent-bright: var(--color-accent-400);
+.adp-hero[data-mood="off"] {
+  --adp-accent: var(--color-accent-500);
+  --adp-accent-bright: var(--color-accent-400);
 }
 
 /* Drifting mood halo */
-.ad-hero-halo {
+.adp-hero-halo {
   position: absolute;
   inset: -60% -20% 20% -20%;
   background: radial-gradient(60% 60% at 50% 20%,
-    color-mix(in srgb, var(--ad-accent) 30%, transparent) 0%,
+    color-mix(in srgb, var(--adp-accent) 30%, transparent) 0%,
     transparent 70%);
   filter: blur(40px);
   opacity: 0.85;
   pointer-events: none;
   z-index: 0;
-  animation: ad-halo-drift 20s ease-in-out infinite;
+  animation: adp-halo-drift 20s ease-in-out infinite;
 }
-.ad-hero[data-mood="off"] .ad-hero-halo { opacity: 0.25; }
-.ad-hero[data-mood="alarm"] .ad-hero-halo {
-  animation: ad-halo-breathe 2.6s ease-in-out infinite;
+.adp-hero[data-mood="off"] .adp-hero-halo { opacity: 0.25; }
+.adp-hero[data-mood="alarm"] .adp-hero-halo {
+  animation: adp-halo-breathe 2.6s ease-in-out infinite;
 }
 
-@keyframes ad-halo-drift {
+@keyframes adp-halo-drift {
   0%, 100% { transform: translate(0, 0)    scale(1);    opacity: 0.85; }
   33%      { transform: translate(30px, 10px) scale(1.08); opacity: 1; }
   66%      { transform: translate(-22px, 20px) scale(0.95); opacity: 0.7; }
 }
-@keyframes ad-halo-breathe {
+@keyframes adp-halo-breathe {
   0%, 100% { opacity: 0.7;  transform: scale(1); }
   50%      { opacity: 1;    transform: scale(1.06); }
 }
 
 /* Info strip */
-.ad-hero-strip {
+.adp-hero-strip {
   position: relative;
   z-index: 1;
   display: flex;
@@ -80,16 +80,16 @@
   color: var(--color-ink-2);
   margin-bottom: 6px;
 }
-.ad-hero-type {
+.adp-hero-type {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 600;
-  color: var(--ad-accent-bright);
+  color: var(--adp-accent-bright);
 }
-.ad-hero-sep { color: var(--color-ink-3); }
+.adp-hero-sep { color: var(--color-ink-3); }
 
 /* Name + state */
-.ad-hero-name {
+.adp-hero-name {
   position: relative;
   z-index: 1;
   font-size: 26px;
@@ -100,7 +100,7 @@
 }
 
 /* ---------------- Editable name ---------------- */
-.ad-hero-name-wrap {
+.adp-hero-name-wrap {
   position: relative;
   z-index: 1;
   display: inline-flex;
@@ -109,7 +109,7 @@
   max-width: 100%;
 }
 
-.ad-hero-name-edit {
+.adp-hero-name-edit {
   position: relative;
   z-index: 1;
   display: inline-flex;
@@ -118,7 +118,7 @@
   max-width: 100%;
 }
 
-.ad-hero-name-input {
+.adp-hero-name-input {
   font-size: 26px;
   font-weight: 800;
   color: var(--color-ink-0);
@@ -138,11 +138,11 @@
     0 6px 18px -8px color-mix(in srgb, var(--color-accent-500) 45%, transparent);
   transition: box-shadow 160ms ease, border-color 160ms ease;
 }
-.ad-hero-name-input:focus {
+.adp-hero-name-input:focus {
   border-color: var(--color-accent-500);
 }
 
-.ad-name-btn {
+.adp-name-btn {
   width: 30px;
   height: 30px;
   display: inline-flex;
@@ -155,54 +155,54 @@
   transition: color 160ms ease, background 160ms ease, transform 120ms ease;
   flex-shrink: 0;
 }
-.ad-name-btn:hover {
+.adp-name-btn:hover {
   color: var(--color-ink-0);
   background: color-mix(in srgb, var(--color-ink-0) 12%, transparent);
   transform: scale(1.05);
 }
-.ad-name-btn:disabled { opacity: 0.55; cursor: wait; }
+.adp-name-btn:disabled { opacity: 0.55; cursor: wait; }
 
-.ad-name-btn-ok {
+.adp-name-btn-ok {
   color: var(--color-accent-400);
   background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
   border-color: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
 }
-.ad-name-btn-ok:hover {
+.adp-name-btn-ok:hover {
   color: var(--color-accent-400);
   background: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
   border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
 }
 
-.ad-name-btn-ghost {
+.adp-name-btn-ghost {
   width: 26px;
   height: 26px;
   opacity: 0;
   background: transparent;
   border: 1px solid transparent;
 }
-.ad-hero-name-wrap:hover .ad-name-btn-ghost,
-.ad-name-btn-ghost:focus-visible {
+.adp-hero-name-wrap:hover .adp-name-btn-ghost,
+.adp-name-btn-ghost:focus-visible {
   opacity: 1;
   background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
   border-color: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
 }
-.ad-name-btn-ghost:hover {
+.adp-name-btn-ghost:hover {
   color: var(--color-accent-400);
   background: color-mix(in srgb, var(--color-accent-500) 12%, transparent);
   border-color: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
 }
-.ad-hero-state {
+.adp-hero-state {
   position: relative;
   z-index: 1;
   margin-top: 6px;
   font-size: 17px;
   font-weight: 700;
 }
-.ad-hero-state-on    { color: var(--color-accent-400); }
-.ad-hero-state-alarm { color: var(--color-danger-400); }
-.ad-hero-state-off   { color: var(--color-ink-2); }
+.adp-hero-state-on    { color: var(--color-accent-400); }
+.adp-hero-state-alarm { color: var(--color-danger-400); }
+.adp-hero-state-off   { color: var(--color-ink-2); }
 
-.ad-hero-hint {
+.adp-hero-hint {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -215,7 +215,7 @@
 }
 
 /* ---------------- Pill tabs ---------------------------------------------- */
-.ad-tabs {
+.adp-tabs {
   display: flex;
   gap: 4px;
   padding: 4px;
@@ -227,7 +227,7 @@
   max-width: 100%;
 }
 
-.ad-tab {
+.adp-tab {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -239,16 +239,16 @@
   white-space: nowrap;
   transition: color 160ms ease, background 180ms ease, box-shadow 200ms ease;
 }
-.ad-tab:hover { color: var(--color-ink-0); }
+.adp-tab:hover { color: var(--color-ink-0); }
 
-.ad-tab-active {
+.adp-tab-active {
   color: var(--color-accent-400);
   background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent-500) 30%, transparent);
 }
 
 /* ---------------- State tab — feature tile ------------------------------ */
-.ad-feature {
+.adp-feature {
   position: relative;
   border-radius: var(--radius-card);
   padding: 22px 24px;
@@ -261,7 +261,7 @@
   isolation: isolate;
 }
 
-.ad-feature-accent {
+.adp-feature-accent {
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 4px;
@@ -269,7 +269,7 @@
   border-radius: 4px 0 0 4px;
 }
 
-.ad-feature-value {
+.adp-feature-value {
   font-size: 44px;
   font-weight: 800;
   color: var(--color-accent-400);
@@ -279,7 +279,7 @@
   word-break: break-all;
 }
 
-.ad-feature-unit {
+.adp-feature-unit {
   font-size: 18px;
   font-weight: 600;
   color: var(--color-ink-2);
@@ -287,27 +287,27 @@
 }
 
 /* Smaller attr tiles */
-.ad-attr-tile {
+.adp-attr-tile {
   border-radius: 16px;
   padding: 12px 14px;
   background: var(--color-surface-1);
   border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
   transition: background 200ms ease, border-color 200ms ease, transform 180ms ease;
 }
-.ad-attr-tile:hover {
+.adp-attr-tile:hover {
   background: color-mix(in srgb, var(--color-accent-500) 6%, var(--color-surface-1));
   border-color: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
   transform: translateY(-1px);
 }
 
 /* ---------------- Compact density ---------------------------------------- */
-:root[data-density="compact"] .ad-hero { padding: 18px; }
-:root[data-density="compact"] .ad-hero-name { font-size: 22px; }
-:root[data-density="compact"] .ad-feature { padding: 16px 18px; }
-:root[data-density="compact"] .ad-feature-value { font-size: 36px; }
+:root[data-density="compact"] .adp-hero { padding: 18px; }
+:root[data-density="compact"] .adp-hero-name { font-size: 22px; }
+:root[data-density="compact"] .adp-feature { padding: 16px 18px; }
+:root[data-density="compact"] .adp-feature-value { font-size: 36px; }
 
 /* ---------------- Reduced motion ---------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  .ad-hero-halo { animation: none !important; }
-  .ad-attr-tile:hover { transform: none; }
+  .adp-hero-halo { animation: none !important; }
+  .adp-attr-tile:hover { transform: none; }
 }

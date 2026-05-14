@@ -112,14 +112,14 @@ export default function AssetPage() {
       )}
 
       {/* Pill tabs */}
-      <div className="ad-tabs no-scrollbar">
+      <div className="adp-tabs no-scrollbar">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`ad-tab ${active ? 'ad-tab-active' : ''}`}
+              className={`adp-tab ${active ? 'adp-tab-active' : ''}`}
               aria-pressed={active}
             >
               <t.icon className="w-4 h-4" strokeWidth={1.75} />
@@ -179,14 +179,14 @@ function Hero({ asset, gateway }) {
   }, [asset.attributes]);
 
   return (
-    <div className={`ad-hero ad-hero-${mood}`} data-mood={mood}>
+    <div className={`adp-hero adp-hero-${mood}`} data-mood={mood}>
       {/* Drifting mood halo */}
-      <span className="ad-hero-halo" aria-hidden="true" />
+      <span className="adp-hero-halo" aria-hidden="true" />
 
       {/* Info strip — type · connection · updated · site */}
-      <div className="ad-hero-strip">
-        <span className="ad-hero-type">{getAssetTypeLabel(customType)}</span>
-        <span className="ad-hero-sep">·</span>
+      <div className="adp-hero-strip">
+        <span className="adp-hero-type">{getAssetTypeLabel(customType)}</span>
+        <span className="adp-hero-sep">·</span>
         <span className="inline-flex items-center gap-1.5">
           <span className={`status-dot ${connected ? 'status-dot-on' : 'status-dot-off'}`} />
           <span className={connected ? 'text-[var(--color-accent-400)]' : 'text-[var(--color-ink-3)]'}>
@@ -195,13 +195,13 @@ function Hero({ asset, gateway }) {
         </span>
         {lastUpdated && (
           <>
-            <span className="ad-hero-sep">·</span>
+            <span className="adp-hero-sep">·</span>
             <span className="text-[var(--color-ink-2)]">Updated {formatRelativeTime(lastUpdated)}</span>
           </>
         )}
         {gateway && (
           <>
-            <span className="ad-hero-sep">·</span>
+            <span className="adp-hero-sep">·</span>
             <Link
               to={`/g/${gateway.id}`}
               className="text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)] transition-colors truncate max-w-[160px]"
@@ -249,10 +249,10 @@ function Hero({ asset, gateway }) {
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className={`ad-hero-state ${
-          alarm ? 'ad-hero-state-alarm'
-            : active ? 'ad-hero-state-on'
-            : 'ad-hero-state-off'
+        className={`adp-hero-state ${
+          alarm ? 'adp-hero-state-alarm'
+            : active ? 'adp-hero-state-on'
+            : 'adp-hero-state-off'
         }`}
       >
         {label}
@@ -260,7 +260,7 @@ function Hero({ asset, gateway }) {
 
       {controllable && primaryAttr && (
         <div className="mt-3 flex justify-center">
-          <span className="ad-hero-hint">
+          <span className="adp-hero-hint">
             <Power className="w-3 h-3" />
             Tap the icon to turn {active ? 'off' : 'on'}
           </span>
@@ -294,7 +294,7 @@ function EditableName({ asset }) {
   // OpenRemote rejects writes to undeclared attributes. Show the server name
   // without any edit affordance.
   if (!renameable) {
-    return <h1 className="ad-hero-name">{currentName}</h1>;
+    return <h1 className="adp-hero-name">{currentName}</h1>;
   }
 
   const start = () => {
@@ -329,7 +329,7 @@ function EditableName({ asset }) {
 
   if (editing) {
     return (
-      <div className="ad-hero-name-edit">
+      <div className="adp-hero-name-edit">
         <input
           ref={inputRef}
           value={draft}
@@ -339,14 +339,14 @@ function EditableName({ asset }) {
             else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
           }}
           maxLength={120}
-          className="ad-hero-name-input"
+          className="adp-hero-name-input"
           aria-label="Edit device name"
         />
         <button
           onClick={save}
           disabled={write.isPending}
           aria-label="Save name"
-          className="ad-name-btn ad-name-btn-ok"
+          className="adp-name-btn adp-name-btn-ok"
         >
           <Check className="w-4 h-4" strokeWidth={2.25} />
         </button>
@@ -354,7 +354,7 @@ function EditableName({ asset }) {
           onClick={cancel}
           disabled={write.isPending}
           aria-label="Cancel"
-          className="ad-name-btn"
+          className="adp-name-btn"
         >
           <XIcon className="w-4 h-4" strokeWidth={2.25} />
         </button>
@@ -363,13 +363,13 @@ function EditableName({ asset }) {
   }
 
   return (
-    <div className="ad-hero-name-wrap">
-      <h1 className="ad-hero-name">{currentName}</h1>
+    <div className="adp-hero-name-wrap">
+      <h1 className="adp-hero-name">{currentName}</h1>
       <button
         onClick={start}
         aria-label="Edit device name"
         title="Rename"
-        className="ad-name-btn ad-name-btn-ghost"
+        className="adp-name-btn adp-name-btn-ghost"
       >
         <Pencil className="w-3.5 h-3.5" strokeWidth={2} />
       </button>
@@ -506,17 +506,17 @@ function FeatureTile({ name, attr }) {
   // Split value and unit when the value already includes the unit
   const numeric = typeof attr.value === 'number' ? attr.value : null;
   return (
-    <div className="ad-feature">
-      <div className="ad-feature-accent" aria-hidden="true" />
+    <div className="adp-feature">
+      <div className="adp-feature-accent" aria-hidden="true" />
       <div className="relative z-[1]">
         <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-ink-2)] font-semibold">
           {prettyName(name)}
         </p>
         <div className="mt-2 flex items-end gap-2">
-          <p className="ad-feature-value">
+          <p className="adp-feature-value">
             {numeric != null ? numeric.toLocaleString(undefined, { maximumFractionDigits: 2 }) : displayValue}
           </p>
-          {numeric != null && unit && <span className="ad-feature-unit">{unit}</span>}
+          {numeric != null && unit && <span className="adp-feature-unit">{unit}</span>}
         </div>
         {attr.timestamp && (
           <p className="text-[11px] text-[var(--color-ink-3)] mt-2 inline-flex items-center gap-1.5">
@@ -533,7 +533,7 @@ function AttrTile({ name, attr }) {
   const unit = attr?.meta?.unit || '';
   const display = renderValue(attr.value, name);
   return (
-    <div className="ad-attr-tile">
+    <div className="adp-attr-tile">
       <p className="text-[10px] uppercase tracking-wide text-[var(--color-ink-3)] font-medium truncate">
         {prettyName(name)}
       </p>
