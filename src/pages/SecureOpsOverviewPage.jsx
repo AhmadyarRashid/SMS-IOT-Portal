@@ -19,8 +19,8 @@ import {
   isAssetActive, getPrimaryControlAttr, nextToggleValue, normalizeAssetType,
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
-import useActivityStore from '../store/activityStore';
 import { LoadingSpinner } from '../components/ui';
+import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import './secureops.css';
 
 /* ==========================================================================
@@ -196,7 +196,8 @@ export default function SecureOpsOverviewPage() {
           <AuditLogPanel
             alarms={allAlarms}
             assets={assets}
-            scopeTowerIds={towers.map((t) => t.id)}
+            sites={sites}
+            towers={towers}
           />
         </div>
       </div>
@@ -908,24 +909,53 @@ function EnvRow({ icon: Icon, label, value, pct }) {
    Audit log
    ========================================================================== */
 
-function AuditLogPanel({ alarms, assets, scopeTowerIds }) {
-  const sessionEvents = useActivityStore((s) => s.events);
+/**
+ * Audit log
+ *
+ * Persistence: every row is sourced from server-stored data, so the panel is
+ * stable across page reloads (no in-memory ring buffer).
+ *
+ *   1. Alarms — `useAlarms({})` returns the full alarm history. Each alarm
+ *      yields one "raised" event at `createdOn` and (when applicable) a
+ *      transition event at `lastModified` (Acknowledged / Resolved / Closed).
+ *
+ *   2. Tower-level `auditLog` attribute — optional. If a tower carries an
+ *      `auditLog` array attribute (populated by a backend rule on every
+ *      device write — shape: `[{ ts, actor, action, target, tag? }]`), we
+ *      surface those entries too. This is how device-state-change rows show
+ *      up *persistently*. If the attribute isn't declared on any tower, the
+ *      audit log silently falls back to alarms only.
+ *
+ * Scope: filtered by the global site dropdown only (NOT the selected tower).
+ * The `towers` prop is already restricted to the chosen site by the parent;
+ * "All Sites" means towers spans every site.
+ */
+/**
+ * Audit log panel — small preview of the full /audit page.
+ *
+ * Persistence: every row is sourced from server-stored data
+ *   (alarms + per-tower `auditLog` attribute) so the list survives reloads.
+ *
+ * Scope: filtered by the global site dropdown only — NOT the selected tower.
+ * The `towers` prop is already restricted to the chosen site by the parent.
+ */
+function AuditLogPanel({ alarms, assets, sites, towers }) {
   const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const gateways = useMemo(() => assets.filter((a) => a.type === 'GatewayAsset'), [assets]);
+  const scopeTowerIds = useMemo(() => towers.map((t) => t.id), [towers]);
 
-  // Merge two streams: alarm status transitions + in-session activity buffer.
   const rows = useMemo(() => {
+    const ctx = { assetMap, sites, towers };
     const fromAlarms = (alarms || [])
       .filter((al) => {
         if (!scopeTowerIds.length) return true;
-        return scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, gateways));
+        return scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers));
       })
-      .flatMap((al) => alarmAuditEvents(al));
-    const fromSession = (sessionEvents || []).map(sessionAuditEvent).filter(Boolean);
-    return [...fromAlarms, ...fromSession]
-      .sort((a, b) => b.ts - a.ts)
-      .slice(0, 6);
-  }, [alarms, sessionEvents, scopeTowerIds, assetMap, gateways]);
+      .flatMap((al) => alarmAuditEvents(al, ctx));
+
+    const fromTowerLogs = (towers || []).flatMap((t) => towerAuditEvents(t));
+
+    return [...fromAlarms, ...fromTowerLogs].sort((a, b) => b.ts - a.ts);
+  }, [alarms, towers, sites, scopeTowerIds, assetMap]);
 
   return (
     <section className="panel p-4 md:p-5">
@@ -934,73 +964,38 @@ function AuditLogPanel({ alarms, assets, scopeTowerIds }) {
           <ScrollText className="so-panel-icon" strokeWidth={2} />
           Audit log
         </div>
+        <span className="so-panel-meta tabular-nums">
+          {rows.length} event{rows.length === 1 ? '' : 's'}
+        </span>
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">No audit events yet.</p>
-      ) : rows.map((r, i) => (
-        <div key={i} className="so-audit-row">
-          <span className="so-audit-time">{format(r.ts, 'HH:mm')}</span>
-          <r.icon className="w-4 h-4 text-[var(--color-ink-2)]" strokeWidth={1.75} />
-          <span className="truncate text-[var(--color-ink-0)]">{r.text}</span>
-          <span className={`so-audit-tag is-${r.tagTone}`}>{r.tag}</span>
+        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
+          No audit events yet.
+        </p>
+      ) : (
+        <div className="so-audit-list">
+          {rows.map((r, i) => (
+            <div key={`${r.ts}-${i}`} className="so-audit-row">
+              <span className="so-audit-time">{format(r.ts, 'HH:mm')}</span>
+              <r.icon className="w-4 h-4 text-[var(--color-ink-2)]" strokeWidth={1.75} />
+              <span className="truncate text-[var(--color-ink-0)]">{r.title}</span>
+              <span className={`so-audit-tag is-${r.tagTone}`}>{r.tag}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
-      <div className="text-right mt-1">
-        <Link to="/audit" className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5">
+      <div className="text-right mt-2">
+        <Link
+          to="/audit"
+          className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5"
+        >
           Full audit trail <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
     </section>
   );
-}
-
-function alarmAuditEvents(alarm) {
-  const events = [];
-  const baseTitle = alarm.title || 'Alarm';
-  if (alarm.createdOn) {
-    events.push({
-      ts: new Date(alarm.createdOn).getTime(),
-      icon: AlertOctagon,
-      text: `${baseTitle} raised`,
-      tag: 'Alert',
-      tagTone: 'alert',
-    });
-  }
-  if (alarm.status && alarm.lastModified) {
-    if (alarm.status === 'ACKNOWLEDGED') {
-      events.push({
-        ts: new Date(alarm.lastModified).getTime(),
-        icon: ScrollText,
-        text: `${baseTitle} acknowledged`,
-        tag: 'Command',
-        tagTone: 'command',
-      });
-    } else if (alarm.status === 'RESOLVED' || alarm.status === 'CLOSED') {
-      events.push({
-        ts: new Date(alarm.lastModified).getTime(),
-        icon: ScrollText,
-        text: `${baseTitle} resolved`,
-        tag: 'Info',
-        tagTone: 'info',
-      });
-    }
-  }
-  return events;
-}
-
-function sessionAuditEvent(ev) {
-  if (!ev || !ev.timestamp) return null;
-  const tagTone = ev.kind === 'alarm' ? 'alert' : ev.kind === 'control' ? 'command' : 'info';
-  const tag = ev.kind === 'alarm' ? 'Alert' : ev.kind === 'control' ? 'Command' : 'Info';
-  return {
-    ts: ev.timestamp,
-    icon: ScrollText,
-    text: ev.detail ? `${ev.title} — ${ev.detail}` : ev.title,
-    tag,
-    tagTone,
-  };
 }
 
 /* ==========================================================================

@@ -8,6 +8,7 @@ const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout')
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const SecureOpsOverviewPage = lazy(() => import('./pages/SecureOpsOverviewPage'));
 const SecureOpsStubPage = lazy(() => import('./pages/SecureOpsStubPage'));
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const StorePage = lazy(() => import('./pages/StorePage'));
@@ -66,9 +67,7 @@ export default function App() {
               <Route path="control" element={
                 <SecureOpsStubPage title="Control" subtitle="Per-tower remote control (doors, sirens, lights, PTT) and bulk site actions. Coming next." />
               } />
-              <Route path="audit" element={
-                <SecureOpsStubPage title="Audit log" subtitle="Full audit trail of operator commands, alarm transitions, and system heartbeat events. Coming next." />
-              } />
+              <Route path="audit" element={<AuditLogPage />} />
               <Route path="legacy-overview" element={<OverviewPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="sites" element={<SitesPage />} />
