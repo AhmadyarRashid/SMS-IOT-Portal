@@ -147,6 +147,20 @@ plus the 14 original SMS IoT types (`HeatSensorAsset`,
 Case-insensitive — `normalizeAssetType` (§11) uppercases the first letter of
 whatever it gets.
 
+### 5.1a. Camera tiles & full-view modal
+
+Every surface that renders a live camera tile (Overview's Live Camera
+Feeds, Control's Cameras panel) opens a shared **full-view modal** on
+click instead of navigating to `/a/:cameraId`. The modal lives in
+`src/components/cameras/CameraFullView.jsx` and reuses the same
+`CameraStream` URL-detection logic (`<video>` / `<img>` / `<iframe>`).
+Closes on Esc or backdrop click. **No "Detail" / asset-page affordance**
+inside the modal — the tile is monitoring-only; reach the asset detail
+page via the audit log or alarm row breadcrumbs when you need Controls /
+History / Alarms tabs. Owners of the modal state are the parent
+**panel** components (`LiveCameraFeedsPanel`, `CamerasPanel`) —
+individual tiles are buttons that call `onOpen(camera)`.
+
 ### 5.2. CameraAsset attributes
 
 | Attribute | Type | Required? | Purpose |

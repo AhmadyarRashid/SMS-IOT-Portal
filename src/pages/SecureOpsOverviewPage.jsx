@@ -22,6 +22,7 @@ import {
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import CameraStream from '../components/cameras/CameraStream';
+import CameraFullView from '../components/cameras/CameraFullView';
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import './secureops.css';
 
@@ -241,6 +242,11 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
   const overflow = Math.max(0, cameras.length - 4);
   const primaryCam = display.find((c) => isCameraAlerting(c)) || display[0];
 
+  // Single piece of state for which camera (if any) is currently in the
+  // full-view modal. Both individual tile clicks and the "Full stream"
+  // shortcut use this — so the modal is owned by the panel, not the tile.
+  const [fullCam, setFullCam] = useState(null);
+
   return (
     <section className="panel p-4 md:p-5">
       <div className="so-panel-head">
@@ -262,7 +268,7 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
               <div className="so-cam col-span-2"><div className="so-cam-empty">No cameras linked to this tower</div></div>
             )}
             {display.map((cam) => (
-              <CameraTile key={cam.id} camera={cam} />
+              <CameraTile key={cam.id} camera={cam} onOpen={setFullCam} />
             ))}
             {overflow > 0 && (
               <Link to="/video" className="so-cam flex items-center justify-center"
@@ -277,13 +283,14 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
 
           {primaryCam && (
             <div className="flex items-center justify-between gap-3 mt-3 text-[12px]">
-              <Link
-                to={`/a/${primaryCam.id}`}
+              <button
+                type="button"
+                onClick={() => setFullCam(primaryCam)}
                 className="inline-flex items-center gap-1 font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)]"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
                 Full stream — {shortCamCode(primaryCam, display.indexOf(primaryCam))}
-              </Link>
+              </button>
               <Link
                 to={`/a/${primaryCam.id}`}
                 className="inline-flex items-center gap-1 font-semibold text-[var(--color-ink-1)] hover:text-[var(--color-ink-0)]"
@@ -295,11 +302,15 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
           )}
         </>
       )}
+
+      {fullCam && (
+        <CameraFullView camera={fullCam} onClose={() => setFullCam(null)} />
+      )}
     </section>
   );
 }
 
-function CameraTile({ camera }) {
+function CameraTile({ camera, onOpen }) {
   const url = camera.attributes?.liveStreamUrl?.value;
   const alerting = isCameraAlerting(camera);
   const idx = 0; // index isn't tracked here; consumer wraps with key
@@ -307,8 +318,15 @@ function CameraTile({ camera }) {
   const name = getAssetDisplayName(camera);
   const offline = camera.attributes?.connected?.value === false;
 
+  // The tile is a button — clicking opens the full-view modal (handled by
+  // the parent panel) instead of navigating to the asset detail page.
   return (
-    <Link to={`/a/${camera.id}`} className="so-cam block">
+    <button
+      type="button"
+      onClick={() => onOpen(camera)}
+      className="so-cam block"
+      title={`Open ${name} full view`}
+    >
       <CameraStream url={url} offline={offline} />
       <div className="so-cam-pills">
         <span className="so-cam-pill is-label">{code}</span>
@@ -317,7 +335,7 @@ function CameraTile({ camera }) {
           : <span className="so-cam-pill is-rec">Rec</span>}
       </div>
       <div className="so-cam-foot truncate">{name}</div>
-    </Link>
+    </button>
   );
 }
 

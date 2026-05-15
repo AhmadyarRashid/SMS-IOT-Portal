@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   SlidersHorizontal, Video as VideoIcon, RadioTower,
-  Thermometer, Droplets, Maximize2, History,
+  Thermometer, Droplets, Maximize2,
 } from 'lucide-react';
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
@@ -17,6 +17,7 @@ import {
 } from '../utils/assetIcons';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 import CameraStream from '../components/cameras/CameraStream';
+import CameraFullView from '../components/cameras/CameraFullView';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import './secureops.css';
@@ -164,7 +165,9 @@ function TowerSelect({ towers, value, onChange }) {
    Cameras panel — at most two tiles per the spec
    ========================================================================== */
 
-function CamerasPanel({ cameras, towerId }) {
+function CamerasPanel({ cameras }) {
+  const [fullCam, setFullCam] = useState(null);
+
   return (
     <section className="panel p-4 md:p-5">
       <div className="so-panel-head">
@@ -187,26 +190,35 @@ function CamerasPanel({ cameras, towerId }) {
           </div>
         </div>
       ) : (
-        <>
-          <div className="so-cam-grid">
-            {cameras.map((cam) => (
-              <CameraTile key={cam.id} camera={cam} towerId={towerId} />
-            ))}
-          </div>
-        </>
+        <div className="so-cam-grid">
+          {cameras.map((cam) => (
+            <CameraTile key={cam.id} camera={cam} onOpen={setFullCam} />
+          ))}
+        </div>
+      )}
+
+      {fullCam && (
+        <CameraFullView camera={fullCam} onClose={() => setFullCam(null)} />
       )}
     </section>
   );
 }
 
-function CameraTile({ camera }) {
+function CameraTile({ camera, onOpen }) {
   const url = camera.attributes?.liveStreamUrl?.value;
   const offline = camera.attributes?.connected?.value === false;
   const code = shortCamCode(camera);
   const name = getAssetDisplayName(camera);
 
+  // Button instead of Link — clicking opens the full-view modal owned by
+  // the parent panel rather than navigating away to the asset detail page.
   return (
-    <Link to={`/a/${camera.id}`} className="so-cam block">
+    <button
+      type="button"
+      onClick={() => onOpen(camera)}
+      className="so-cam block"
+      title={`Open ${name} full view`}
+    >
       <CameraStream url={url} offline={offline} />
       <div className="so-cam-pills">
         <span className="so-cam-pill is-label">{code}</span>
@@ -214,11 +226,11 @@ function CameraTile({ camera }) {
       </div>
       <div className="so-cam-foot truncate flex items-center justify-between gap-2">
         <span className="truncate">{name}</span>
-        <span className="inline-flex items-center gap-2 text-[10px] opacity-80">
-          <Maximize2 className="w-3 h-3" /> <History className="w-3 h-3" />
+        <span className="inline-flex items-center gap-1 text-[10px] opacity-80">
+          <Maximize2 className="w-3 h-3" />
         </span>
       </div>
-    </Link>
+    </button>
   );
 }
 
