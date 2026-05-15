@@ -114,9 +114,13 @@
 
 .so-video-wall {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
 }
+
+/* Static "card" version of the camera tile used on the Video wall —
+   no live stream playing inside, just a tappable surface with a play
+   affordance. The stream only starts once the operator opens the modal. */
 
 /* ---------- Clip rows inside the Video modal's history sidebar ---------- */
 

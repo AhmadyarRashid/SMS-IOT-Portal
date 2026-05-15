@@ -69,6 +69,26 @@ export function pickTowersForSite(assets = [], siteId) {
 }
 
 /**
+ * Read the playable live-stream URL from a CameraAsset. Accepts either:
+ *   • `liveStreamUrl` — the canonical attribute name in this portal.
+ *   • `streamUrl`     — short alias for installations that use that name
+ *                       (added 2026-05-16 after the SMS realm spelled the
+ *                       attribute `streamUrl`; both spellings now work).
+ *
+ * Returns the first trimmed http(s) URL found, otherwise `null` so the
+ * camera tile / modal can render an "Camera offline / no stream URL" state.
+ */
+export function getCameraStreamUrl(camera) {
+  const a = camera?.attributes;
+  if (!a) return null;
+  const candidates = [a.liveStreamUrl?.value, a.streamUrl?.value];
+  for (const raw of candidates) {
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+/**
  * Find the "weather" asset for a tower — the realm-side convention is that
  * each tower has a single `HeatSensorAsset` child carrying BOTH `temperature`
  * and `humidity` attributes (a packaged temp/humidity sensor inside the

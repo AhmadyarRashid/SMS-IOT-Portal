@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import CameraStream from './CameraStream';
 import { getAssetDisplayName } from '../../utils/assetIcons';
+import { getCameraStreamUrl } from '../../utils/gateways';
 
 /**
  * Full-screen camera preview modal. Every surface that shows a live camera
@@ -36,7 +37,7 @@ export default function CameraFullView({ camera, onClose }) {
   }, [onClose]);
 
   if (!camera) return null;
-  const url = camera.attributes?.liveStreamUrl?.value;
+  const url = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
   const name = getAssetDisplayName(camera);
 

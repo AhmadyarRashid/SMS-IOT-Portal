@@ -15,7 +15,7 @@ import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '.
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
-  getWeatherAssetForTower,
+  getWeatherAssetForTower, getCameraStreamUrl,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -369,7 +369,7 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
 }
 
 function CameraTile({ camera, onOpen }) {
-  const url = camera.attributes?.liveStreamUrl?.value;
+  const url = getCameraStreamUrl(camera);
   const alerting = isCameraAlerting(camera);
   const idx = 0; // index isn't tracked here; consumer wraps with key
   const code = shortCamCode(camera, idx);

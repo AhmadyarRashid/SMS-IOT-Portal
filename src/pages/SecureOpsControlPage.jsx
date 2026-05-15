@@ -8,7 +8,7 @@ import {
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
-  getWeatherAssetForTower,
+  getWeatherAssetForTower, getCameraStreamUrl,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -205,7 +205,7 @@ function CamerasPanel({ cameras }) {
 }
 
 function CameraTile({ camera, onOpen }) {
-  const url = camera.attributes?.liveStreamUrl?.value;
+  const url = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
   const code = shortCamCode(camera);
   const name = getAssetDisplayName(camera);

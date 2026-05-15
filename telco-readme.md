@@ -165,7 +165,7 @@ individual tiles are buttons that call `onOpen(camera)`.
 
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
-| `liveStreamUrl` | string | **yes** for live tiles | Played by `<video>` if `.mp4`/`.webm`/`.ogg`/`.m3u8`/`.mov`, `<img>` if `.jpg`/`.png`/`.webp`/`.gif`, otherwise `<iframe>` (vendor web UI). See `CameraStream` in `SecureOpsOverviewPage`. |
+| `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Played by `<video>` if `.mp4`/`.webm`/`.ogg`/`.m3u8`/`.mov`, `<img>` if `.jpg`/`.png`/`.webp`/`.gif`, otherwise `<iframe>` (vendor web UI). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
 | `history` | array | optional | Array of detection clips — see §5.2a below for the JSON contract. Drives the ALERT pill on the Overview's Live Camera tile, the Video tab's detection-type filter chips, and the clip playback list inside the camera modal. Does **not** drive the "Detections today" KPI or the env card's 8-hour bar chart — those count alarms (see §8.1, §8.6). |
 | `cameraVariant` | string | optional | `fixed` or `360`. Used to pick the PTT-capable camera under each tower. |
 | `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
@@ -761,15 +761,16 @@ The tab order and labels are defined in
 In rough priority order:
 
 1. **Video tab — ✅ shipped 2026-05-16** as `SecureOpsVideoPage` at
-   `/video`. Responsive wall of every `CameraAsset` in the current site
-   scope. Page-level filters: tower multi-select chips, detection-type
-   multi-select chips (`Human · Animal · Other` — based on the camera's
-   recent `history[].detection` within the last 24 h), free-text search.
-   Click any tile → modal with the live stream on the left and a
-   scrollable, independently filterable `history[]` clip list on the
-   right. Click a clip → swap the player to that clip's URL; "Back to
-   live" restores the live feed. Reuses the shared `CameraStream`
-   renderer so URL handling stays consistent across the dashboard.
+   `/video`. Responsive grid of every `CameraAsset` in the current site
+   scope. **Each wall tile plays the live stream inline** via the
+   shared `CameraStream` renderer — same pattern as the Control page's
+   Cameras panel. Page-level filters: tower multi-select chips +
+   free-text search. Click any tile → modal opens with the live stream
+   on the left and a scrollable, independently filterable `history[]`
+   clip list on the right. Click a clip → swap the player to that
+   clip's URL; "Back to live" restores the live feed. Detection-type
+   filter chips remain inside the modal's history sidebar (filter
+   clips, not cameras).
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free

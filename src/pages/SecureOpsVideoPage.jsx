@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAssets } from '../hooks/useAssets';
 import {
-  pickSites, pickTowersForSite, pickGatewayChildren,
+  pickSites, pickTowersForSite, pickGatewayChildren, getCameraStreamUrl,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, normalizeAssetType,
@@ -19,24 +19,21 @@ import './secureops.css';
 /* ==========================================================================
    Video (/video)
 
-   The "operator wall": every CameraAsset in the current site scope shown as
-   a live tile. Two filter axes:
+   The "operator wall": every CameraAsset in the current site scope is shown
+   as a small live-stream tile (same pattern as the Control page's Cameras
+   panel). Click a tile to open the full-view modal with the same live
+   stream PLUS a scrollable history sidebar.
 
-     • Tower      — multi-select chips for towers in the selected site scope.
-     • Detection  — chips for `human · animal · other`. A camera matches when
-                    its most-recent history[] entry's `detection` matches one
-                    of the selected types (within last 24 h to avoid keeping
-                    cameras lit up forever based on ancient detections).
+   Filtering:
+     • Tower  — multi-select chips for towers in the selected site scope.
+     • Search — free-text across camera name + tower name.
 
-   Plus a free-text search across camera name + tower name.
-
-   Click a tile → opens a side-drawer-style modal with:
-     • Live stream player (auto-restored when a clip ends)
-     • Scrollable `history[]` list on the right, filterable by the same
-       detection chips, with click-to-play.
+   Click a tile → modal with:
+     • Live stream player (auto-restored when a clip ends).
+     • Scrollable `history[]` list on the right with click-to-play.
 
    Sources:
-     • CameraAsset.liveStreamUrl
+     • CameraAsset.liveStreamUrl (or streamUrl — getCameraStreamUrl accepts both)
      • CameraAsset.history → [{ id, url, date, detection }]
    ========================================================================== */
 
@@ -47,7 +44,6 @@ const DETECTION_TYPES = [
 ];
 
 const RECENT_ALERT_WINDOW_MS = 5 * 60 * 1000;     // 5 min for the on-tile ALERT pill
-const RECENT_FILTER_WINDOW_MS = 24 * 3600 * 1000; // 24 h for the detection chip filter
 
 export default function SecureOpsVideoPage() {
   const { data: assets = [], isLoading } = useAssets({});
@@ -80,25 +76,20 @@ export default function SecureOpsVideoPage() {
   /* ---- Filter state ---- */
   const [query, setQuery] = useState('');
   const [towerFilter, setTowerFilter] = useState(new Set());
-  const [detectionFilter, setDetectionFilter] = useState(new Set());
   const [openCam, setOpenCam] = useState(null);
 
-  const toggleInSet = (setter) => (id) => setter((prev) => {
+  const toggleTower = (id) => setTowerFilter((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const toggleTower = toggleInSet(setTowerFilter);
-  const toggleDetection = toggleInSet(setDetectionFilter);
   const clearFilters = () => {
     setQuery('');
     setTowerFilter(new Set());
-    setDetectionFilter(new Set());
   };
-  const activeFilterCount =
-    (query ? 1 : 0) + towerFilter.size + detectionFilter.size;
+  const activeFilterCount = (query ? 1 : 0) + towerFilter.size;
 
-  /* ---- Counts (for chip badges) ---- */
+  /* ---- Tower chip counts ---- */
   const towerCounts = useMemo(() => {
     const out = new Map();
     for (const t of towers) out.set(t.id, 0);
@@ -106,50 +97,18 @@ export default function SecureOpsVideoPage() {
     return out;
   }, [allCameras, towers]);
 
-  const detectionCounts = useMemo(() => {
-    const out = { human: 0, animal: 0, other: 0 };
-    const since = new Date().getTime() - RECENT_FILTER_WINDOW_MS;
-    for (const { camera } of allCameras) {
-      const hist = camera.attributes?.history?.value;
-      if (!Array.isArray(hist)) continue;
-      const seen = new Set();
-      for (const h of hist) {
-        const ts = parseDate(h?.date);
-        if (!ts || ts < since) continue;
-        const d = (h.detection || 'other').toLowerCase();
-        if (!seen.has(d)) {
-          seen.add(d);
-          if (d in out) out[d] += 1;
-        }
-      }
-    }
-    return out;
-  }, [allCameras]);
-
   /* ---- Apply filters ---- */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const since = new Date().getTime() - RECENT_FILTER_WINDOW_MS;
     return allCameras.filter(({ camera, tower }) => {
       if (towerFilter.size > 0 && !towerFilter.has(tower.id)) return false;
-      if (detectionFilter.size > 0) {
-        const hist = camera.attributes?.history?.value;
-        if (!Array.isArray(hist) || hist.length === 0) return false;
-        const match = hist.some((h) => {
-          const ts = parseDate(h?.date);
-          if (!ts || ts < since) return false;
-          const d = (h?.detection || 'other').toLowerCase();
-          return detectionFilter.has(d);
-        });
-        if (!match) return false;
-      }
       if (q) {
         const hay = `${getAssetDisplayName(camera)} ${getAssetDisplayName(tower)}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [allCameras, query, towerFilter, detectionFilter]);
+  }, [allCameras, query, towerFilter]);
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
@@ -210,21 +169,6 @@ export default function SecureOpsVideoPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-x-3 gap-y-1.5 items-center text-[11px]">
-          <FilterLabel>Detection</FilterLabel>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {DETECTION_TYPES.map((d) => (
-              <ToggleChip
-                key={d.id}
-                active={detectionFilter.has(d.id)}
-                onClick={() => toggleDetection(d.id)}
-                color={d.color}
-                count={detectionCounts[d.id]}
-              >
-                {d.label}
-              </ToggleChip>
-            ))}
-          </div>
-
           <FilterLabel>Tower</FilterLabel>
           <div className="flex items-center gap-1.5 flex-wrap">
             {towers.length === 0 && (
@@ -283,7 +227,10 @@ export default function SecureOpsVideoPage() {
    ========================================================================== */
 
 function WallTile({ camera, tower, onOpen }) {
-  const url = camera.attributes?.liveStreamUrl?.value;
+  // Plays the live stream inline (same pattern as the Control page's
+  // CameraTile). The click only opens the full-view modal — the stream
+  // is already running here.
+  const url = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
   const alerting = isRecentHumanDetection(camera);
   const name = getAssetDisplayName(camera);
@@ -330,7 +277,7 @@ function CameraHistoryModal({ camera, tower, onClose }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const liveUrl = camera.attributes?.liveStreamUrl?.value;
+  const liveUrl = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
   const rawHistory = camera.attributes?.history?.value;
   const history = useMemo(() => {
