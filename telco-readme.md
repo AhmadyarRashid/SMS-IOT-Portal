@@ -305,7 +305,7 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 
 | Card | Derivation |
 |---|---|
-| **Sites online** | `online/total` of towers (a "tower" here = each `TowerAsset` or `GatewayAsset` in scope). `connected !== false` ⇒ online. Subline names the first offline tower. |
+| **Sites online** | `online/total` of **SiteAssets across the entire realm** (not scoped by the global site dropdown — it's a realm-wide health indicator). A site is *online* unless (a) the SiteAsset itself has `connected === false`, OR (b) it has one or more towers and every one of them is offline. A tower is *online* unless its `connected` attribute is explicitly `false` (undefined attr ⇒ online, to avoid phantom-offline on freshly-added assets). Subline names the first offline site + a `+more` indicator if multiple are down. When the realm has no SiteAssets, a synthetic "Towers" entry derived from every gateway/towerAsset is shown so the card still renders. |
 | **Active alerts** | `useAlarms({status:'OPEN'})` count + `"N critical, M warning"`. |
 | **Detections today** | Sum of every `CameraAsset.history[].date` falling in today (vs yesterday for the delta). |
 | **AI uptime** | Average of `TowerAsset.aiUptime30d` across scope, or 100% if any tower reports a recent `aiHeartbeatAt`. Drops to `—` when neither exists (no-placeholder rule). |
@@ -319,9 +319,10 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
     (`<video>` / `<img>` / `<iframe>` auto-detected from URL extension).
   - REC pill (always, when streaming) or ALERT pill (recent `human` detection within last 5 min).
   - Label = name-derived short code (`CAM-02`), bottom strip = full name.
-  - Click → `/a/:cameraId` (drill into asset detail).
-- "Full stream — CAM-XX" / "Playback / history" links go to the active
-  camera's detail page (and its History tab).
+  - Click → opens the shared `CameraFullView` modal (see §5.1a). No
+    "Full stream / Playback / Detail" footer row — the tile + modal are
+    the entire UX, History lives only in the asset detail page reached
+    from alarm/audit breadcrumbs.
 - Overflow tile `+N more cameras` links to `/video` when there are more than 4.
 
 ### 8.3. Site status
@@ -330,6 +331,20 @@ Compact list of every tower in scope (this is the same `towers` array
 populating the dropdown). Each row: name · connection type · `cams · sensors`
 · status badge (Online / Alert / Offline / Intrusion). Clicking a row picks
 the tower as the active tower for the other panels.
+
+**Sort:** rows are ordered by alert priority — `offline` first, then
+`alarming`, then `online`. Within the same bucket: highest open-alarm
+count first, then alphabetical. So the operator's eye lands on the row
+that needs attention first.
+
+**Header controls:**
+- 🔄 Refresh icon → `useQueryClient().invalidateQueries({queryKey:['assets']})`
+  forces an immediate refetch (spins for ~600 ms for visual feedback,
+  ignores back-to-back clicks).
+- "All sites" → opens an in-page modal (NOT a route change) listing
+  every SiteAsset in the realm, sorted by the same priority rule. Click
+  a row to set the global site filter; click "All Sites" at the top of
+  the modal to clear the filter. Closes on Esc or backdrop click.
 
 ### 8.4. Remote control
 
@@ -369,6 +384,10 @@ patches instantly, rolls back + toast on error, 15 s poll reconciles).
   invalidates `['alarms']` so the row drops out on success.
 
 ### 8.6. Environmental telemetry
+
+**Header has the same 🔄 Refresh icon** as Site Status — invalidates
+`['assets']` and the temp/humidity/signal/battery rows + the detections
+chart pick up the fresh values on the next render.
 
 Reads the **active tower's** attributes:
 - `temperature` / `humidity` / `signalStrength` / `batteryLevel` rows, each

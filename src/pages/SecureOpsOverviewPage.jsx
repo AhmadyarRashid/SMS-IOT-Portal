@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
   ServerCog, AlertOctagon, Activity, Cpu,
-  Video as VideoIcon, Maximize2, History,
+  Video as VideoIcon, RefreshCw,
   RadioTower, ShieldAlert, ChevronRight,
   Lock, Siren, Lightbulb, Mic,
   Thermometer, Droplets, Signal, BatteryCharging,
   ScrollText, X, Building2, Check, CheckCheck, Loader2,
+  ChevronsRight,
 } from 'lucide-react';
 import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
@@ -35,7 +37,7 @@ export default function SecureOpsOverviewPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
   const { data: allAlarms = [] } = useAlarms({});
-  const { selectedSiteId, selectedTowerId, setTower } = useSecureOpsStore();
+  const { selectedSiteId, selectedTowerId, setTower, setSite } = useSecureOpsStore();
 
   const sites = useMemo(() => pickSites(assets), [assets]);
 
@@ -68,11 +70,74 @@ export default function SecureOpsOverviewPage() {
     [towers, assets, openAlarms]
   );
 
+  /* ----- Per-site summary (drives the "Sites online" KPI) -----
+   *
+   * Offline detection — real-scenario, OpenRemote-native:
+   *   • Tower (or any gateway) is OFFLINE when its `connected` attribute is
+   *     explicitly `false`. OR's Agent layer sets this when it loses contact
+   *     with the physical device (heartbeat / TCP / MQTT, whichever the
+   *     agent uses). An undefined attribute is treated as ONLINE — only an
+   *     explicit `false` counts as down, so freshly-added assets that
+   *     haven't received their first connectivity event don't show as
+   *     phantom-offline.
+   *   • Site is OFFLINE when:
+   *       (a) the SiteAsset itself carries `connected === false`, OR
+   *       (b) it has one or more towers and ALL of them are offline.
+   *     Sites with no towers fall back to (a) only — an empty container is
+   *     considered online unless someone explicitly marked it down.
+   *
+   * The summary spans EVERY site in the realm regardless of the selected
+   * site scope, so the KPI is a realm-wide health indicator. When the realm
+   * has no SiteAssets at all we synthesise one entry from the tower list
+   * so the card always renders something useful.
+   */
+  const siteSummaries = useMemo(() => {
+    const assetMap = new Map(assets.map((a) => [a.id, a]));
+    if (sites.length === 0) {
+      const allTowers = assets.filter((a) =>
+        a.type === 'GatewayAsset'
+        || normalizeAssetType(getCustomAssetType(a)) === 'TowerAsset'
+      );
+      const onlineCount = allTowers.filter((t) => t.attributes?.connected?.value !== false).length;
+      const alarmCount = openAlarms.filter((al) =>
+        allTowers.some((t) => alarmBelongsToGateway(al, t.id, assetMap, allTowers))
+      ).length;
+      return [{
+        id: '__all-towers__',
+        name: 'Towers',
+        connected: onlineCount > 0,
+        towerCount: allTowers.length,
+        onlineTowerCount: onlineCount,
+        openAlarms: alarmCount,
+      }];
+    }
+    return sites.map((s) => {
+      const childTowers = pickTowersForSite(assets, s.id);
+      const onlineTowerCount = childTowers.filter((t) =>
+        t.attributes?.connected?.value !== false
+      ).length;
+      const explicitlyOffline = s.attributes?.connected?.value === false;
+      const allTowersOffline = childTowers.length > 0 && onlineTowerCount === 0;
+      const openAlarmsHere = openAlarms.filter((al) =>
+        childTowers.some((t) => alarmBelongsToGateway(al, t.id, assetMap, childTowers))
+      ).length;
+      return {
+        id: s.id,
+        name: getAssetDisplayName(s),
+        connected: !explicitlyOffline && !allTowersOffline,
+        towerCount: childTowers.length,
+        onlineTowerCount,
+        openAlarms: openAlarmsHere,
+      };
+    });
+  }, [sites, assets, openAlarms]);
+
   /* ----- KPI numbers ----- */
 
   const kpis = useMemo(() => {
-    const onlineTowers = towerSummaries.filter((t) => t.connected).length;
-    const offlineTower = towerSummaries.find((t) => !t.connected);
+    const onlineSites = siteSummaries.filter((s) => s.connected).length;
+    const offlineSiteCount = siteSummaries.length - onlineSites;
+    const firstOfflineSite = siteSummaries.find((s) => !s.connected);
     const critical = openAlarms.filter((a) => a.severity === 'CRITICAL' || a.severity === 'HIGH').length;
     const warning = openAlarms.length - critical;
     const today = startOfDay(new Date()).getTime();
@@ -111,12 +176,17 @@ export default function SecureOpsOverviewPage() {
     const aiUp = aiUptimePct ?? (heartbeats.length ? 100 : null);
 
     return {
-      sitesOnline: { online: onlineTowers, total: towerSummaries.length, offline: offlineTower?.name || null },
+      sitesOnline: {
+        online: onlineSites,
+        total: siteSummaries.length,
+        offlineCount: offlineSiteCount,
+        offlineName: firstOfflineSite?.name || null,
+      },
       alerts: { total: openAlarms.length, critical, warning },
       detections: { today: dToday, delta: detectionDelta },
       aiUptime: aiUp,
     };
-  }, [towerSummaries, openAlarms, assets, towers]);
+  }, [siteSummaries, openAlarms, assets, towers]);
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
@@ -131,11 +201,11 @@ export default function SecureOpsOverviewPage() {
           label="Sites online"
           value={`${kpis.sitesOnline.online}/${kpis.sitesOnline.total}`}
           subline={
-            kpis.sitesOnline.offline
-              ? `1 offline · ${kpis.sitesOnline.offline}`
-              : (kpis.sitesOnline.total > 0 ? 'All towers online' : 'No towers in scope')
+            kpis.sitesOnline.offlineCount > 0
+              ? `${kpis.sitesOnline.offlineCount} offline · ${kpis.sitesOnline.offlineName}${kpis.sitesOnline.offlineCount > 1 ? ' +more' : ''}`
+              : (kpis.sitesOnline.total > 0 ? 'All sites online' : 'No sites in realm')
           }
-          subTone={kpis.sitesOnline.offline ? 'critical' : 'ok'}
+          subTone={kpis.sitesOnline.offlineCount > 0 ? 'critical' : 'ok'}
         />
         <KpiCard
           icon={AlertOctagon}
@@ -180,8 +250,10 @@ export default function SecureOpsOverviewPage() {
           />
           <SiteStatusPanel
             summaries={towerSummaries}
+            siteSummaries={siteSummaries}
             activeId={activeTower?.id}
             onPick={setTower}
+            onPickSite={setSite}
           />
           <RemoteControlPanel tower={activeTower} assets={assets} />
         </div>
@@ -240,11 +312,10 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
   // (simple cap to match the sketch — full grid lives in the Video tab).
   const display = cameras.slice(0, 4);
   const overflow = Math.max(0, cameras.length - 4);
-  const primaryCam = display.find((c) => isCameraAlerting(c)) || display[0];
 
   // Single piece of state for which camera (if any) is currently in the
-  // full-view modal. Both individual tile clicks and the "Full stream"
-  // shortcut use this — so the modal is owned by the panel, not the tile.
+  // full-view modal. The modal is owned by the panel — each tile is a button
+  // that calls setFullCam(camera) on click.
   const [fullCam, setFullCam] = useState(null);
 
   return (
@@ -281,25 +352,6 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
             )}
           </div>
 
-          {primaryCam && (
-            <div className="flex items-center justify-between gap-3 mt-3 text-[12px]">
-              <button
-                type="button"
-                onClick={() => setFullCam(primaryCam)}
-                className="inline-flex items-center gap-1 font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)]"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                Full stream — {shortCamCode(primaryCam, display.indexOf(primaryCam))}
-              </button>
-              <Link
-                to={`/a/${primaryCam.id}`}
-                className="inline-flex items-center gap-1 font-semibold text-[var(--color-ink-1)] hover:text-[var(--color-ink-0)]"
-              >
-                <History className="w-3.5 h-3.5" />
-                Playback / history
-              </Link>
-            </div>
-          )}
         </>
       )}
 
@@ -376,7 +428,13 @@ function TowerSelect({ towers, value, onChange }) {
    Site Status
    ========================================================================== */
 
-function SiteStatusPanel({ summaries, activeId, onPick }) {
+function SiteStatusPanel({ summaries, siteSummaries, activeId, onPick, onPickSite }) {
+  const [showAllSites, setShowAllSites] = useState(false);
+
+  // Sort: offline towers first, then alarming, then online (priority sort).
+  // Within the same bucket: highest open-alarm count first, then by name.
+  const sorted = useMemo(() => sortByAlertPriority(summaries), [summaries]);
+
   return (
     <section className="panel p-4 md:p-5">
       <div className="so-panel-head">
@@ -384,16 +442,23 @@ function SiteStatusPanel({ summaries, activeId, onPick }) {
           <RadioTower className="so-panel-icon" strokeWidth={2} />
           Site status
         </div>
-        <Link to="/sites" className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)]">
-          All sites
-        </Link>
+        <div className="flex items-center gap-1.5">
+          <RefreshButton queryKey={['assets']} title="Refresh tower status" />
+          <button
+            type="button"
+            onClick={() => setShowAllSites(true)}
+            className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)]"
+          >
+            All sites
+          </button>
+        </div>
       </div>
 
-      {summaries.length === 0 ? (
+      {sorted.length === 0 ? (
         <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">No towers in this scope.</p>
       ) : (
         <div className="space-y-2">
-          {summaries.map((s) => (
+          {sorted.map((s) => (
             <button
               key={s.id}
               type="button"
@@ -420,7 +485,162 @@ function SiteStatusPanel({ summaries, activeId, onPick }) {
           ))}
         </div>
       )}
+
+      {showAllSites && (
+        <AllSitesModal
+          sites={siteSummaries}
+          onSelect={(id) => { onPickSite(id); setShowAllSites(false); }}
+          onClose={() => setShowAllSites(false)}
+        />
+      )}
     </section>
+  );
+}
+
+/* ----- All-sites modal (opened from Site Status header) ----- */
+
+function AllSitesModal({ sites, onSelect, onClose }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const sorted = useMemo(() => sortByAlertPriority(sites), [sites]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(2, 6, 23, 0.78)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="panel p-4 w-[min(560px,96vw)] max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <p className="text-sm font-bold text-[var(--color-ink-0)]">All sites</p>
+            <p className="text-[11px] text-[var(--color-ink-2)]">
+              {sorted.length} site{sorted.length === 1 ? '' : 's'} — sorted by health (offline / alerts first)
+            </p>
+          </div>
+          <button onClick={onClose} className="audit-btn flex-shrink-0" title="Close (Esc)">
+            <X className="w-3.5 h-3.5" />
+            Close
+          </button>
+        </div>
+        {sorted.length === 0 ? (
+          <p className="text-sm text-[var(--color-ink-2)] py-8 text-center">No sites in the realm.</p>
+        ) : (
+          <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => onSelect(null)}
+                className="so-site-row w-full"
+                title="Show every site in scope"
+              >
+                <Building2 className="w-4 h-4 text-[var(--color-accent-400)]" />
+                <div className="flex-1 min-w-0">
+                  <div className="so-site-name">All Sites</div>
+                  <div className="so-site-meta">Clear the site filter</div>
+                </div>
+                <ChevronsRight className="w-3.5 h-3.5 text-[var(--color-ink-3)]" />
+              </button>
+            </li>
+            {sorted.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(s.id)}
+                  className="so-site-row w-full"
+                >
+                  <Building2
+                    className="w-4 h-4"
+                    style={{
+                      color: !s.connected
+                        ? 'var(--color-ink-2)'
+                        : s.openAlarms > 0
+                          ? 'var(--color-danger-400)'
+                          : 'var(--color-accent-400)',
+                    }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="so-site-name truncate">{s.name}</div>
+                    <div className="so-site-meta">
+                      {s.onlineTowerCount}/{s.towerCount} tower{s.towerCount === 1 ? '' : 's'} online
+                      {s.openAlarms > 0 && ` · ${s.openAlarms} alert${s.openAlarms === 1 ? '' : 's'}`}
+                    </div>
+                  </div>
+                  <span className={`so-status-badge ${
+                    !s.connected ? 'is-offline' : s.openAlarms > 0 ? 'is-alert' : 'is-online'
+                  }`}>
+                    {!s.connected ? 'Offline' : (s.openAlarms > 0 ? 'Alert' : 'Online')}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Priority sort used by Site Status panel AND the All Sites modal: items
+   that the operator should look at first come first. Offline > alarming >
+   online. Within the same bucket, more alarms first, then alphabetical. */
+function sortByAlertPriority(items) {
+  const priority = (s) => {
+    if (!s.connected) return 0;
+    if ((s.openAlarms || 0) > 0) return 1;
+    return 2;
+  };
+  return [...items].sort((a, b) => {
+    const pa = priority(a);
+    const pb = priority(b);
+    if (pa !== pb) return pa - pb;
+    const ad = (b.openAlarms || 0) - (a.openAlarms || 0);
+    if (ad !== 0) return ad;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+}
+
+/* Refresh button — invalidates a React Query key and shows a brief spin
+   animation. Used in Site Status and Environmental Telemetry headers. */
+function RefreshButton({ queryKey, title = 'Refresh' }) {
+  const qc = useQueryClient();
+  const [spinning, setSpinning] = useState(false);
+
+  const refresh = async () => {
+    if (spinning) return;
+    setSpinning(true);
+    try {
+      await qc.invalidateQueries({ queryKey });
+    } finally {
+      // Hold the spin briefly so the user sees feedback even when the
+      // refetch resolves from cache instantly.
+      setTimeout(() => setSpinning(false), 600);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={refresh}
+      disabled={spinning}
+      className="so-refresh-btn"
+      title={title}
+      aria-label={title}
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${spinning ? 'so-spin' : ''}`} strokeWidth={2} />
+    </button>
   );
 }
 
@@ -860,6 +1080,7 @@ function EnvironmentalTelemetryPanel({ tower, assets }) {
           <Thermometer className="so-panel-icon" strokeWidth={2} />
           Environmental telemetry
         </div>
+        <RefreshButton queryKey={['assets']} title="Refresh telemetry" />
       </div>
 
       {!tower ? (

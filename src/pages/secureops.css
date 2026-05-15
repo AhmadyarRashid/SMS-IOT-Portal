@@ -55,6 +55,34 @@
 .so-kpi-sub.is-warning  { color: var(--color-warning-400); }
 .so-kpi-sub.is-ok       { color: var(--color-accent-400); }
 
+/* ---------- Refresh icon button (used in panel headers) ---------- */
+
+.so-refresh-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  color: var(--color-ink-2);
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+  flex-shrink: 0;
+}
+.so-refresh-btn:hover:not(:disabled) {
+  color: var(--color-accent-300);
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+}
+.so-refresh-btn:disabled { cursor: default; }
+.so-spin {
+  animation: so-spin 0.9s linear infinite;
+}
+@keyframes so-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ---------- Panel header (shared across left/right cards) ---------- */
 
 .so-panel-head {
