@@ -307,7 +307,7 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 |---|---|
 | **Sites online** | `online/total` of **SiteAssets across the entire realm** (not scoped by the global site dropdown — it's a realm-wide health indicator). A site is *online* unless (a) the SiteAsset itself has `connected === false`, OR (b) it has one or more towers and every one of them is offline. A tower is *online* unless its `connected` attribute is explicitly `false` (undefined attr ⇒ online, to avoid phantom-offline on freshly-added assets). Subline names the first offline site + a `+more` indicator if multiple are down. When the realm has no SiteAssets, a synthetic "Towers" entry derived from every gateway/towerAsset is shown so the card still renders. |
 | **Active alerts** | `useAlarms({status:'OPEN'})` count + `"N critical, M warning"`. |
-| **Detections today** | Sum of every `CameraAsset.history[].date` falling in today (vs yesterday for the delta). |
+| **Detections today** | Count of alarms whose `createdOn` falls in today (vs yesterday for the delta). Every detection — human, animal, ANPR, anything else the AI side reports — raises an alarm via the backend rule, so the alarm history is the canonical persistent count. Status transitions (Ack / Resolve) are not deletions, so the daily total stays stable across operator actions. |
 | **AI uptime** | Average of `TowerAsset.aiUptime30d` across scope, or 100% if any tower reports a recent `aiHeartbeatAt`. Drops to `—` when neither exists (no-placeholder rule). |
 
 ### 8.2. Live camera feeds
@@ -395,8 +395,11 @@ Reads the **active tower's** attributes:
   (`temp/60`, `humidity/100`, `(signal+110)/60` so -110 dBm ≈ 0% and
   -50 dBm ≈ 100%, `battery/100`).
 - "Updated Ns ago" header using the most recent attribute timestamp.
-- "Detections — past 8 hours" — hourly buckets from every camera's
-  `history[].date` timestamps. The newest bucket gets a brighter colour.
+- "Detections — past 8 hours" — hourly buckets from **alarm `createdOn`
+  timestamps** for alarms belonging to the active tower (same source
+  as the "Detections today" KPI). Totals are shown next to the section
+  title so the numbers can be cross-checked against the KPI. The newest
+  bucket gets a brighter colour.
 
 ### 8.7. Audit log (preview)
 

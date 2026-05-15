@@ -140,19 +140,21 @@ export default function SecureOpsOverviewPage() {
     const firstOfflineSite = siteSummaries.find((s) => !s.connected);
     const critical = openAlarms.filter((a) => a.severity === 'CRITICAL' || a.severity === 'HIGH').length;
     const warning = openAlarms.length - critical;
+
+    // "Detections today" = alarms created today. Every detection (human,
+    // animal, ANPR, whatever the AI side reports) raises an alarm via the
+    // backend rule, so the alarm history is the canonical, persistent count.
+    // Source unchanged when an alarm is acked/resolved — that's a status
+    // transition, not a deletion, so the daily total stays stable across
+    // operator actions.
     const today = startOfDay(new Date()).getTime();
     const yesterday = today - 24 * 3600 * 1000;
     let dToday = 0, dYesterday = 0;
-    for (const a of assets) {
-      if (getCustomAssetType(a) !== 'CameraAsset') continue;
-      const hist = a.attributes?.history?.value;
-      if (!Array.isArray(hist)) continue;
-      for (const h of hist) {
-        const ts = parseDate(h?.date);
-        if (!ts) continue;
-        if (ts >= today) dToday += 1;
-        else if (ts >= yesterday && ts < today) dYesterday += 1;
-      }
+    for (const al of allAlarms) {
+      const ts = parseDate(al.createdOn);
+      if (!ts) continue;
+      if (ts >= today) dToday += 1;
+      else if (ts >= yesterday && ts < today) dYesterday += 1;
     }
     const detectionDelta = dToday - dYesterday;
 
@@ -186,7 +188,7 @@ export default function SecureOpsOverviewPage() {
       detections: { today: dToday, delta: detectionDelta },
       aiUptime: aiUp,
     };
-  }, [siteSummaries, openAlarms, assets, towers]);
+  }, [siteSummaries, openAlarms, allAlarms, towers]);
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
@@ -267,7 +269,11 @@ export default function SecureOpsOverviewPage() {
             towers={towers}
             scopeTowerIds={towers.map((t) => t.id)}
           />
-          <EnvironmentalTelemetryPanel tower={activeTower} assets={assets} />
+          <EnvironmentalTelemetryPanel
+            tower={activeTower}
+            assets={assets}
+            allAlarms={allAlarms}
+          />
           <AuditLogPanel
             alarms={allAlarms}
             assets={assets}
@@ -1038,7 +1044,7 @@ const SEVERITY_META = {
    Environmental telemetry
    ========================================================================== */
 
-function EnvironmentalTelemetryPanel({ tower, assets }) {
+function EnvironmentalTelemetryPanel({ tower, assets, allAlarms }) {
   // Temperature + humidity live on the tower's HeatSensorAsset child
   // (a packaged temp/humidity sensor inside the IP67 box). Signal and
   // battery remain tower-level attributes.
@@ -1051,27 +1057,28 @@ function EnvironmentalTelemetryPanel({ tower, assets }) {
                  || parseDate(tower?.attributes?.connected?.timestamp)
                  || parseDate(tower?.lastModified);
 
-  // Detections past 8 hours from camera history.
+  // Detections past 8 hours, sourced from alarms (every detection raises
+  // one — same logic as the "Detections today" KPI). Scoped to this tower
+  // so the bars reflect what's been happening at the selected location.
   const buckets = useMemo(() => {
     if (!tower) return Array(8).fill(0);
-    const cams = pickGatewayChildren(assets, tower.id)
-      .filter((a) => getCustomAssetType(a) === 'CameraAsset');
+    const assetMap = new Map(assets.map((a) => [a.id, a]));
+    const towerAlarms = (allAlarms || []).filter((al) =>
+      alarmBelongsToGateway(al, tower.id, assetMap, [tower])
+    );
     const now = new Date().getTime();
     const start = now - 8 * 3600 * 1000;
     const out = Array(8).fill(0);
-    for (const c of cams) {
-      const hist = c.attributes?.history?.value;
-      if (!Array.isArray(hist)) continue;
-      for (const h of hist) {
-        const ts = parseDate(h?.date);
-        if (!ts || ts < start || ts > now) continue;
-        const i = Math.min(7, Math.floor((ts - start) / (3600 * 1000)));
-        out[i] += 1;
-      }
+    for (const al of towerAlarms) {
+      const ts = parseDate(al.createdOn);
+      if (!ts || ts < start || ts > now) continue;
+      const i = Math.min(7, Math.floor((ts - start) / (3600 * 1000)));
+      out[i] += 1;
     }
     return out;
-  }, [tower, assets]);
+  }, [tower, assets, allAlarms]);
   const maxBucket = Math.max(1, ...buckets);
+  const totalDetections = buckets.reduce((s, n) => s + n, 0);
 
   return (
     <section className="panel p-4 md:p-5">
@@ -1098,16 +1105,21 @@ function EnvironmentalTelemetryPanel({ tower, assets }) {
             <EnvRow icon={BatteryCharging} label="Battery backup" value={battery != null ? `${battery.toFixed(0)}%` : '—'} pct={battery != null ? clamp01(battery / 100) : null} />
           </div>
 
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)] mt-4">
-            Detections — past 8 hours
-          </p>
+          <div className="flex items-end justify-between gap-2 mt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)]">
+              Detections — past 8 hours
+            </p>
+            <p className="text-[11px] font-semibold tabular-nums text-[var(--color-ink-1)]">
+              {totalDetections} total
+            </p>
+          </div>
           <div className="so-bars">
             {buckets.map((n, i) => (
               <span
                 key={i}
                 data-active={i === buckets.length - 1 && n > 0}
                 style={{ height: `${Math.max(4, (n / maxBucket) * 100)}%` }}
-                title={`${n} detection${n === 1 ? '' : 's'}`}
+                title={`${n} detection${n === 1 ? '' : 's'} · ${formatHourLabel(i, buckets.length)}`}
               />
             ))}
           </div>
@@ -1277,3 +1289,8 @@ function startOfDay(d) {
   return x;
 }
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+function formatHourLabel(i, total) {
+  // Bucket i covers (now - (total-i) hours, now - (total-i-1) hours].
+  const hoursAgo = total - i;
+  return hoursAgo === 1 ? 'within the last hour' : `${hoursAgo}h ago → ${hoursAgo - 1}h ago`;
+}
