@@ -6,7 +6,7 @@ import {
   ChevronDown, Check, Thermometer, Droplets, ShieldCheck,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
-import { pickSites, pickTowersForSite } from '../../utils/gateways';
+import { pickSites, pickTowersForSite, getWeatherAssetForTower } from '../../utils/gateways';
 import { getAssetDisplayName, getCustomAssetType, normalizeAssetType } from '../../utils/assetIcons';
 import useSecureOpsStore from '../../store/secureOpsStore';
 
@@ -55,8 +55,11 @@ export default function SecureOpsHeader() {
     return scopeTowers[0] || null;
   }, [scopeTowers, selectedTowerId]);
 
-  const temp = readNumber(activeTower?.attributes?.temperature?.value);
-  const humidity = readNumber(activeTower?.attributes?.humidity?.value);
+  // Temp + humidity come from the active tower's HeatSensorAsset child
+  // (a packaged weather sensor inside the tower's IP67 box).
+  const weather = useMemo(() => getWeatherAssetForTower(activeTower, assets), [activeTower, assets]);
+  const temp = readNumber(weather?.attributes?.temperature?.value);
+  const humidity = readNumber(weather?.attributes?.humidity?.value);
 
   return (
     <div

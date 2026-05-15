@@ -162,14 +162,20 @@ whatever it gets.
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
 | `connected` | boolean | optional | `false` puts the tower in the "Offline" badge + bumps the Sites-online KPI. |
-| `temperature` | number (°C) | optional | Environmental telemetry row. Also shown as a chip in the header. |
-| `humidity` | number (%) | optional | Same. |
 | `signalStrength` | number (dBm) | optional | "Signal (4G)" row in Environmental telemetry. |
 | `batteryLevel` | number (%) | optional | "Battery backup" row. |
 | `aiHeartbeatAt` | timestamp | optional | Drives the "AI uptime" KPI (falls back to 100% if any tower in scope reports a recent heartbeat). |
 | `aiUptime30d` | number (%) | optional | If present, used directly for the AI uptime KPI. |
 | `connectionType` / `network` | string | optional | Shown next to the tower in Site Status (e.g. "4G"). |
 | `auditLog` | array | optional | `[{ts, actor?, action?, target?, tag?}]`. Backend rules write to this on every device write so device-state-change rows can show up persistently in the audit log without a per-attribute datapoint fetch. |
+
+**Note on temperature + humidity:** these do NOT live on the TowerAsset
+directly. Each tower carries a **`HeatSensorAsset` child** (the packaged
+temp/humidity sensor inside the IP67 box). The header chips, the
+Overview's Environmental Telemetry, and the Control page's Environment
+card all read `temperature` and `humidity` from this child asset via
+`getWeatherAssetForTower(tower, assets)`. If a tower has no
+HeatSensorAsset child, the corresponding widgets hide themselves.
 
 ### 5.4. Device control attributes (existing convention)
 
@@ -198,7 +204,7 @@ The original SMS IoT contract is unchanged:
 | `/video` | `SecureOpsStubPage` (Video) | stub |
 | `/alarms` | `SecureOpsAlertsPage` | **built** |
 | `/legacy-alarms` | original `AlarmsPage` (legacy) | reachable by URL, not in nav |
-| `/control` | `SecureOpsStubPage` (Control) | stub |
+| `/control` | `SecureOpsControlPage` | **built** |
 | `/audit` | `AuditLogPage` | **built** |
 | `/settings` | `SettingsPage` (legacy) | functional |
 | `/login` | `LoginPage` (unchanged) | functional |
@@ -641,9 +647,13 @@ In rough priority order:
    chips (High/Medium/Low), tower chips scoped to the selected site, free
    text search, Ack + Resolve on every row. Acknowledged or resolved
    alarms drop off this view and appear in the Audit log instead.
-3. **Control tab (`/control`)** — bulk operations (lock all doors, arm
-   all sirens, lights off) + per-tower remote panel (re-use Overview's
-   Remote Control). PTT in this tab opens the same iframe modal.
+3. **Control tab — ✅ shipped 2026-05-16** as `SecureOpsControlPage` at
+   `/control`. Tower dropdown (auto-pick first, syncs with global
+   `selectedTowerId`), first 2 cameras via the shared `CameraStream`
+   renderer, Environment card (temp/humidity from the tower's
+   HeatSensorAsset), and a grid of every controllable device under the
+   tower (each tile is its own toggle via `useWriteAttribute`). Bulk
+   operations (lock-all-doors, lights-off, etc.) still TODO.
 4. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
    section: default site, live-camera autoplay, alert sound for new
    Critical alerts, camera-history retention display.

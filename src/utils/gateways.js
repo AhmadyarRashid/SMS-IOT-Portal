@@ -69,6 +69,26 @@ export function pickTowersForSite(assets = [], siteId) {
 }
 
 /**
+ * Find the "weather" asset for a tower — the realm-side convention is that
+ * each tower has a single `HeatSensorAsset` child carrying BOTH `temperature`
+ * and `humidity` attributes (a packaged temp/humidity sensor inside the
+ * tower's IP67 box). The Overview's Environmental Telemetry, the header's
+ * temp/humidity chips, and the Control page's Environment card all source
+ * their reading from this asset rather than from the tower attributes
+ * directly.
+ *
+ * Returns `null` when the tower has no HeatSensorAsset child — callers
+ * should hide the corresponding widget (no placeholder data).
+ */
+export function getWeatherAssetForTower(tower, allAssets = []) {
+  if (!tower) return null;
+  const children = pickGatewayChildren(allAssets, tower.id);
+  return children.find(
+    (a) => normalizeAssetType(getCustomAssetType(a)) === 'HeatSensorAsset'
+  ) || null;
+}
+
+/**
  * The single site an asset (usually a tower or device) belongs to. Returns
  * the first matching site found via `path` descent; falls back to a direct
  * `parentId` lookup.

@@ -10,6 +10,7 @@ const SecureOpsOverviewPage = lazy(() => import('./pages/SecureOpsOverviewPage')
 const SecureOpsStubPage = lazy(() => import('./pages/SecureOpsStubPage'));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 const SecureOpsAlertsPage = lazy(() => import('./pages/SecureOpsAlertsPage'));
+const SecureOpsControlPage = lazy(() => import('./pages/SecureOpsControlPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const StorePage = lazy(() => import('./pages/StorePage'));
@@ -65,9 +66,7 @@ export default function App() {
               <Route path="video" element={
                 <SecureOpsStubPage title="Video" subtitle="All cameras across the selected scope — live grid, detection filters, and clip playback. Coming next." />
               } />
-              <Route path="control" element={
-                <SecureOpsStubPage title="Control" subtitle="Per-tower remote control (doors, sirens, lights, PTT) and bulk site actions. Coming next." />
-              } />
+              <Route path="control" element={<SecureOpsControlPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="legacy-overview" element={<OverviewPage />} />
               <Route path="dashboard" element={<DashboardPage />} />

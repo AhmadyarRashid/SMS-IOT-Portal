@@ -242,6 +242,53 @@
   border: 1px solid color-mix(in srgb, var(--color-ink-0) 14%, transparent);
 }
 
+/* ---------- Control page: grid of controllable devices ---------- */
+
+.so-controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.so-control-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 9%, transparent);
+  text-align: left;
+  transition: transform .12s ease, border-color .15s ease, background .15s ease;
+  cursor: pointer;
+}
+.so-control-tile:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+}
+.so-control-tile:disabled { opacity: 0.6; cursor: not-allowed; }
+.so-control-tile[data-active="true"] {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--color-accent-500) 16%, var(--color-surface-1)) 0%,
+    var(--color-surface-1) 100%);
+  border-color: color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+}
+.so-control-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  color: var(--color-ink-1);
+  flex-shrink: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.so-control-tile[data-active="true"] .so-control-icon {
+  background: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+  color: var(--color-accent-300);
+}
+
 /* ---------- Remote control buttons ---------- */
 
 .so-remote-grid {

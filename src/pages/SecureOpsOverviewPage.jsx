@@ -13,6 +13,7 @@ import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '.
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
+  getWeatherAssetForTower,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -20,6 +21,7 @@ import {
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
+import CameraStream from '../components/cameras/CameraStream';
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import './secureops.css';
 
@@ -316,29 +318,6 @@ function CameraTile({ camera }) {
       </div>
       <div className="so-cam-foot truncate">{name}</div>
     </Link>
-  );
-}
-
-function CameraStream({ url, offline }) {
-  const [errored, setErrored] = useState(false);
-  if (offline || !url || errored) {
-    return <div className="so-cam-empty">{offline ? 'Camera offline' : (errored ? 'Stream unavailable' : 'No stream URL')}</div>;
-  }
-  if (looksLikeImage(url)) {
-    return <img src={url} alt="" onError={() => setErrored(true)} />;
-  }
-  if (looksLikeIframe(url)) {
-    return <iframe src={url} title="Live stream" allow="autoplay; encrypted-media" />;
-  }
-  return (
-    <video
-      src={url}
-      autoPlay
-      muted
-      playsInline
-      loop
-      onError={() => setErrored(true)}
-    />
   );
 }
 
@@ -822,11 +801,15 @@ const SEVERITY_META = {
    ========================================================================== */
 
 function EnvironmentalTelemetryPanel({ tower, assets }) {
-  const temp = readNumber(tower?.attributes?.temperature?.value);
-  const humidity = readNumber(tower?.attributes?.humidity?.value);
+  // Temperature + humidity live on the tower's HeatSensorAsset child
+  // (a packaged temp/humidity sensor inside the IP67 box). Signal and
+  // battery remain tower-level attributes.
+  const weather = useMemo(() => getWeatherAssetForTower(tower, assets), [tower, assets]);
+  const temp = readNumber(weather?.attributes?.temperature?.value);
+  const humidity = readNumber(weather?.attributes?.humidity?.value);
   const signal = readNumber(tower?.attributes?.signalStrength?.value);
   const battery = readNumber(tower?.attributes?.batteryLevel?.value);
-  const updatedAt = parseDate(tower?.attributes?.temperature?.timestamp)
+  const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
                  || parseDate(tower?.attributes?.connected?.timestamp)
                  || parseDate(tower?.lastModified);
 
@@ -1055,12 +1038,3 @@ function startOfDay(d) {
   return x;
 }
 function clamp01(x) { return Math.max(0, Math.min(1, x)); }
-function looksLikeImage(url) { return /\.(jpe?g|png|webp|gif)(?:$|\?)/i.test(url); }
-function looksLikeIframe(url) {
-  // Heuristic: any URL that doesn't look like a direct media file gets the
-  // iframe treatment. Catches HLS viewers, RTSP-to-WebRTC pages, vendor UIs.
-  if (looksLikeImage(url)) return false;
-  if (/\.(mp4|webm|ogg|m3u8|mov)(?:$|\?)/i.test(url)) return false;
-  if (/^https?:\/\//i.test(url)) return true;
-  return false;
-}
