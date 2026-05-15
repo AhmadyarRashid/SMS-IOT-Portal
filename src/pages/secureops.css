@@ -318,7 +318,6 @@
   color: var(--color-ink-2);
 }
 .so-alert-sev {
-  margin-left: auto;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -326,7 +325,56 @@
   padding: 2px 8px;
   border-radius: 999px;
   white-space: nowrap;
-  align-self: flex-start;
+}
+
+/* Right-side stack: severity pill on top, action buttons below */
+.so-alert-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.so-alert-actions {
+  display: flex;
+  gap: 6px;
+}
+.so-alert-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background .12s ease, border-color .12s ease, color .12s ease, transform .08s ease;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+.so-alert-btn:active:not(:disabled) { transform: scale(0.97); }
+.so-alert-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.so-alert-btn-ack {
+  color: var(--color-accent-300);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 40%, transparent);
+}
+.so-alert-btn-ack:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 60%, transparent);
+}
+.so-alert-btn-resolve {
+  color: var(--color-ok-500);
+  background: color-mix(in srgb, var(--color-ok-500) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-ok-500) 40%, transparent);
+}
+.so-alert-btn-resolve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ok-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-ok-500) 60%, transparent);
 }
 
 /* Site › Tower › Camera breadcrumb inside an alert row */

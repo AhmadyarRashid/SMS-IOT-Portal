@@ -7,9 +7,9 @@ import {
   RadioTower, ShieldAlert, ChevronRight,
   Lock, Siren, Lightbulb, Mic,
   Thermometer, Droplets, Signal, BatteryCharging,
-  ScrollText, X, Building2,
+  ScrollText, X, Building2, Check, CheckCheck, Loader2,
 } from 'lucide-react';
-import { useAssets, useAlarms, useWriteAttribute } from '../hooks/useAssets';
+import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
@@ -590,6 +590,7 @@ function PttModal({ camera, onClose }) {
 
 function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
   const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const update = useUpdateAlarmStatus();
   const scoped = useMemo(() => {
     if (!scopeTowerIds.length) return alarms;
     return alarms.filter((al) =>
@@ -644,6 +645,7 @@ function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
               assetMap={assetMap}
               towers={towers}
               sites={sites}
+              update={update}
             />
           ))}
         </div>
@@ -674,7 +676,7 @@ function SeverityChip({ count, color, label }) {
   );
 }
 
-function AlertRow({ alarm, assetMap, towers, sites }) {
+function AlertRow({ alarm, assetMap, towers, sites, update }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
   const linked = Array.isArray(alarm.asset) && alarm.asset[0];
@@ -687,6 +689,19 @@ function AlertRow({ alarm, assetMap, towers, sites }) {
   const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
+
+  // Status-aware action visibility:
+  //  • OPEN              → both Ack and Resolve enabled
+  //  • ACKNOWLEDGED      → only Resolve (already acked)
+  //  • RESOLVED / CLOSED → nothing actionable (row is informational)
+  const status = (alarm.status || 'OPEN').toUpperCase();
+  const canAck = status === 'OPEN';
+  const canResolve = status === 'OPEN' || status === 'ACKNOWLEDGED' || status === 'IN_PROGRESS';
+
+  const mutatingThis = update?.isPending && update.variables?.alarm?.id === alarm.id;
+  const ackPending = mutatingThis && update.variables?.status === 'ACKNOWLEDGED';
+  const resolvePending = mutatingThis && update.variables?.status === 'RESOLVED';
+  const anyPending = ackPending || resolvePending;
 
   return (
     <div className="so-alert-row" style={{ '--rail': sevMeta.color }}>
@@ -729,16 +744,51 @@ function AlertRow({ alarm, assetMap, towers, sites }) {
         )}
       </div>
 
-      <span
-        className="so-alert-sev"
-        style={{
-          background: `color-mix(in srgb, ${sevMeta.color} 14%, transparent)`,
-          color: sevMeta.color,
-          border: `1px solid color-mix(in srgb, ${sevMeta.color} 40%, transparent)`,
-        }}
-      >
-        {sevMeta.label}
-      </span>
+      <div className="so-alert-right">
+        <span
+          className="so-alert-sev"
+          style={{
+            background: `color-mix(in srgb, ${sevMeta.color} 14%, transparent)`,
+            color: sevMeta.color,
+            border: `1px solid color-mix(in srgb, ${sevMeta.color} 40%, transparent)`,
+          }}
+        >
+          {sevMeta.label}
+        </span>
+
+        {(canAck || canResolve) && update && (
+          <div className="so-alert-actions">
+            {canAck && (
+              <button
+                type="button"
+                onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
+                disabled={anyPending}
+                className="so-alert-btn so-alert-btn-ack"
+                title="Acknowledge"
+              >
+                {ackPending
+                  ? <Loader2 className="w-3 h-3 spin-slow" />
+                  : <Check className="w-3 h-3" strokeWidth={2.25} />}
+                <span>Ack</span>
+              </button>
+            )}
+            {canResolve && (
+              <button
+                type="button"
+                onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}
+                disabled={anyPending}
+                className="so-alert-btn so-alert-btn-resolve"
+                title="Resolve"
+              >
+                {resolvePending
+                  ? <Loader2 className="w-3 h-3 spin-slow" />
+                  : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
+                <span>Resolve</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
