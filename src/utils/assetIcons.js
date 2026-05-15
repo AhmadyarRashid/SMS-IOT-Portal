@@ -15,6 +15,7 @@ export const DEVICE_TYPES = [
   'AlarmAsset',
   'CameraAsset',
   'DoorLockAsset',
+  'ToggleableDoorLockAsset',
   'DoorSensorAsset',
   'HeatSensorAsset',
   'HumanPresenceSensorAsset',
@@ -35,7 +36,7 @@ export const DEVICE_TYPES = [
 /**
  * Types the client can directly toggle on/off. All others are read-only sensors.
  */
-export const CONTROLLABLE_TYPES = ['LightAsset', 'PlugAsset', 'FanAsset', 'DoorLockAsset', 'AlarmAsset', 'BuzzerAsset'];
+export const CONTROLLABLE_TYPES = ['LightAsset', 'PlugAsset', 'FanAsset', 'DoorLockAsset', 'ToggleableDoorLockAsset', 'AlarmAsset', 'BuzzerAsset'];
 
 /**
  * Per-customType overrides for the primary control attribute name. Most types
@@ -130,7 +131,8 @@ export function getAssetIcon(customType, { on = false, alarm = false } = {}) {
   switch (normalizeAssetType(customType)) {
     case 'AlarmAsset':              return alarm ? Siren : Siren;
     case 'CameraAsset':             return Video;
-    case 'DoorLockAsset':           return on ? Lock : LockOpen; // on = locked (secured)
+    case 'DoorLockAsset':
+    case 'ToggleableDoorLockAsset': return on ? Lock : LockOpen; // on = locked (secured)
     case 'DoorSensorAsset':         return on ? DoorOpen : DoorClosed; // on = open
     case 'HeatSensorAsset':         return Thermometer;
     case 'HumanPresenceSensorAsset':return PersonStanding;
@@ -176,6 +178,7 @@ export function getAssetAccent(customType) {
     case 'SmokeSensorAsset':       return 'red';
     case 'CameraAsset':            return 'blue';
     case 'DoorLockAsset':
+    case 'ToggleableDoorLockAsset':
     case 'DoorSensorAsset':        return 'amber';
     case 'HeatSensorAsset':        return 'orange';
     case 'HumanPresenceSensorAsset':
@@ -220,6 +223,7 @@ export function isAssetActive(asset, customType) {
 
   switch (t) {
     case 'DoorLockAsset':
+    case 'ToggleableDoorLockAsset':
       // Legacy attribute: asset was modelled with `locked` before `onOff`.
       // locked=true → secured → ACTIVE (matches the "on=Locked" convention).
       return boolish(a.locked?.value);
@@ -291,10 +295,11 @@ export function getPrimaryControlAttr(asset, customType) {
 
   // 3. Legacy fallbacks for assets modelled before `onOff` existed.
   const fallback = {
-    DoorLockAsset: ['locked'],
-    AlarmAsset:    ['armed', 'enabled', 'on'],
-    LightAsset:    ['on', 'power', 'enabled'],
-    PlugAsset:     ['on', 'power', 'enabled'],
+    DoorLockAsset:            ['locked'],
+    ToggleableDoorLockAsset:  ['locked'],
+    AlarmAsset:               ['armed', 'enabled', 'on'],
+    LightAsset:               ['on', 'power', 'enabled'],
+    PlugAsset:                ['on', 'power', 'enabled'],
   }[t] || [];
   for (const n of fallback) if (n in a) return n;
 
@@ -328,7 +333,8 @@ export function getPrimaryReadingAttr(asset, customType) {
     case 'MotionSensorAsset':       return firstOf('motionDetected', 'detected', 'on');
     case 'SmokeSensorAsset':        return firstOf('smokeDetected', 'triggered', 'on');
     case 'DoorSensorAsset':         return firstOf('opened', 'state', 'on');
-    case 'DoorLockAsset':           return firstOf('locked');
+    case 'DoorLockAsset':
+    case 'ToggleableDoorLockAsset': return firstOf('locked');
     case 'VibrationSensorAsset':    return firstOf('vibrationDetected', 'triggered');
     case 'SOSAsset':                return firstOf('triggered', 'sos', 'on');
     case 'AlarmAsset':              return firstOf('armed', 'enabled', 'triggered', 'on');
@@ -369,6 +375,7 @@ export function getStateLabel(asset, customType) {
     case 'DoorSensorAsset':
       return isAssetActive(asset) ? 'Open' : 'Closed';
     case 'DoorLockAsset':
+    case 'ToggleableDoorLockAsset':
       return isAssetActive(asset, customType) ? 'Locked' : 'Unlocked';
     case 'MotionSensorAsset':
       return isAssetActive(asset) ? 'Motion' : 'Clear';

@@ -437,7 +437,12 @@ function RemoteControlPanel({ tower, assets }) {
     [tower, assets]
   );
 
-  const door = children.find((a) => getCustomAssetType(a) === 'DoorLockAsset');
+  // Door is either a DoorLockAsset or the newer ToggleableDoorLockAsset —
+  // both behave the same way (toggle `onOff`/`locked`, on = Locked).
+  const door = children.find((a) => {
+    const t = normalizeAssetType(getCustomAssetType(a));
+    return t === 'DoorLockAsset' || t === 'ToggleableDoorLockAsset';
+  });
   const siren = children.find((a) => getCustomAssetType(a) === 'BuzzerAsset')
             || children.find((a) => getCustomAssetType(a) === 'AlarmAsset');
   const light = children.find((a) => getCustomAssetType(a) === 'LightAsset');
@@ -474,8 +479,8 @@ function RemoteControlPanel({ tower, assets }) {
         <RemoteButton
           icon={Lock}
           label="Door lock"
-          stateLabel={door ? (isAssetActive(door, 'DoorLockAsset') ? 'Locked' : 'Unlocked') : 'No device'}
-          active={door ? isAssetActive(door, 'DoorLockAsset') : false}
+          stateLabel={door ? (isAssetActive(door, getCustomAssetType(door)) ? 'Locked' : 'Unlocked') : 'No device'}
+          active={door ? isAssetActive(door, getCustomAssetType(door)) : false}
           disabled={!door}
           onClick={() => toggle(door)}
         />
