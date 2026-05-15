@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   AlertOctagon, Search, X, RotateCcw, Filter,
-  Building2, RadioTower, Check, CheckCheck, Loader2,
+  Building2, RadioTower, Check, CheckCheck, Loader2, Video as VideoIcon,
 } from 'lucide-react';
 import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
@@ -13,8 +12,10 @@ import {
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
 } from '../utils/assetIcons';
+import { getAlarmClipUrl, getAlarmContentText } from '../utils/alarms';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
+import ClipModal from '../components/cameras/ClipModal';
 import './secureops.css';
 
 /* ==========================================================================
@@ -52,6 +53,7 @@ export default function SecureOpsAlertsPage() {
   const { data: openAlarms = [], isLoading: alarmsLoading } = useAlarms({ status: 'OPEN' });
   const { selectedSiteId } = useSecureOpsStore();
   const update = useUpdateAlarmStatus();
+  const [clipInView, setClipInView] = useState(null);
 
   /* ---- Scope from global site dropdown ---- */
   const sites = useMemo(() => pickSites(assets), [assets]);
@@ -278,11 +280,21 @@ export default function SecureOpsAlertsPage() {
                 towers={towers}
                 sites={sites}
                 update={update}
+                onClipClick={(p) => setClipInView(p)}
               />
             ))}
           </div>
         )}
       </section>
+
+      {clipInView && (
+        <ClipModal
+          title={clipInView.title}
+          subtitle={clipInView.subtitle}
+          url={clipInView.url}
+          onClose={() => setClipInView(null)}
+        />
+      )}
     </div>
   );
 }
@@ -291,7 +303,7 @@ export default function SecureOpsAlertsPage() {
    Row
    ========================================================================== */
 
-function AlertRow({ alarm, assetMap, towers, sites, update }) {
+function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
 
@@ -307,6 +319,10 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
   const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
+  const clipUrl = getAlarmClipUrl(alarm);
+  // Description with URLs stripped — the clip URL surfaces only via the
+  // "Clip" icon button, never as raw text in the row.
+  const contentText = getAlarmContentText(alarm);
 
   const mutatingThis = update?.isPending && update.variables?.alarm?.id === alarm.id;
   const ackPending = mutatingThis && update.variables?.status === 'ACKNOWLEDGED';
@@ -317,32 +333,32 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
     <div className="so-alert-row" style={{ '--rail': sevMeta.color }}>
       <div className="flex-1 min-w-0">
         <p className="so-alert-title">{alarm.title || 'Alarm'}</p>
-        {alarm.content && (
-          <p className="so-alert-meta mt-0.5 truncate">{alarm.content}</p>
+        {contentText && (
+          <p className="so-alert-meta mt-0.5 truncate">{contentText}</p>
         )}
 
+        {/* Site → Tower → Camera breadcrumb is display-only on alert rows.
+            Only the Clip icon button is interactive. */}
         <p className="so-alert-meta flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mt-1">
           {site && (
-            <Link to="/sites" className="so-crumb">
+            <span className="so-crumb so-crumb-static">
               <Building2 className="w-3 h-3" strokeWidth={2} />
               {getAssetDisplayName(site)}
-            </Link>
+            </span>
           )}
           {tower && (
             <>
               {site && <span className="so-crumb-sep">›</span>}
-              <Link to={`/store/${tower.id}`} className="so-crumb">
+              <span className="so-crumb so-crumb-static">
                 <RadioTower className="w-3 h-3" strokeWidth={2} />
                 {getAssetDisplayName(tower)}
-              </Link>
+              </span>
             </>
           )}
           {asset && (
             <>
               {(tower || site) && <span className="so-crumb-sep">›</span>}
-              <Link to={`/a/${asset.id}`} className="so-crumb">
-                {assetName || typeLabel}
-              </Link>
+              <span className="so-crumb so-crumb-static">{assetName || typeLabel}</span>
             </>
           )}
         </p>
@@ -366,34 +382,53 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
           {sevMeta.label}
         </span>
 
-        {update && (
-          <div className="so-alert-actions">
+        <div className="so-alert-actions">
+          {clipUrl && (
             <button
               type="button"
-              onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
-              disabled={anyPending}
-              className="so-alert-btn so-alert-btn-ack"
-              title="Acknowledge"
+              onClick={() => onClipClick?.({
+                url: clipUrl,
+                title: alarm.title || 'Alarm clip',
+                subtitle: createdAt
+                  ? `${format(createdAt, 'HH:mm dd MMM')}${assetName ? ` · ${assetName}` : ''}`
+                  : assetName,
+              })}
+              className="so-clip-btn"
+              title="View the clip attached to this alarm"
             >
-              {ackPending
-                ? <Loader2 className="w-3 h-3 spin-slow" />
-                : <Check className="w-3 h-3" strokeWidth={2.25} />}
-              <span>Ack</span>
+              <VideoIcon className="w-3 h-3" strokeWidth={2} />
+              <span>Clip</span>
             </button>
-            <button
-              type="button"
-              onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}
-              disabled={anyPending}
-              className="so-alert-btn so-alert-btn-resolve"
-              title="Resolve"
-            >
-              {resolvePending
-                ? <Loader2 className="w-3 h-3 spin-slow" />
-                : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
-              <span>Resolve</span>
-            </button>
-          </div>
-        )}
+          )}
+          {update && (
+            <>
+              <button
+                type="button"
+                onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
+                disabled={anyPending}
+                className="so-alert-btn so-alert-btn-ack"
+                title="Acknowledge"
+              >
+                {ackPending
+                  ? <Loader2 className="w-3 h-3 spin-slow" />
+                  : <Check className="w-3 h-3" strokeWidth={2.25} />}
+                <span>Ack</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}
+                disabled={anyPending}
+                className="so-alert-btn so-alert-btn-resolve"
+                title="Resolve"
+              >
+                {resolvePending
+                  ? <Loader2 className="w-3 h-3 spin-slow" />
+                  : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
+                <span>Resolve</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

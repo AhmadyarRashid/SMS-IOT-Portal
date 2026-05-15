@@ -1,6 +1,7 @@
 import { AlertOctagon, ScrollText } from 'lucide-react';
 import { getAssetDisplayName } from './assetIcons';
 import { findGatewayForAsset, findSiteForAsset } from './gateways';
+import { getAlarmClipUrl, getAlarmContentText } from './alarms';
 
 /**
  * Shared audit-event generation. Both the dashboard panel
@@ -44,7 +45,8 @@ export function alarmAuditEvents(alarm, ctx = {}) {
     ? findSiteForAsset(tower, ctx.sites || [])
     : (asset ? findSiteForAsset(asset, ctx.sites || []) : null);
 
-  const common = { severity, status, site, tower, asset };
+  const clipUrl = getAlarmClipUrl(alarm);
+  const common = { severity, status, site, tower, asset, clipUrl };
 
   if (alarm.createdOn) {
     events.push({
@@ -52,7 +54,7 @@ export function alarmAuditEvents(alarm, ctx = {}) {
       ts: new Date(alarm.createdOn).getTime(),
       icon: AlertOctagon,
       title: `${baseTitle} raised`,
-      detail: alarm.content || null,
+      detail: getAlarmContentText(alarm),
       tag: 'Alert',
       tagTone: 'alert',
       source: 'alarm-raised',

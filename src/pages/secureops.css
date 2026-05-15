@@ -29,6 +29,19 @@
   gap: 4px;
   min-height: 108px;
 }
+/* Clickable variant — used when the card links somewhere (e.g. Active
+   alerts → /alarms). Hover lifts subtly and accents the border. */
+a.so-kpi.so-kpi-clickable {
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .15s ease, transform .12s ease, box-shadow .15s ease;
+}
+a.so-kpi.so-kpi-clickable:hover {
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+}
 .so-kpi-label {
   display: inline-flex;
   align-items: center;
@@ -540,7 +553,10 @@ button.so-cam:focus-visible {
   border-color: color-mix(in srgb, var(--color-ok-500) 60%, transparent);
 }
 
-/* Site › Tower › Camera breadcrumb inside an alert row */
+/* Site › Tower › Camera breadcrumb inside an alert / audit row.
+   Implemented as <button> so clicks trigger in-app store actions
+   (set site filter, set tower, open camera modal) — the reset below
+   makes the button render identically to the previous <a> version. */
 .so-crumb {
   display: inline-flex;
   align-items: center;
@@ -550,14 +566,71 @@ button.so-cam:focus-visible {
   border-bottom: 1px dashed transparent;
   transition: color .12s ease, border-color .12s ease;
 }
+button.so-crumb {
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
 .so-crumb:hover {
   color: var(--color-accent-300);
-  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
 }
 .so-crumb-sep {
   color: var(--color-ink-3);
   font-weight: 600;
   user-select: none;
+}
+/* Display-only crumb variant used on alert rows — no hover effect, no
+   underline, no pointer cursor. Just an informational chip. */
+.so-crumb.so-crumb-static {
+  cursor: default;
+}
+.so-crumb.so-crumb-static:hover {
+  color: var(--color-ink-1);
+  border-bottom-color: transparent;
+}
+
+/* "View clip" button used on alert and audit rows when the alarm carries
+   a clip URL (either in a structured field or extracted from `content`). */
+.so-clip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  background: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-brand-500) 40%, transparent);
+  color: var(--color-brand-300);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.so-clip-btn:hover {
+  background: color-mix(in srgb, var(--color-brand-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-brand-500) 60%, transparent);
+}
+.so-clip-btn:active { transform: scale(0.97); }
+.so-clip-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-brand-500) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-brand-500) 40%, transparent);
+  color: var(--color-brand-300);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.so-clip-btn-icon:hover {
+  background: color-mix(in srgb, var(--color-brand-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-brand-500) 60%, transparent);
 }
 
 /* ---------- Env telemetry rows ---------- */

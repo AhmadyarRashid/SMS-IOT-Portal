@@ -4,7 +4,7 @@ import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   ScrollText, Search, X, Filter, ChevronLeft, ChevronRight,
   Building2, RadioTower, AlertOctagon, Check, CheckCheck,
-  Download, RotateCcw, ChevronsLeft, ChevronsRight,
+  Download, RotateCcw, ChevronsLeft, ChevronsRight, Video as VideoIcon,
 } from 'lucide-react';
 import { useAssets, useAlarms } from '../hooks/useAssets';
 import {
@@ -17,6 +17,8 @@ import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import { downloadCsv } from '../utils/csv';
+import CameraFullView from '../components/cameras/CameraFullView';
+import ClipModal from '../components/cameras/ClipModal';
 import './secureops.css';
 
 /* ==========================================================================
@@ -65,7 +67,9 @@ const STATUS_GROUPS = [
 export default function AuditLogPage() {
   const { data: assets = [], isLoading: assetsLoading } = useAssets({});
   const { data: allAlarms = [], isLoading: alarmsLoading } = useAlarms({});
-  const { selectedSiteId } = useSecureOpsStore();
+  const { selectedSiteId, setSite, setTower } = useSecureOpsStore();
+  const [cameraInView, setCameraInView] = useState(null);
+  const [clipInView, setClipInView] = useState(null);
 
   /* ---- Scope from global site dropdown ---- */
   const sites = useMemo(() => pickSites(assets), [assets]);
@@ -369,7 +373,14 @@ export default function AuditLogPage() {
             </thead>
             <tbody>
               {pageRows.map((e, i) => (
-                <EventRow key={`${e.ts}-${e.source}-${i}`} event={e} />
+                <EventRow
+                  key={`${e.ts}-${e.source}-${i}`}
+                  event={e}
+                  onSiteClick={(s) => setSite(s.id)}
+                  onTowerClick={(t) => setTower(t.id)}
+                  onCameraClick={(c) => setCameraInView(c)}
+                  onClipClick={(p) => setClipInView(p)}
+                />
               ))}
             </tbody>
           </table>
@@ -385,6 +396,18 @@ export default function AuditLogPage() {
           />
         )}
       </section>
+
+      {cameraInView && (
+        <CameraFullView camera={cameraInView} onClose={() => setCameraInView(null)} />
+      )}
+      {clipInView && (
+        <ClipModal
+          title={clipInView.title}
+          subtitle={clipInView.subtitle}
+          url={clipInView.url}
+          onClose={() => setClipInView(null)}
+        />
+      )}
     </div>
   );
 }
@@ -393,10 +416,11 @@ export default function AuditLogPage() {
    Row
    ========================================================================== */
 
-function EventRow({ event: e }) {
+function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipClick }) {
   const sevMeta = severityMeta(e.severity);
   const statusMeta = statusBadge(e.status);
   const at = new Date(e.ts);
+  const isCamera = e.asset && normalizeAssetType(getCustomAssetType(e.asset)) === 'CameraAsset';
 
   return (
     <tr>
@@ -409,7 +433,23 @@ function EventRow({ event: e }) {
         <div className="flex items-start gap-2">
           <e.icon className="w-3.5 h-3.5 mt-0.5 text-[var(--color-ink-2)] flex-shrink-0" strokeWidth={2} />
           <div className="min-w-0">
-            <div className="font-semibold text-[var(--color-ink-0)] truncate">{e.title}</div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-[var(--color-ink-0)] truncate">{e.title}</span>
+              {e.clipUrl && (
+                <button
+                  type="button"
+                  onClick={() => onClipClick?.({
+                    url: e.clipUrl,
+                    title: e.title,
+                    subtitle: `${format(at, 'HH:mm dd MMM')}${e.asset ? ` · ${getAssetDisplayName(e.asset)}` : ''}`,
+                  })}
+                  className="so-clip-btn-icon"
+                  title="View the clip attached to this alarm"
+                >
+                  <VideoIcon className="w-3.5 h-3.5" strokeWidth={2} />
+                </button>
+              )}
+            </div>
             {e.detail && <div className="text-[11px] text-[var(--color-ink-2)] truncate">{e.detail}</div>}
           </div>
         </div>
@@ -417,26 +457,32 @@ function EventRow({ event: e }) {
       <td>
         <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px]">
           {e.site && (
-            <Link to="/sites" className="so-crumb">
+            <button type="button" onClick={() => onSiteClick?.(e.site)} className="so-crumb" title={`Scope to ${getAssetDisplayName(e.site)}`}>
               <Building2 className="w-3 h-3" />
               {getAssetDisplayName(e.site)}
-            </Link>
+            </button>
           )}
           {e.tower && (
             <>
               {e.site && <span className="so-crumb-sep">›</span>}
-              <Link to={`/store/${e.tower.id}`} className="so-crumb">
+              <button type="button" onClick={() => onTowerClick?.(e.tower)} className="so-crumb" title={`Select ${getAssetDisplayName(e.tower)}`}>
                 <RadioTower className="w-3 h-3" />
                 {getAssetDisplayName(e.tower)}
-              </Link>
+              </button>
             </>
           )}
           {e.asset && (
             <>
               {(e.site || e.tower) && <span className="so-crumb-sep">›</span>}
-              <Link to={`/a/${e.asset.id}`} className="so-crumb" title={getAssetTypeLabel(getCustomAssetType(e.asset))}>
-                {getAssetDisplayName(e.asset)}
-              </Link>
+              {isCamera ? (
+                <button type="button" onClick={() => onCameraClick?.(e.asset)} className="so-crumb" title={`Open ${getAssetDisplayName(e.asset)} full view`}>
+                  {getAssetDisplayName(e.asset)}
+                </button>
+              ) : (
+                <span className="so-crumb" title={getAssetTypeLabel(getCustomAssetType(e.asset))}>
+                  {getAssetDisplayName(e.asset)}
+                </span>
+              )}
             </>
           )}
           {!e.site && !e.tower && !e.asset && (

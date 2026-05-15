@@ -25,7 +25,9 @@ import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import CameraStream from '../components/cameras/CameraStream';
 import CameraFullView from '../components/cameras/CameraFullView';
+import ClipModal from '../components/cameras/ClipModal';
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
+import { getAlarmClipUrl } from '../utils/alarms';
 import './secureops.css';
 
 /* ==========================================================================
@@ -219,6 +221,7 @@ export default function SecureOpsOverviewPage() {
               : `${kpis.alerts.critical} critical, ${kpis.alerts.warning} warning`
           }
           subTone={kpis.alerts.critical > 0 ? 'critical' : (kpis.alerts.warning > 0 ? 'warning' : 'ok')}
+          to="/alarms"
         />
         <KpiCard
           icon={Activity}
@@ -290,17 +293,28 @@ export default function SecureOpsOverviewPage() {
    KPI card
    ========================================================================== */
 
-function KpiCard({ icon: Icon, label, value, subline, subTone }) {
-  return (
-    <div className="so-kpi">
+function KpiCard({ icon: Icon, label, value, subline, subTone, to }) {
+  // When `to` is set, render as a Link so clicking the card navigates.
+  // The card surface stays visually identical — only the cursor + a subtle
+  // hover lift change to hint at interactivity.
+  const body = (
+    <>
       <div className="so-kpi-label">
         <Icon className="w-3.5 h-3.5" strokeWidth={2} />
         {label}
       </div>
       <div className="so-kpi-value">{value}</div>
       <div className={`so-kpi-sub is-${subTone || 'muted'}`}>{subline}</div>
-    </div>
+    </>
   );
+  if (to) {
+    return (
+      <Link to={to} className="so-kpi so-kpi-clickable" title={`Open ${label.toLowerCase()}`}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className="so-kpi">{body}</div>;
 }
 
 /* ==========================================================================
@@ -820,6 +834,7 @@ function PttModal({ camera, onClose }) {
 function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
   const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   const update = useUpdateAlarmStatus();
+  const [clipInView, setClipInView] = useState(null);
   const scoped = useMemo(() => {
     if (!scopeTowerIds.length) return alarms;
     return alarms.filter((al) =>
@@ -875,6 +890,7 @@ function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
               towers={towers}
               sites={sites}
               update={update}
+              onClipClick={(payload) => setClipInView(payload)}
             />
           ))}
         </div>
@@ -885,6 +901,15 @@ function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
           All alerts <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
+
+      {clipInView && (
+        <ClipModal
+          title={clipInView.title}
+          subtitle={clipInView.subtitle}
+          url={clipInView.url}
+          onClose={() => setClipInView(null)}
+        />
+      )}
     </section>
   );
 }
@@ -905,7 +930,7 @@ function SeverityChip({ count, color, label }) {
   );
 }
 
-function AlertRow({ alarm, assetMap, towers, sites, update }) {
+function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
   const linked = Array.isArray(alarm.asset) && alarm.asset[0];
@@ -918,6 +943,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
   const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
+  const clipUrl = getAlarmClipUrl(alarm);
 
   // Status-aware action visibility:
   //  • OPEN              → both Ack and Resolve enabled
@@ -937,31 +963,31 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
       <div className="flex-1 min-w-0">
         <p className="so-alert-title truncate">{alarm.title || 'Alarm'}</p>
 
-        {/* Site → Tower → Camera breadcrumb. Each segment is omitted when
-            unavailable, so we never render dangling separators. */}
+        {/* Site → Tower → Camera breadcrumb is display-only on alert rows
+            (each segment is just informational). The clip icon next to the
+            actions is the only interactive element. */}
         <p className="so-alert-meta flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mt-0.5">
           {site && (
-            <Link to="/sites" className="so-crumb">
+            <span className="so-crumb so-crumb-static">
               <Building2 className="w-3 h-3" strokeWidth={2} />
               {getAssetDisplayName(site)}
-            </Link>
+            </span>
           )}
           {tower && (
             <>
               {site && <span className="so-crumb-sep">›</span>}
-              <Link to={`/store/${tower.id}`} className="so-crumb">
+              <span className="so-crumb so-crumb-static">
                 <RadioTower className="w-3 h-3" strokeWidth={2} />
                 {getAssetDisplayName(tower)}
-              </Link>
+              </span>
             </>
           )}
           {asset && (
             <>
               {(tower || site) && <span className="so-crumb-sep">›</span>}
-              <Link to={`/a/${asset.id}`} className="so-crumb">
-                {typeLabel === 'Camera' ? <Video2 /> : null}
+              <span className="so-crumb so-crumb-static">
                 {assetName || typeLabel}
-              </Link>
+              </span>
             </>
           )}
         </p>
@@ -985,9 +1011,26 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
           {sevMeta.label}
         </span>
 
-        {(canAck || canResolve) && update && (
+        {(canAck || canResolve || clipUrl) && (
           <div className="so-alert-actions">
-            {canAck && (
+            {clipUrl && (
+              <button
+                type="button"
+                onClick={() => onClipClick?.({
+                  url: clipUrl,
+                  title: alarm.title || 'Alarm clip',
+                  subtitle: createdAt
+                    ? `${format(createdAt, 'HH:mm dd MMM')}${assetName ? ` · ${assetName}` : ''}`
+                    : assetName,
+                })}
+                className="so-clip-btn"
+                title="View the clip attached to this alarm"
+              >
+                <Video2 />
+                <span>Clip</span>
+              </button>
+            )}
+            {canAck && update && (
               <button
                 type="button"
                 onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
@@ -1001,7 +1044,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update }) {
                 <span>Ack</span>
               </button>
             )}
-            {canResolve && (
+            {canResolve && update && (
               <button
                 type="button"
                 onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}

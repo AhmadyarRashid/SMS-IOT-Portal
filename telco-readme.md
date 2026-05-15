@@ -171,6 +171,45 @@ individual tiles are buttons that call `onOpen(camera)`.
 | `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 
+### 5.1b. Alarm clip URLs
+
+Every actionable alert row (Overview's Recent Alerts, the Alerts page, the
+Audit Log) carries a **View clip** button when the alarm references a
+recorded clip. The dashboard resolves the URL via
+`getAlarmClipUrl(alarm)` in `src/utils/alarms.js`, in this order:
+
+1. **Structured field** on the alarm — `clipUrl`, `videoUrl`, or
+   `streamUrl` (first non-empty wins). Recommended for new installations:
+   the backend rule writes the clip URL straight onto the alarm as it's
+   raised.
+2. **Extract from text** — first `http(s)://...` URL found in the
+   `content` or `description` fields. Useful when the AI side dumps
+   `"Person detected — https://media/.../clip.mp4"` into the alarm body.
+
+When neither is available the View clip button hides itself (no
+placeholder data). Click → shared `ClipModal` plays the URL via the same
+`CameraStream` renderer used everywhere else (`<video>` / `<img>` /
+`<iframe>` auto-detected from URL extension).
+
+### 5.1c. Breadcrumb click behaviour
+
+Site › Tower › Camera breadcrumbs in alert and audit rows are
+**buttons that trigger in-app actions** — they don't navigate to a
+different route:
+
+- **Site click** → `secureOpsStore.setSite(id)` → the global site filter
+  updates, every panel re-scopes (including the current page's filtered
+  list, header dropdown, etc.).
+- **Tower click** → `secureOpsStore.setTower(id)` → Overview's Live
+  Camera Feeds, Remote Control, and Environmental Telemetry move to
+  that tower; Control page Cameras panel follows.
+- **Camera click** → opens the shared `CameraFullView` modal in place
+  (same modal as the Overview Live Camera Feeds and Video wall use).
+
+This keeps the operator in-context — clicking the breadcrumb of an
+alarm filters the dashboard to that scope without losing the alert/
+audit list.
+
 ### 5.2a. CameraAsset.history — JSON contract
 
 `CameraAsset.history` is an OpenRemote array attribute. Each element is
