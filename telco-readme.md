@@ -166,10 +166,96 @@ individual tiles are buttons that call `onOpen(camera)`.
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
 | `liveStreamUrl` | string | **yes** for live tiles | Played by `<video>` if `.mp4`/`.webm`/`.ogg`/`.m3u8`/`.mov`, `<img>` if `.jpg`/`.png`/`.webp`/`.gif`, otherwise `<iframe>` (vendor web UI). See `CameraStream` in `SecureOpsOverviewPage`. |
-| `history` | array | optional | `[{id, url, date, detection}]` where `detection ∈ 'human' \| 'animal' \| 'other'`. Drives the ALERT pill on the live tile (recent `human` ≤ 5 min), the "Detections today" KPI, and the "Detections — past 8 h" bar chart. |
+| `history` | array | optional | Array of detection clips — see §5.2a below for the JSON contract. Drives the ALERT pill on the Overview's Live Camera tile, the Video tab's detection-type filter chips, and the clip playback list inside the camera modal. Does **not** drive the "Detections today" KPI or the env card's 8-hour bar chart — those count alarms (see §8.1, §8.6). |
 | `cameraVariant` | string | optional | `fixed` or `360`. Used to pick the PTT-capable camera under each tower. |
 | `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
+
+### 5.2a. CameraAsset.history — JSON contract
+
+`CameraAsset.history` is an OpenRemote array attribute. Each element is
+one detection clip, written by the AI side whenever it records a triggered
+event. The dashboard consumes it read-only.
+
+**Entry shape:**
+
+```jsonc
+{
+  "id":        "string",       // stable per clip, dedupes re-pushes
+  "url":       "string",       // playable URL (same renderer as liveStreamUrl)
+  "date":      "ISO 8601 string OR ms-since-epoch number",
+  "detection": "human" | "animal" | "other"
+}
+```
+
+**Field details:**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | Stable identifier — the modal uses it as the React `key` and to compare against `activeClip.id` when highlighting the row currently playing. If the AI side doesn't have a natural id, `${cameraId}-${date.getTime()}` works fine. |
+| `url` | string | yes | Anything `CameraStream` can play — `.mp4` / `.webm` / `.ogg` / `.m3u8` / `.mov` → `<video>`, `.jpg` / `.png` / `.webp` / `.gif` → `<img>`, anything else → `<iframe>`. |
+| `date` | ISO string OR number | yes | Parsed via `new Date(value).getTime()`. Both `"2026-05-16T09:42:01Z"` and `1779111721000` work. Entries without a parseable date are silently dropped. |
+| `detection` | enum string | recommended | Case-insensitive. Anything other than `"human"` / `"animal"` falls into the `Other` bucket — including `null`, `undefined`, and unknown labels like `"vehicle"` (until/unless we add chips for those). |
+
+**Ordering:** newest first. The Overview's `isCameraAlerting` and
+`isRecentHumanDetection` peek at `history[0]` as the latest clip. The
+Video modal's sidebar re-sorts defensively, but the rest of the
+dashboard trusts `history[0]` is the most recent.
+
+**Retention is the backend's job.** The portal never trims this array.
+If clips accumulate forever the attribute payload grows — a backend
+rule (or OR retention policy) should cap the array length (e.g. last
+500 clips or last 14 days).
+
+**Worked example.** Two cameras under Tower 3 — North, ~5 detections
+each over the past day:
+
+```json
+{
+  "id": "ToggleableCameraAsset_6tq7PgloJBRxUmCveeslIk_history",
+  "name": "history",
+  "type": "Array",
+  "value": [
+    {
+      "id": "cam02-2026-05-16T09:42:01",
+      "url": "https://media.smsiotpk.com/clips/cam02/2026-05-16T09-42-01.mp4",
+      "date": "2026-05-16T09:42:01Z",
+      "detection": "human"
+    },
+    {
+      "id": "cam02-2026-05-16T09:30:14",
+      "url": "https://media.smsiotpk.com/clips/cam02/2026-05-16T09-30-14.mp4",
+      "date": "2026-05-16T09:30:14Z",
+      "detection": "animal"
+    },
+    {
+      "id": "cam02-2026-05-16T08:55:00",
+      "url": "https://media.smsiotpk.com/clips/cam02/2026-05-16T08-55-00.mp4",
+      "date": 1779093300000,
+      "detection": "human"
+    },
+    {
+      "id": "cam02-2026-05-16T03:12:47",
+      "url": "https://media.smsiotpk.com/clips/cam02/2026-05-16T03-12-47.mp4",
+      "date": "2026-05-16T03:12:47Z",
+      "detection": "other"
+    }
+  ]
+}
+```
+
+**How the dashboard uses each field at a glance:**
+
+| Field | Used by |
+|---|---|
+| `id` | `key` for React lists, `activeClip` highlight, dedup logic |
+| `url` | Playback in Video modal sidebar (click a clip → `setActiveClip` → `CameraStream` switches source via `key={url}` to force re-mount) |
+| `date` | Sort order, "X min ago" labels, 24-h window for the Video tab detection filter chips, 5-min window for the on-tile ALERT pill |
+| `detection` | Detection-type chip filter (page-level on Video, sidebar on the camera modal), colour of the clip pill / bullet |
+
+If you start sending a new detection label (e.g. `"vehicle"`) it just
+buckets into `Other` automatically — adding a dedicated chip is a
+one-liner in `DETECTION_TYPES` inside `SecureOpsVideoPage.jsx`.
 
 ### 5.3. TowerAsset attributes
 
@@ -215,7 +301,7 @@ The original SMS IoT contract is unchanged:
 | Path | Component | Status |
 |---|---|---|
 | `/` | `SecureOpsOverviewPage` | **built** |
-| `/video` | `SecureOpsStubPage` (Video) | stub |
+| `/video` | `SecureOpsVideoPage` | **built** |
 | `/alarms` | `SecureOpsAlertsPage` | **built** |
 | `/legacy-alarms` | original `AlarmsPage` (legacy) | reachable by URL, not in nav |
 | `/control` | `SecureOpsControlPage` | **built** |
@@ -674,10 +760,16 @@ The tab order and labels are defined in
 
 In rough priority order:
 
-1. **Video tab (`/video`)** — full camera grid for the site/tower scope,
-   per-detection filter chips (`Human · Animal · Other`), side drawer for
-   playback of `history[]` clips. Same `liveStreamUrl` contract as the
-   Overview tile.
+1. **Video tab — ✅ shipped 2026-05-16** as `SecureOpsVideoPage` at
+   `/video`. Responsive wall of every `CameraAsset` in the current site
+   scope. Page-level filters: tower multi-select chips, detection-type
+   multi-select chips (`Human · Animal · Other` — based on the camera's
+   recent `history[].detection` within the last 24 h), free-text search.
+   Click any tile → modal with the live stream on the left and a
+   scrollable, independently filterable `history[]` clip list on the
+   right. Click a clip → swap the player to that clip's URL; "Back to
+   live" restores the live feed. Reuses the shared `CameraStream`
+   renderer so URL handling stays consistent across the dashboard.
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free

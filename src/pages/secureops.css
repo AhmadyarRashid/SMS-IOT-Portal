@@ -110,6 +110,53 @@
   color: var(--color-ink-2);
 }
 
+/* ---------- Video wall ---------- */
+
+.so-video-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* ---------- Clip rows inside the Video modal's history sidebar ---------- */
+
+.so-clip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 9%, transparent);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.so-clip-row:hover {
+  background: color-mix(in srgb, var(--color-ink-0) 7%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+}
+.so-clip-row[data-active="true"] {
+  background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+}
+.so-clip-bullet {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.so-clip-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 /* ---------- Camera tiles ---------- */
 
 .so-cam-grid {
