@@ -9,6 +9,7 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const SecureOpsOverviewPage = lazy(() => import('./pages/SecureOpsOverviewPage'));
 const SecureOpsStubPage = lazy(() => import('./pages/SecureOpsStubPage'));
 const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
+const SecureOpsAlertsPage = lazy(() => import('./pages/SecureOpsAlertsPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const StorePage = lazy(() => import('./pages/StorePage'));
@@ -74,7 +75,8 @@ export default function App() {
               <Route path="g/:id" element={<GatewayPage />} />
               <Route path="store/:id" element={<StorePage />} />
               <Route path="a/:id" element={<AssetPage />} />
-              <Route path="alarms" element={<AlarmsPage />} />
+              <Route path="alarms" element={<SecureOpsAlertsPage />} />
+              <Route path="legacy-alarms" element={<AlarmsPage />} />
               <Route path="automations" element={<AutomationsPage />} />
               <Route path="map" element={<MapPage />} />
               <Route path="quick" element={<QuickAccessPage />} />

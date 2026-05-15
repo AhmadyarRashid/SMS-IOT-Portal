@@ -196,7 +196,8 @@ The original SMS IoT contract is unchanged:
 |---|---|---|
 | `/` | `SecureOpsOverviewPage` | **built** |
 | `/video` | `SecureOpsStubPage` (Video) | stub |
-| `/alarms` | `AlarmsPage` (legacy, unchanged) | functional, to be reskinned |
+| `/alarms` | `SecureOpsAlertsPage` | **built** |
+| `/legacy-alarms` | original `AlarmsPage` (legacy) | reachable by URL, not in nav |
 | `/control` | `SecureOpsStubPage` (Control) | stub |
 | `/audit` | `AuditLogPage` | **built** |
 | `/settings` | `SettingsPage` (legacy) | functional |
@@ -635,9 +636,11 @@ In rough priority order:
    per-detection filter chips (`Human · Animal · Other`), side drawer for
    playback of `history[]` clips. Same `liveStreamUrl` contract as the
    Overview tile.
-2. **Alerts tab** — reskin the existing `AlarmsPage` to match SecureOps
-   styling. Move it from `/alarms` to live under the tabs. Add the same
-   Site/Tower/Camera breadcrumb + severity colours used in Recent Alerts.
+2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
+   `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
+   chips (High/Medium/Low), tower chips scoped to the selected site, free
+   text search, Ack + Resolve on every row. Acknowledged or resolved
+   alarms drop off this view and appear in the Audit log instead.
 3. **Control tab (`/control`)** — bulk operations (lock all doors, arm
    all sirens, lights off) + per-tower remote panel (re-use Overview's
    Remote Control). PTT in this tab opens the same iframe modal.
