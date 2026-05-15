@@ -2,8 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigationType } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
-import Sidebar from './Sidebar';
-import Header from './Header';
+import SecureOpsHeader from './SecureOpsHeader';
 import useAppStore from '../../store/appStore';
 import useLiveEvents from '../../hooks/useLiveEvents';
 import usePwaStore from '../../store/pwaStore';
@@ -42,7 +41,7 @@ function useScrollRestoration() {
 }
 
 export default function DashboardLayout() {
-  const { sidebarCollapsed, theme } = useAppStore();
+  const { theme } = useAppStore();
   const location = useLocation();
   useScrollRestoration();
   useLiveEvents();
@@ -54,25 +53,22 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-surface-0)', color: 'var(--color-ink-0)' }}>
-      <Sidebar />
-      <div className={`transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-[232px]'}`}>
-        <Header />
-        <main className="min-h-[calc(100vh-56px)]">
-          {/* Key on pathname so the page re-runs its entrance animation on
-              navigation. No AnimatePresence wrapper — `mode="wait"` would hold
-              the next page off-screen if an outgoing page had a hung exit
-              animation (notably Recharts containers during unmount), which
-              occasionally left this area blank on sidebar click. */}
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <Outlet />
-          </motion.div>
-        </main>
-      </div>
+      <SecureOpsHeader />
+      <main className="min-h-[calc(100vh-112px)]">
+        {/* Key on pathname so the page re-runs its entrance animation on
+            navigation. No AnimatePresence wrapper — `mode="wait"` would hold
+            the next page off-screen if an outgoing page had a hung exit
+            animation (notably Recharts containers during unmount), which
+            occasionally left this area blank on tab click. */}
+        <motion.div
+          key={location.pathname}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <Outlet />
+        </motion.div>
+      </main>
       <CommandPalette />
       <InstallPrompt />
       <Toaster

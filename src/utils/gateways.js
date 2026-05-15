@@ -7,9 +7,70 @@
  * `GatewayAsset`. Both shapes are treated as sites here.
  */
 
-import { isDeviceAsset } from './assetIcons';
+import { isDeviceAsset, getCustomAssetType } from './assetIcons';
 
 const SITE_TYPES = new Set(['GatewayAsset', 'BuildingAsset']);
+
+/* ==========================================================================
+   Telco hierarchy: City (top) → Tower (gateway) → IoT devices.
+   ========================================================================== */
+
+/**
+ * Top-level container in the telco hierarchy. Detected by either the canonical
+ * `type === 'CityAsset'` or `customAssetType === 'CityAsset'` so installations
+ * that model cities as a custom subtype still work.
+ */
+export function isCityAsset(asset) {
+  if (!asset) return false;
+  if (asset.type === 'CityAsset') return true;
+  return getCustomAssetType(asset) === 'CityAsset';
+}
+
+/**
+ * Return every city in a flat asset list.
+ */
+export function pickCities(assets = []) {
+  return (assets || []).filter(isCityAsset);
+}
+
+/**
+ * A "tower" is a gateway whose customAssetType is `TowerAsset`. We still treat
+ * it as a site (it inherits all the gateway helpers) — `TowerAsset` is just a
+ * semantic label on top.
+ */
+export function isTowerAsset(asset) {
+  if (!asset) return false;
+  return getCustomAssetType(asset) === 'TowerAsset' || isGatewayAsset(asset);
+}
+
+/**
+ * Towers that live under a given city. Walks `asset.path` so towers may be
+ * nested several layers deep under the city without breaking the lookup.
+ */
+export function pickTowersForCity(assets = [], cityId) {
+  if (!cityId) return [];
+  return (assets || []).filter((a) => {
+    if (!isTowerAsset(a)) return false;
+    if (a.parentId === cityId) return true;
+    if (Array.isArray(a.path) && a.path.includes(cityId)) return true;
+    return false;
+  });
+}
+
+/**
+ * The single city an asset (usually a tower or device) belongs to. Returns the
+ * first matching city found via `path` descent; falls back to a direct
+ * `parentId` lookup.
+ */
+export function findCityForAsset(asset, cities = []) {
+  if (!asset || !cities.length) return null;
+  const byId = new Map(cities.map((c) => [c.id, c]));
+  if (asset.parentId && byId.has(asset.parentId)) return byId.get(asset.parentId);
+  if (Array.isArray(asset.path)) {
+    for (const id of asset.path) if (byId.has(id)) return byId.get(id);
+  }
+  return null;
+}
 
 export function isGatewayAsset(asset) {
   if (!asset) return false;

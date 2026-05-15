@@ -3,6 +3,7 @@ import {
   Thermometer, PersonStanding, Lightbulb, LightbulbOff,
   Radar, Flame, LayoutDashboard, Plug, PlugZap,
   Vibrate, TriangleAlert, Fan, Cpu, Server,
+  BatteryCharging, SunMedium, Volume2, RadioTower, Building,
 } from 'lucide-react';
 
 /**
@@ -25,12 +26,16 @@ export const DEVICE_TYPES = [
   'VibrationSensorAsset',
   'SOSAsset',
   'FanAsset',
+  // Telco tower hardware
+  'BatteryAsset',
+  'SolarAsset',
+  'BuzzerAsset',
 ];
 
 /**
  * Types the client can directly toggle on/off. All others are read-only sensors.
  */
-export const CONTROLLABLE_TYPES = ['LightAsset', 'PlugAsset', 'FanAsset', 'DoorLockAsset', 'AlarmAsset'];
+export const CONTROLLABLE_TYPES = ['LightAsset', 'PlugAsset', 'FanAsset', 'DoorLockAsset', 'AlarmAsset', 'BuzzerAsset'];
 
 /**
  * Per-customType overrides for the primary control attribute name. Most types
@@ -124,6 +129,11 @@ export function getAssetIcon(customType, { on = false, alarm = false } = {}) {
     case 'VibrationSensorAsset':    return Vibrate;
     case 'SOSAsset':                return TriangleAlert;
     case 'FanAsset':                return Fan;
+    case 'BatteryAsset':            return BatteryCharging;
+    case 'SolarAsset':              return SunMedium;
+    case 'BuzzerAsset':             return Volume2;
+    case 'TowerAsset':              return RadioTower;
+    case 'CityAsset':               return Building;
     case 'GatewayAsset':            return Server;
     default:                        return Cpu;
   }
@@ -162,6 +172,11 @@ export function getAssetAccent(customType) {
     case 'FanAsset':               return 'cyan';
     case 'VibrationSensorAsset':   return 'purple';
     case 'PanelAsset':             return 'slate';
+    case 'BatteryAsset':           return 'green';
+    case 'SolarAsset':             return 'yellow';
+    case 'BuzzerAsset':            return 'red';
+    case 'TowerAsset':             return 'cyan';
+    case 'CityAsset':              return 'slate';
     case 'GatewayAsset':           return 'cyan';
     default:                       return 'slate';
   }
@@ -302,6 +317,9 @@ export function getPrimaryReadingAttr(asset, customType) {
     case 'VibrationSensorAsset':    return firstOf('vibrationDetected', 'triggered');
     case 'SOSAsset':                return firstOf('triggered', 'sos', 'on');
     case 'AlarmAsset':              return firstOf('armed', 'enabled', 'triggered', 'on');
+    case 'BatteryAsset':            return firstOf('batteryLevel', 'level', 'percentage', 'value');
+    case 'SolarAsset':              return firstOf('power', 'output', 'wattage', 'value');
+    case 'BuzzerAsset':             return firstOf('onOff', 'on', 'triggered');
     default:                        return null;
   }
 }
@@ -352,6 +370,12 @@ export function getStateLabel(asset, customType) {
       return 'Live';
     case 'PanelAsset':
       return 'Panel';
+    case 'BatteryAsset':
+      return reading != null && Number.isFinite(Number(reading)) ? `${Math.round(Number(reading))}%` : '—';
+    case 'SolarAsset':
+      return reading != null && Number.isFinite(Number(reading)) ? `${Math.round(Number(reading))} W` : (isAssetActive(asset) ? 'Generating' : 'Idle');
+    case 'BuzzerAsset':
+      return isAssetActive(asset) ? 'Active' : 'Off';
     default:
       return isAssetActive(asset) ? 'On' : 'Off';
   }

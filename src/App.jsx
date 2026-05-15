@@ -6,6 +6,8 @@ import { LoadingSpinner } from './components/ui';
 
 const DashboardLayout = lazy(() => import('./components/layout/DashboardLayout'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
+const SecureOpsOverviewPage = lazy(() => import('./pages/SecureOpsOverviewPage'));
+const SecureOpsStubPage = lazy(() => import('./pages/SecureOpsStubPage'));
 const OverviewPage = lazy(() => import('./pages/OverviewPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const StorePage = lazy(() => import('./pages/StorePage'));
@@ -57,7 +59,17 @@ export default function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<OverviewPage />} />
+              <Route index element={<SecureOpsOverviewPage />} />
+              <Route path="video" element={
+                <SecureOpsStubPage title="Video" subtitle="All cameras across the selected scope — live grid, detection filters, and clip playback. Coming next." />
+              } />
+              <Route path="control" element={
+                <SecureOpsStubPage title="Control" subtitle="Per-tower remote control (doors, sirens, lights, PTT) and bulk site actions. Coming next." />
+              } />
+              <Route path="audit" element={
+                <SecureOpsStubPage title="Audit log" subtitle="Full audit trail of operator commands, alarm transitions, and system heartbeat events. Coming next." />
+              } />
+              <Route path="legacy-overview" element={<OverviewPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="sites" element={<SitesPage />} />
               <Route path="g/:id" element={<GatewayPage />} />

@@ -1,0 +1,414 @@
+/* ==========================================================================
+   SecureOps dashboard — telco-portal Overview tab.
+   Component-scoped styling for the panels that match the prototype sketch.
+   ========================================================================== */
+
+.secureops-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  color: var(--color-ink-1);
+  white-space: nowrap;
+}
+
+/* ---------- KPI cards ---------- */
+
+.so-kpi {
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  border-radius: 16px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 108px;
+}
+.so-kpi-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+.so-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-ink-0);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.so-kpi-sub {
+  font-size: 11px;
+  color: var(--color-ink-2);
+}
+.so-kpi-sub.is-critical { color: var(--color-danger-400); }
+.so-kpi-sub.is-warning  { color: var(--color-warning-400); }
+.so-kpi-sub.is-ok       { color: var(--color-accent-400); }
+
+/* ---------- Panel header (shared across left/right cards) ---------- */
+
+.so-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.so-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-ink-0);
+}
+.so-panel-title .so-panel-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-ink-2);
+}
+.so-panel-meta {
+  font-size: 11px;
+  color: var(--color-ink-2);
+}
+
+/* ---------- Camera tiles ---------- */
+
+.so-cam-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.so-cam {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+}
+.so-cam video,
+.so-cam img,
+.so-cam iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border: 0;
+}
+.so-cam-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  font-size: 11px;
+  color: var(--color-ink-3);
+  background:
+    repeating-linear-gradient(45deg,
+      color-mix(in srgb, var(--color-ink-0) 4%, transparent) 0,
+      color-mix(in srgb, var(--color-ink-0) 4%, transparent) 8px,
+      transparent 8px,
+      transparent 16px);
+}
+.so-cam-pills {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.so-cam-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+}
+.so-cam-pill.is-rec {
+  background: rgba(220, 38, 38, 0.78);
+  color: #fff;
+}
+.so-cam-pill.is-rec::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: so-rec-blink 1.4s ease-in-out infinite;
+}
+.so-cam-pill.is-alert {
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+  animation: so-rec-blink 1.4s ease-in-out infinite;
+}
+.so-cam-pill.is-label {
+  background: rgba(15, 23, 42, 0.55);
+  color: #f8fafc;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.so-cam-foot {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.7));
+}
+@keyframes so-rec-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* ---------- Site status rows ---------- */
+
+.so-site-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-ink-0) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  transition: background .15s ease, border-color .15s ease;
+  text-align: left;
+  width: 100%;
+}
+.so-site-row:hover {
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+}
+.so-site-row[data-active="true"] {
+  border-color: color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+}
+.so-site-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink-0);
+  line-height: 1.2;
+}
+.so-site-meta {
+  font-size: 11px;
+  color: var(--color-ink-2);
+  line-height: 1.2;
+}
+.so-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.so-status-badge.is-online {
+  color: var(--color-accent-300);
+  background: color-mix(in srgb, var(--color-accent-500) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-500) 40%, transparent);
+}
+.so-status-badge.is-alert {
+  color: var(--color-danger-400);
+  background: color-mix(in srgb, var(--color-danger-500) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger-500) 45%, transparent);
+}
+.so-status-badge.is-offline {
+  color: var(--color-ink-2);
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 14%, transparent);
+}
+
+/* ---------- Remote control buttons ---------- */
+
+.so-remote-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.so-remote-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  height: 88px;
+  padding: 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 9%, transparent);
+  color: var(--color-ink-1);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  transition: transform .12s ease, border-color .15s ease, background .15s ease;
+}
+.so-remote-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--color-accent-500) 45%, transparent);
+}
+.so-remote-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.so-remote-btn[data-active="true"] {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--color-accent-500) 22%, var(--color-surface-1)) 0%,
+    var(--color-surface-1) 100%);
+  border-color: color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+  color: var(--color-accent-300);
+}
+.so-remote-btn .so-remote-state {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+/* ---------- Alerts list ---------- */
+
+.so-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--rail, var(--color-accent-500));
+  background: color-mix(in srgb, var(--color-ink-0) 3%, transparent);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.so-alert-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink-0);
+}
+.so-alert-meta {
+  font-size: 11px;
+  color: var(--color-ink-2);
+}
+.so-alert-sev {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ---------- Env telemetry rows ---------- */
+
+.so-env-row {
+  display: grid;
+  grid-template-columns: 1fr 60px 50px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12px;
+}
+.so-env-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  overflow: hidden;
+}
+.so-env-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent-500);
+  border-radius: inherit;
+}
+
+/* ---------- Detections bar chart ---------- */
+
+.so-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 56px;
+  margin-top: 8px;
+}
+.so-bars > span {
+  flex: 1;
+  background: color-mix(in srgb, var(--color-accent-500) 35%, transparent);
+  border-radius: 3px 3px 0 0;
+  min-height: 4px;
+}
+.so-bars > span[data-active="true"] {
+  background: var(--color-accent-400);
+}
+
+/* ---------- Audit log ---------- */
+
+.so-audit-row {
+  display: grid;
+  grid-template-columns: 48px 18px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 12px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+}
+.so-audit-row:last-child { border-bottom: 0; }
+.so-audit-time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-2);
+}
+.so-audit-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  color: var(--color-ink-1);
+}
+.so-audit-tag.is-alert   { background: color-mix(in srgb, var(--color-danger-500) 16%, transparent); color: var(--color-danger-400); }
+.so-audit-tag.is-command { background: color-mix(in srgb, var(--color-accent-500) 14%, transparent); color: var(--color-accent-300); }
+.so-audit-tag.is-info    { background: color-mix(in srgb, var(--color-warning-500) 14%, transparent); color: var(--color-warning-400); }
+
+/* ---------- Tower dropdown selector inside panels ---------- */
+
+.so-tower-select {
+  appearance: none;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  color: var(--color-ink-0);
+  border-radius: 10px;
+  padding: 5px 28px 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-ink-2) 50%),
+                    linear-gradient(135deg, var(--color-ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.so-tower-select:focus { outline: 1px solid color-mix(in srgb, var(--color-accent-500) 60%, transparent); }
