@@ -16,7 +16,7 @@ import {
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
-import { toCsv, downloadCsv } from '../utils/csv';
+import { downloadCsv } from '../utils/csv';
 import './secureops.css';
 
 /* ==========================================================================
@@ -194,19 +194,26 @@ export default function AuditLogPage() {
     (query ? 1 : 0) + severityFilter.size + statusFilter.size + towerFilter.size + (timeRange !== '7d' ? 1 : 0);
 
   const exportCsv = () => {
-    const rows = filtered.map((e) => ({
-      timestamp: new Date(e.ts).toISOString(),
-      title: e.title,
-      detail: e.detail || '',
-      severity: e.severity || '',
-      status: e.status || '',
-      site: e.site ? getAssetDisplayName(e.site) : '',
-      tower: e.tower ? getAssetDisplayName(e.tower) : '',
-      device: e.asset ? getAssetDisplayName(e.asset) : '',
-      actor: e.actor || '',
-      tag: e.tag,
-    }));
-    downloadCsv(`audit-${format(new Date(), 'yyyyMMdd-HHmm')}.csv`, toCsv(rows));
+    // Column definitions matching the toCsv/downloadCsv contract:
+    //   { key, label?, get?(row) → cellValue }
+    // We materialise the labels here so the exported file uses friendly
+    // titles regardless of how the event shape evolves.
+    const columns = [
+      { key: 'timestamp', label: 'Timestamp', get: (e) => new Date(e.ts).toISOString() },
+      { key: 'localTime', label: 'Local time', get: (e) => format(new Date(e.ts), 'yyyy-MM-dd HH:mm:ss') },
+      { key: 'title',     label: 'Event',     get: (e) => e.title },
+      { key: 'detail',    label: 'Detail',    get: (e) => e.detail || '' },
+      { key: 'severity',  label: 'Severity',  get: (e) => e.severity || '' },
+      { key: 'status',    label: 'Status',    get: (e) => e.status || '' },
+      { key: 'site',      label: 'Site',      get: (e) => (e.site ? getAssetDisplayName(e.site) : '') },
+      { key: 'tower',     label: 'Tower',     get: (e) => (e.tower ? getAssetDisplayName(e.tower) : '') },
+      { key: 'device',    label: 'Device',    get: (e) => (e.asset ? getAssetDisplayName(e.asset) : '') },
+      { key: 'actor',     label: 'Actor',     get: (e) => e.actor || '' },
+      { key: 'tag',       label: 'Tag',       get: (e) => e.tag || '' },
+      { key: 'source',    label: 'Source',    get: (e) => e.source || '' },
+    ];
+    const filename = `audit-${format(new Date(), 'yyyyMMdd-HHmm')}.csv`;
+    downloadCsv(filename, filtered, columns);
   };
 
   if (assetsLoading || alarmsLoading) {
@@ -264,7 +271,7 @@ export default function AuditLogPage() {
               type="text"
               value={query}
               onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-              placeholder="Search title, site, tower, device, actor…"
+              placeholder="Search title, site, tower or device…"
               className="bg-transparent border-0 outline-0 flex-1 text-sm text-[var(--color-ink-0)] placeholder:text-[var(--color-ink-3)]"
             />
             {query && (
