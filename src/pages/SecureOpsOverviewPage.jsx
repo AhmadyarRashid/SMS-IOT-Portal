@@ -7,16 +7,16 @@ import {
   RadioTower, ShieldAlert, ChevronRight,
   Lock, Siren, Lightbulb, Mic,
   Thermometer, Droplets, Signal, BatteryCharging,
-  ScrollText, X,
+  ScrollText, X, Building2,
 } from 'lucide-react';
 import { useAssets, useAlarms, useWriteAttribute } from '../hooks/useAssets';
 import {
-  pickCities, pickTowersForCity, pickGatewayChildren,
-  alarmBelongsToGateway, findGatewayForAsset,
+  pickSites, pickTowersForSite, pickGatewayChildren,
+  alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
-  isAssetActive, getPrimaryControlAttr, nextToggleValue,
+  isAssetActive, getPrimaryControlAttr, nextToggleValue, normalizeAssetType,
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
 import useActivityStore from '../store/activityStore';
@@ -32,22 +32,23 @@ export default function SecureOpsOverviewPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
   const { data: allAlarms = [] } = useAlarms({});
-  const { selectedCityId, selectedTowerId, setTower } = useSecureOpsStore();
+  const { selectedSiteId, selectedTowerId, setTower } = useSecureOpsStore();
 
-  const cities = useMemo(() => pickCities(assets), [assets]);
+  const sites = useMemo(() => pickSites(assets), [assets]);
 
-  // Scope towers: those under the picked city, or every tower (any gateway)
+  // Scope towers: those under the picked site, or every tower (any gateway)
   // when "All Sites" is selected.
   const towers = useMemo(() => {
-    if (selectedCityId) return pickTowersForCity(assets, selectedCityId);
-    if (cities.length === 0) {
-      // No CityAssets configured: treat every gateway as a tower.
+    if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
+    if (sites.length === 0) {
+      // No SiteAssets configured: treat every gateway / TowerAsset as a tower.
       return assets.filter((a) =>
-        a.type === 'GatewayAsset' || getCustomAssetType(a) === 'TowerAsset'
+        a.type === 'GatewayAsset'
+        || normalizeAssetType(getCustomAssetType(a)) === 'TowerAsset'
       );
     }
-    return cities.flatMap((c) => pickTowersForCity(assets, c.id));
-  }, [assets, cities, selectedCityId]);
+    return sites.flatMap((s) => pickTowersForSite(assets, s.id));
+  }, [assets, sites, selectedSiteId]);
 
   // Auto-pick first tower for panels that need a single tower context.
   const activeTower = useMemo(() => {
@@ -187,6 +188,8 @@ export default function SecureOpsOverviewPage() {
           <RecentAlertsPanel
             alarms={openAlarms}
             assets={assets}
+            sites={sites}
+            towers={towers}
             scopeTowerIds={towers.map((t) => t.id)}
           />
           <EnvironmentalTelemetryPanel tower={activeTower} assets={assets} />
@@ -585,20 +588,29 @@ function PttModal({ camera, onClose }) {
    Recent Alerts
    ========================================================================== */
 
-function RecentAlertsPanel({ alarms, assets, scopeTowerIds }) {
+function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
   const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const gateways = useMemo(() => assets.filter((a) => a.type === 'GatewayAsset'), [assets]);
   const scoped = useMemo(() => {
     if (!scopeTowerIds.length) return alarms;
     return alarms.filter((al) =>
-      scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, gateways))
+      scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers))
     );
-  }, [alarms, scopeTowerIds, assetMap, gateways]);
+  }, [alarms, scopeTowerIds, assetMap, towers]);
 
-  const top = scoped
-    .slice()
-    .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
-    .slice(0, 5);
+  const sorted = useMemo(
+    () => scoped.slice().sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0)),
+    [scoped]
+  );
+
+  // Severity counts for the header chips.
+  const counts = useMemo(() => {
+    const c = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    for (const al of sorted) {
+      const k = (al.severity || 'LOW').toUpperCase();
+      if (k in c) c[k] += 1;
+    }
+    return c;
+  }, [sorted]);
 
   return (
     <section className="panel p-4 md:p-5">
@@ -607,16 +619,37 @@ function RecentAlertsPanel({ alarms, assets, scopeTowerIds }) {
           <AlertOctagon className="so-panel-icon" strokeWidth={2} />
           Recent alerts
         </div>
-        <span className="so-panel-meta tabular-nums">
-          {scoped.length} active
-        </span>
+        <div className="flex items-center gap-1.5">
+          {counts.CRITICAL + counts.HIGH > 0 && (
+            <SeverityChip count={counts.CRITICAL + counts.HIGH} color="var(--color-danger-400)" label="High" />
+          )}
+          {counts.MEDIUM > 0 && (
+            <SeverityChip count={counts.MEDIUM} color="var(--color-warning-400)" label="Med" />
+          )}
+          {counts.LOW > 0 && (
+            <SeverityChip count={counts.LOW} color="var(--color-ink-2)" label="Low" />
+          )}
+          <span className="so-panel-meta tabular-nums ml-1">{sorted.length} active</span>
+        </div>
       </div>
 
-      {top.length === 0 ? (
+      {sorted.length === 0 ? (
         <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">All clear in this scope.</p>
-      ) : top.map((al) => <AlertRow key={al.id} alarm={al} assetMap={assetMap} gateways={gateways} />)}
+      ) : (
+        <div className="so-alert-list">
+          {sorted.map((al) => (
+            <AlertRow
+              key={al.id}
+              alarm={al}
+              assetMap={assetMap}
+              towers={towers}
+              sites={sites}
+            />
+          ))}
+        </div>
+      )}
 
-      <div className="text-right mt-1">
+      <div className="text-right mt-2">
         <Link to="/alarms" className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5">
           All alerts <ChevronRight className="w-3 h-3" />
         </Link>
@@ -625,23 +658,77 @@ function RecentAlertsPanel({ alarms, assets, scopeTowerIds }) {
   );
 }
 
-function AlertRow({ alarm, assetMap, gateways }) {
-  const sev = alarm.severity || 'LOW';
+function SeverityChip({ count, color, label }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums"
+      style={{
+        background: `color-mix(in srgb, ${color} 14%, transparent)`,
+        color,
+        border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
+      }}
+      title={`${count} ${label.toLowerCase()}-priority`}
+    >
+      {label} {count}
+    </span>
+  );
+}
+
+function AlertRow({ alarm, assetMap, towers, sites }) {
+  const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
   const linked = Array.isArray(alarm.asset) && alarm.asset[0];
   const asset = linked?.id ? (assetMap.get(linked.id) || linked) : (alarm.assetId ? assetMap.get(alarm.assetId) : null);
-  const gateway = asset ? findGatewayForAsset(asset, gateways) : null;
+  const tower = asset ? findGatewayForAsset(asset, towers) : null;
+  const site = tower
+    ? findSiteForAsset(tower, sites)
+    : (asset ? findSiteForAsset(asset, sites) : null);
+
+  const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
+  const assetName = asset ? getAssetDisplayName(asset) : null;
+  const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
 
   return (
     <div className="so-alert-row" style={{ '--rail': sevMeta.color }}>
       <div className="flex-1 min-w-0">
         <p className="so-alert-title truncate">{alarm.title || 'Alarm'}</p>
-        <p className="so-alert-meta">
-          {gateway ? getAssetDisplayName(gateway) : '—'}
-          {asset && ` · ${getAssetTypeLabel(getCustomAssetType(asset))}`}
-          {alarm.createdOn && ` · ${format(new Date(alarm.createdOn), 'HH:mm')}`}
+
+        {/* Site → Tower → Camera breadcrumb. Each segment is omitted when
+            unavailable, so we never render dangling separators. */}
+        <p className="so-alert-meta flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mt-0.5">
+          {site && (
+            <Link to="/sites" className="so-crumb">
+              <Building2 className="w-3 h-3" strokeWidth={2} />
+              {getAssetDisplayName(site)}
+            </Link>
+          )}
+          {tower && (
+            <>
+              {site && <span className="so-crumb-sep">›</span>}
+              <Link to={`/store/${tower.id}`} className="so-crumb">
+                <RadioTower className="w-3 h-3" strokeWidth={2} />
+                {getAssetDisplayName(tower)}
+              </Link>
+            </>
+          )}
+          {asset && (
+            <>
+              {(tower || site) && <span className="so-crumb-sep">›</span>}
+              <Link to={`/a/${asset.id}`} className="so-crumb">
+                {typeLabel === 'Camera' ? <Video2 /> : null}
+                {assetName || typeLabel}
+              </Link>
+            </>
+          )}
         </p>
+
+        {createdAt && (
+          <p className="so-alert-meta mt-0.5 tabular-nums">
+            {format(createdAt, 'HH:mm')} · {formatDistanceToNowStrict(createdAt)} ago
+          </p>
+        )}
       </div>
+
       <span
         className="so-alert-sev"
         style={{
@@ -656,11 +743,22 @@ function AlertRow({ alarm, assetMap, gateways }) {
   );
 }
 
+function Video2() {
+  // Small inline video glyph — reusing the lucide camera icon by name would
+  // require an extra import and Lucide's `Video` is already imported as the
+  // panel icon for Live camera feeds. This keeps things self-contained.
+  return (
+    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m22 8-6 4 6 4V8Z" /><rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
+    </svg>
+  );
+}
+
 const SEVERITY_META = {
   CRITICAL: { label: 'Critical', color: 'var(--color-danger-400)' },
-  HIGH:     { label: 'Critical', color: 'var(--color-danger-400)' },
-  MEDIUM:   { label: 'Warning',  color: 'var(--color-warning-400)' },
-  LOW:      { label: 'Info',     color: 'var(--color-ink-1)' },
+  HIGH:     { label: 'High',     color: 'var(--color-danger-400)' },
+  MEDIUM:   { label: 'Medium',   color: 'var(--color-warning-400)' },
+  LOW:      { label: 'Low',      color: 'var(--color-ink-2)' },
 };
 
 /* ==========================================================================

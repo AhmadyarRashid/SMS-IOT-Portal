@@ -7,64 +7,75 @@
  * `GatewayAsset`. Both shapes are treated as sites here.
  */
 
-import { isDeviceAsset, getCustomAssetType } from './assetIcons';
+import { isDeviceAsset, getCustomAssetType, normalizeAssetType } from './assetIcons';
 
 const SITE_TYPES = new Set(['GatewayAsset', 'BuildingAsset']);
 
 /* ==========================================================================
-   Telco hierarchy: City (top) → Tower (gateway) → IoT devices.
+   Telco hierarchy: Site (top, customAssetType=SiteAsset)
+                  → Tower (TowerAsset OR any GatewayAsset)
+                  → IoT devices.
+
+   "Site" here is the top-level container the user picks from the global
+   dropdown — not to be confused with the legacy `OverviewPage`/`SitesPage`
+   usage where a gateway was loosely called a "site". In the SecureOps view
+   sites and towers are distinct levels.
    ========================================================================== */
 
 /**
- * Top-level container in the telco hierarchy. Detected by either the canonical
- * `type === 'CityAsset'` or `customAssetType === 'CityAsset'` so installations
- * that model cities as a custom subtype still work.
+ * Top-level container in the telco hierarchy. An asset is a Site when its
+ * `customAssetType` (or canonical `type`), normalised to PascalCase, equals
+ * `SiteAsset`. Realms that wrote `siteAsset` or `SiteAsset` both match.
  */
-export function isCityAsset(asset) {
+export function isSiteAsset(asset) {
   if (!asset) return false;
-  if (asset.type === 'CityAsset') return true;
-  return getCustomAssetType(asset) === 'CityAsset';
+  if (normalizeAssetType(asset.type) === 'SiteAsset') return true;
+  return normalizeAssetType(getCustomAssetType(asset)) === 'SiteAsset';
 }
 
 /**
- * Return every city in a flat asset list.
+ * Return every site in a flat asset list.
  */
-export function pickCities(assets = []) {
-  return (assets || []).filter(isCityAsset);
+export function pickSites(assets = []) {
+  return (assets || []).filter(isSiteAsset);
 }
 
 /**
- * A "tower" is a gateway whose customAssetType is `TowerAsset`. We still treat
- * it as a site (it inherits all the gateway helpers) — `TowerAsset` is just a
- * semantic label on top.
+ * A "tower" is any asset whose `customAssetType` is `TowerAsset` (normalised
+ * PascalCase, so `towerAsset` also matches), OR any `GatewayAsset` (so
+ * installations that haven't migrated to the new custom type still surface
+ * their gateways as towers). Excludes assets that already match `isSiteAsset`
+ * to avoid double-counting.
  */
 export function isTowerAsset(asset) {
   if (!asset) return false;
-  return getCustomAssetType(asset) === 'TowerAsset' || isGatewayAsset(asset);
+  if (isSiteAsset(asset)) return false;
+  if (normalizeAssetType(getCustomAssetType(asset)) === 'TowerAsset') return true;
+  return isGatewayAsset(asset);
 }
 
 /**
- * Towers that live under a given city. Walks `asset.path` so towers may be
- * nested several layers deep under the city without breaking the lookup.
+ * Towers that live under a given site. Walks `asset.path` so towers may be
+ * nested several layers deep under the site without breaking the lookup.
  */
-export function pickTowersForCity(assets = [], cityId) {
-  if (!cityId) return [];
+export function pickTowersForSite(assets = [], siteId) {
+  if (!siteId) return [];
   return (assets || []).filter((a) => {
     if (!isTowerAsset(a)) return false;
-    if (a.parentId === cityId) return true;
-    if (Array.isArray(a.path) && a.path.includes(cityId)) return true;
+    if (a.parentId === siteId) return true;
+    if (Array.isArray(a.path) && a.path.includes(siteId)) return true;
     return false;
   });
 }
 
 /**
- * The single city an asset (usually a tower or device) belongs to. Returns the
- * first matching city found via `path` descent; falls back to a direct
+ * The single site an asset (usually a tower or device) belongs to. Returns
+ * the first matching site found via `path` descent; falls back to a direct
  * `parentId` lookup.
  */
-export function findCityForAsset(asset, cities = []) {
-  if (!asset || !cities.length) return null;
-  const byId = new Map(cities.map((c) => [c.id, c]));
+export function findSiteForAsset(asset, sites = []) {
+  if (!asset || !sites.length) return null;
+  const byId = new Map(sites.map((c) => [c.id, c]));
   if (asset.parentId && byId.has(asset.parentId)) return byId.get(asset.parentId);
   if (Array.isArray(asset.path)) {
     for (const id of asset.path) if (byId.has(id)) return byId.get(id);

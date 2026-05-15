@@ -60,6 +60,19 @@ export function getCustomAssetType(asset) {
 }
 
 /**
+ * Normalise an asset type string to the canonical PascalCase form used in
+ * switch statements throughout this file. Realms inconsistently capitalise the
+ * first character — `SiteAsset` vs `siteAsset`, `TowerAsset` vs `towerAsset` —
+ * so we upper-case the first letter and leave the rest of the string alone
+ * (which preserves the inner PascalCase of multi-word types like
+ * `DoorLockAsset` and `HumanPresenceSensorAsset`).
+ */
+export function normalizeAssetType(t) {
+  if (typeof t !== 'string' || !t) return t;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
  * Dedicated OpenRemote attribute the portal uses as a friendly display name.
  * Unlike `notes` (the previous home), `customDisplayName` is purpose-built and
  * never collides with backend integrations that pack structured data into
@@ -114,7 +127,7 @@ export function isDeviceAsset(asset) {
  * Supports active/on/alarm variants for icons that have them.
  */
 export function getAssetIcon(customType, { on = false, alarm = false } = {}) {
-  switch (customType) {
+  switch (normalizeAssetType(customType)) {
     case 'AlarmAsset':              return alarm ? Siren : Siren;
     case 'CameraAsset':             return Video;
     case 'DoorLockAsset':           return on ? Lock : LockOpen; // on = locked (secured)
@@ -133,7 +146,7 @@ export function getAssetIcon(customType, { on = false, alarm = false } = {}) {
     case 'SolarAsset':              return SunMedium;
     case 'BuzzerAsset':             return Volume2;
     case 'TowerAsset':              return RadioTower;
-    case 'CityAsset':               return Building;
+    case 'SiteAsset':               return Building;
     case 'GatewayAsset':            return Server;
     default:                        return Cpu;
   }
@@ -157,7 +170,7 @@ export function getAssetTypeLabel(customType) {
  * Keep aligned with Tailwind color tokens.
  */
 export function getAssetAccent(customType) {
-  switch (customType) {
+  switch (normalizeAssetType(customType)) {
     case 'AlarmAsset':
     case 'SOSAsset':
     case 'SmokeSensorAsset':       return 'red';
@@ -176,7 +189,7 @@ export function getAssetAccent(customType) {
     case 'SolarAsset':             return 'yellow';
     case 'BuzzerAsset':            return 'red';
     case 'TowerAsset':             return 'cyan';
-    case 'CityAsset':              return 'slate';
+    case 'SiteAsset':              return 'slate';
     case 'GatewayAsset':           return 'cyan';
     default:                       return 'slate';
   }
@@ -194,7 +207,7 @@ const boolish = (v) => TRUTHY.has(v);
  */
 export function isAssetActive(asset, customType) {
   const a = asset?.attributes || {};
-  const t = customType || getCustomAssetType(asset);
+  const t = normalizeAssetType(customType || getCustomAssetType(asset));
 
   // 1. Per-type attribute override (e.g. FanAsset → `Fan`).
   const override = PRIMARY_ATTR_OVERRIDE[t];
@@ -247,8 +260,9 @@ export function isAssetActive(asset, customType) {
 export function isAssetAlarming(asset, customType) {
   const a = asset?.attributes || {};
   const boolish = (v) => v === true || v === 'true' || v === 'ON' || v === 'on' || v === 1;
+  const t = normalizeAssetType(customType);
 
-  if (['AlarmAsset', 'SOSAsset', 'SmokeSensorAsset'].includes(customType)) {
+  if (['AlarmAsset', 'SOSAsset', 'SmokeSensorAsset'].includes(t)) {
     const attrs = [a.triggered, a.alarm, a.smokeDetected, a.onOff, a.on, a.active];
     return attrs.some((x) => x && boolish(x.value));
   }
@@ -266,9 +280,10 @@ export function isAssetAlarming(asset, customType) {
  */
 export function getPrimaryControlAttr(asset, customType) {
   const a = asset?.attributes || {};
+  const t = normalizeAssetType(customType);
 
   // 1. Per-type override (e.g. FanAsset → "Fan").
-  const override = PRIMARY_ATTR_OVERRIDE[customType];
+  const override = PRIMARY_ATTR_OVERRIDE[t];
   if (override) return override;
 
   // 2. Universal primary — `onOff`.
@@ -280,7 +295,7 @@ export function getPrimaryControlAttr(asset, customType) {
     AlarmAsset:    ['armed', 'enabled', 'on'],
     LightAsset:    ['on', 'power', 'enabled'],
     PlugAsset:     ['on', 'power', 'enabled'],
-  }[customType] || [];
+  }[t] || [];
   for (const n of fallback) if (n in a) return n;
 
   return 'onOff';
@@ -304,7 +319,7 @@ export function nextToggleValue(asset, attrName) {
 export function getPrimaryReadingAttr(asset, customType) {
   const a = asset?.attributes || {};
   const firstOf = (...names) => names.find((n) => n in a);
-  switch (customType) {
+  switch (normalizeAssetType(customType)) {
     case 'HeatSensorAsset':         return firstOf('temperature', 'value', 'reading');
     case 'PlugAsset':               return firstOf('power', 'energy', 'wattage');
     case 'LightAsset':              return firstOf('brightness', 'dimLevel', 'level');
@@ -333,13 +348,14 @@ export function getPrimaryReadingAttr(asset, customType) {
  */
 export function getStateLabel(asset, customType) {
   const a = asset?.attributes || {};
-  const alarm = isAssetAlarming(asset, customType);
+  const t = normalizeAssetType(customType);
+  const alarm = isAssetAlarming(asset, t);
   if (alarm) return 'Triggered';
 
-  const readingName = getPrimaryReadingAttr(asset, customType);
+  const readingName = getPrimaryReadingAttr(asset, t);
   const reading = readingName ? a[readingName]?.value : undefined;
 
-  switch (customType) {
+  switch (t) {
     case 'HeatSensorAsset':
       return reading != null ? `${Number(reading).toFixed(1)}°C` : '—';
     case 'PlugAsset':

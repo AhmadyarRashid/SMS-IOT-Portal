@@ -1,33 +1,35 @@
 import { create } from 'zustand';
 
-const KEY_CITY = 'sms_secureops_city';
+const KEY_SITE = 'sms_secureops_site';
 const KEY_TOWER = 'sms_secureops_tower';
 
-const savedCity = (typeof localStorage !== 'undefined' && localStorage.getItem(KEY_CITY)) || null;
+const savedSite = (typeof localStorage !== 'undefined' && localStorage.getItem(KEY_SITE)) || null;
 const savedTower = (typeof localStorage !== 'undefined' && localStorage.getItem(KEY_TOWER)) || null;
 
 /**
  * Cross-tab selection for the SecureOps dashboard.
- *   selectedCityId  — null means "All Sites" (the dropdown's first option).
+ *   selectedSiteId  — null means "All Sites" (the dropdown's first option).
+ *                     A "site" here is a top-level `SiteAsset` container.
  *   selectedTowerId — the tower whose live cameras / remote control / telemetry
  *                     is currently active. Null = auto-pick first tower of the
- *                     selected city.
+ *                     selected site.
  *
  * Persisted in localStorage so the user lands on the same scope after refresh.
  */
 const useSecureOpsStore = create((set) => ({
-  selectedCityId: savedCity,
+  selectedSiteId: savedSite,
   selectedTowerId: savedTower,
 
-  setCity: (id) => {
+  setSite: (id) => {
     if (typeof localStorage !== 'undefined') {
-      if (id) localStorage.setItem(KEY_CITY, id);
-      else localStorage.removeItem(KEY_CITY);
+      if (id) localStorage.setItem(KEY_SITE, id);
+      else localStorage.removeItem(KEY_SITE);
       // Clear the tower so the next render auto-picks the first tower in the
-      // new city. Otherwise we'd point at a tower that no longer exists in scope.
+      // new site. Otherwise we'd point at a tower that no longer exists in
+      // scope.
       localStorage.removeItem(KEY_TOWER);
     }
-    set({ selectedCityId: id, selectedTowerId: null });
+    set({ selectedSiteId: id, selectedTowerId: null });
   },
 
   setTower: (id) => {

@@ -6,8 +6,8 @@ import {
   ChevronDown, Check, Thermometer, Droplets, ShieldCheck,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
-import { pickCities, pickTowersForCity } from '../../utils/gateways';
-import { getAssetDisplayName, getCustomAssetType } from '../../utils/assetIcons';
+import { pickSites, pickTowersForSite } from '../../utils/gateways';
+import { getAssetDisplayName, getCustomAssetType, normalizeAssetType } from '../../utils/assetIcons';
 import useSecureOpsStore from '../../store/secureOpsStore';
 
 const TABS = [
@@ -35,16 +35,16 @@ const TABS = [
  */
 export default function SecureOpsHeader() {
   const { data: assets = [] } = useAssets({});
-  const { selectedCityId, selectedTowerId, setCity } = useSecureOpsStore();
+  const { selectedSiteId, selectedTowerId, setSite } = useSecureOpsStore();
 
-  const cities = useMemo(() => pickCities(assets), [assets]);
+  const sites = useMemo(() => pickSites(assets), [assets]);
 
-  // "Scope towers" = all towers in the selected city, or every tower across
-  // all cities when no city is picked.
+  // "Scope towers" = all towers in the selected site, or every tower across
+  // all sites when no site is picked.
   const scopeTowers = useMemo(() => {
-    if (selectedCityId) return pickTowersForCity(assets, selectedCityId);
-    return cities.flatMap((c) => pickTowersForCity(assets, c.id));
-  }, [assets, cities, selectedCityId]);
+    if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
+    return sites.flatMap((s) => pickTowersForSite(assets, s.id));
+  }, [assets, sites, selectedSiteId]);
 
   // Active tower — used to fetch the env telemetry chips.
   const activeTower = useMemo(() => {
@@ -87,11 +87,11 @@ export default function SecureOpsHeader() {
 
         <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
           <LivePill />
-          <CityDropdown
-            cities={cities}
-            selectedCityId={selectedCityId}
-            onSelect={setCity}
-            allCount={cities.length || pickAllTowerCount(assets)}
+          <SiteDropdown
+            sites={sites}
+            selectedSiteId={selectedSiteId}
+            onSelect={setSite}
+            allCount={sites.length || pickAllTowerCount(assets)}
           />
         </div>
       </div>
@@ -157,7 +157,7 @@ function LivePill() {
   );
 }
 
-function CityDropdown({ cities, selectedCityId, onSelect, allCount }) {
+function SiteDropdown({ sites, selectedSiteId, onSelect, allCount }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -168,7 +168,7 @@ function CityDropdown({ cities, selectedCityId, onSelect, allCount }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  const selected = cities.find((c) => c.id === selectedCityId);
+  const selected = sites.find((s) => s.id === selectedSiteId);
   const label = selected ? getAssetDisplayName(selected) : `All Sites (${allCount})`;
 
   return (
@@ -195,22 +195,22 @@ function CityDropdown({ cities, selectedCityId, onSelect, allCount }) {
             className="absolute right-0 top-full mt-1 z-40 min-w-[220px] panel"
             style={{ padding: 6 }}
           >
-            <CityOption
+            <SiteOption
               label={`All Sites (${allCount})`}
-              active={!selectedCityId}
+              active={!selectedSiteId}
               onClick={() => { onSelect(null); setOpen(false); }}
             />
-            {cities.length === 0 && (
+            {sites.length === 0 && (
               <p className="px-3 py-2 text-[11px] text-[var(--color-ink-3)]">
-                No CityAssets configured. Showing every tower as "All Sites".
+                No SiteAssets configured. Showing every tower as "All Sites".
               </p>
             )}
-            {cities.map((c) => (
-              <CityOption
-                key={c.id}
-                label={getAssetDisplayName(c)}
-                active={selectedCityId === c.id}
-                onClick={() => { onSelect(c.id); setOpen(false); }}
+            {sites.map((s) => (
+              <SiteOption
+                key={s.id}
+                label={getAssetDisplayName(s)}
+                active={selectedSiteId === s.id}
+                onClick={() => { onSelect(s.id); setOpen(false); }}
               />
             ))}
           </motion.div>
@@ -220,7 +220,7 @@ function CityDropdown({ cities, selectedCityId, onSelect, allCount }) {
   );
 }
 
-function CityOption({ label, active, onClick }) {
+function SiteOption({ label, active, onClick }) {
   return (
     <button
       onClick={onClick}
@@ -249,8 +249,8 @@ function readNumber(v) {
 function pickAllTowerCount(assets) {
   let n = 0;
   for (const a of assets || []) {
-    const ct = getCustomAssetType(a);
-    if (a.type === 'GatewayAsset' || ct === 'TowerAsset') n += 1;
+    if (a.type === 'GatewayAsset') { n += 1; continue; }
+    if (normalizeAssetType(getCustomAssetType(a)) === 'TowerAsset') n += 1;
   }
   return n;
 }

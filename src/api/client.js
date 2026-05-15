@@ -19,22 +19,50 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Single in-flight refresh promise. Concurrent 401s share this — without
+ * dedup, every parallel request (useAssets + useAlarms polling at 15s) hits
+ * `/token` with the same refresh token; Keycloak rotates on the first success
+ * and rejects the rest, which then log the user out. With dedup the refresh
+ * runs exactly once per token expiry and every queued request retries with
+ * the same new access token.
+ */
+let refreshInFlight = null;
+
+function startRefresh(refreshToken) {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken(refreshToken)
+      .then((response) => {
+        localStorage.setItem('or_access_token', response.access_token);
+        if (response.refresh_token) {
+          localStorage.setItem('or_refresh_token', response.refresh_token);
+        }
+        return response.access_token;
+      })
+      .finally(() => {
+        // Clear the cached promise whether it succeeded or failed so the
+        // next expiry can trigger a fresh refresh attempt.
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const status = error.response?.status;
+    const config = error.config || {};
 
-    if (status === 401) {
+    if (status === 401 && !config._retry) {
+      // Mark the request so a second 401 on the retry doesn't recurse.
+      config._retry = true;
       const refreshToken = localStorage.getItem('or_refresh_token');
       if (refreshToken) {
         try {
-          const response = await refreshAccessToken(refreshToken);
-          localStorage.setItem('or_access_token', response.access_token);
-          if (response.refresh_token) {
-            localStorage.setItem('or_refresh_token', response.refresh_token);
-          }
-          error.config.headers.Authorization = `Bearer ${response.access_token}`;
-          return apiClient(error.config);
+          const newAccessToken = await startRefresh(refreshToken);
+          config.headers = { ...(config.headers || {}), Authorization: `Bearer ${newAccessToken}` };
+          return apiClient(config);
         } catch {
           localStorage.removeItem('or_access_token');
           localStorage.removeItem('or_refresh_token');

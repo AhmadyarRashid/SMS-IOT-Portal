@@ -291,6 +291,14 @@
 
 /* ---------- Alerts list ---------- */
 
+.so-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 440px;
+  overflow-y: auto;
+  padding-right: 4px; /* room for the scrollbar without crowding rows */
+}
 .so-alert-row {
   display: flex;
   align-items: flex-start;
@@ -299,7 +307,6 @@
   border-left: 3px solid var(--rail, var(--color-accent-500));
   background: color-mix(in srgb, var(--color-ink-0) 3%, transparent);
   border-radius: 10px;
-  margin-bottom: 8px;
 }
 .so-alert-title {
   font-size: 13px;
@@ -319,6 +326,27 @@
   padding: 2px 8px;
   border-radius: 999px;
   white-space: nowrap;
+  align-self: flex-start;
+}
+
+/* Site › Tower › Camera breadcrumb inside an alert row */
+.so-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--color-ink-1);
+  border-bottom: 1px dashed transparent;
+  transition: color .12s ease, border-color .12s ease;
+}
+.so-crumb:hover {
+  color: var(--color-accent-300);
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+}
+.so-crumb-sep {
+  color: var(--color-ink-3);
+  font-weight: 600;
+  user-select: none;
 }
 
 /* ---------- Env telemetry rows ---------- */
