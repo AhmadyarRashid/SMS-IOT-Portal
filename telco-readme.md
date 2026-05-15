@@ -191,24 +191,34 @@ placeholder data). Click → shared `ClipModal` plays the URL via the same
 `CameraStream` renderer used everywhere else (`<video>` / `<img>` /
 `<iframe>` auto-detected from URL extension).
 
+**The URL is never displayed as text.** `getAlarmContentText(alarm)` in
+`src/utils/alarms.js` strips every `http(s)://...` match out of
+`alarm.content` / `alarm.description` (and tidies the leftover punctuation)
+before the dashboard renders the description. The clip icon is the only
+surface that exposes the URL. So `"Person at gate — https://.../cam02.mp4"`
+shows as `"Person at gate"` + a 🎬 button.
+
 ### 5.1c. Breadcrumb click behaviour
 
-Site › Tower › Camera breadcrumbs in alert and audit rows are
-**buttons that trigger in-app actions** — they don't navigate to a
-different route:
+Site › Tower › Camera breadcrumbs are rendered differently depending on
+where they appear:
 
-- **Site click** → `secureOpsStore.setSite(id)` → the global site filter
-  updates, every panel re-scopes (including the current page's filtered
-  list, header dropdown, etc.).
-- **Tower click** → `secureOpsStore.setTower(id)` → Overview's Live
-  Camera Feeds, Remote Control, and Environmental Telemetry move to
-  that tower; Control page Cameras panel follows.
-- **Camera click** → opens the shared `CameraFullView` modal in place
-  (same modal as the Overview Live Camera Feeds and Video wall use).
+- **Overview Recent Alerts + Alerts page** — **display-only**. Crumbs
+  use `<span class="so-crumb so-crumb-static">` — same look, no hover
+  effect, no cursor, no action. The only interactive element on alert
+  rows is the 🎬 Clip icon (and Ack / Resolve).
+- **Audit Log page** — **interactive buttons that trigger in-app store
+  actions** (no route change):
+  - Site click → `secureOpsStore.setSite(id)` → global filter updates,
+    every panel re-scopes.
+  - Tower click → `secureOpsStore.setTower(id)` → Overview's Live Camera
+    Feeds, Remote Control, and Environmental Telemetry follow.
+  - Camera click → opens the shared `CameraFullView` modal in place.
 
-This keeps the operator in-context — clicking the breadcrumb of an
-alarm filters the dashboard to that scope without losing the alert/
-audit list.
+The split is deliberate: the operator's job on alert cards is to **act**
+(Ack / Resolve / view clip). On the audit log it's to **investigate**,
+where pivoting the dashboard scope is useful. Keeping alert-row crumbs
+inert prevents accidental scope changes during a triage flurry.
 
 ### 5.2a. CameraAsset.history — JSON contract
 
@@ -431,7 +441,7 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 | Card | Derivation |
 |---|---|
 | **Sites online** | `online/total` of **SiteAssets across the entire realm** (not scoped by the global site dropdown — it's a realm-wide health indicator). A site is *online* unless (a) the SiteAsset itself has `connected === false`, OR (b) it has one or more towers and every one of them is offline. A tower is *online* unless its `connected` attribute is explicitly `false` (undefined attr ⇒ online, to avoid phantom-offline on freshly-added assets). Subline names the first offline site + a `+more` indicator if multiple are down. When the realm has no SiteAssets, a synthetic "Towers" entry derived from every gateway/towerAsset is shown so the card still renders. |
-| **Active alerts** | `useAlarms({status:'OPEN'})` count + `"N critical, M warning"`. |
+| **Active alerts** | `useAlarms({status:'OPEN'})` count + `"N critical, M warning"`. **Clickable** — the card is a `<Link to="/alarms">`, takes the operator straight to the Alerts tab. `KpiCard` accepts an optional `to` prop; pass it to make any other KPI navigable too (hover state via `a.so-kpi.so-kpi-clickable`). |
 | **Detections today** | Count of alarms whose `createdOn` falls in today (vs yesterday for the delta). Every detection — human, animal, ANPR, anything else the AI side reports — raises an alarm via the backend rule, so the alarm history is the canonical persistent count. Status transitions (Ack / Resolve) are not deletions, so the daily total stays stable across operator actions. |
 | **AI uptime** | Average of `TowerAsset.aiUptime30d` across scope, or 100% if any tower reports a recent `aiHeartbeatAt`. Drops to `—` when neither exists (no-placeholder rule). |
 
@@ -494,9 +504,12 @@ patches instantly, rolls back + toast on error, 15 s poll reconciles).
   `max-height: 440px` scrollable container.
 - Severity colors: **CRITICAL/HIGH = red, MEDIUM = yellow, LOW = grey**.
   Header severity chips count `High N · Med N · Low N`.
-- Each row renders **Site › Tower › Camera** breadcrumb with click-through
-  links (`/sites`, `/store/:towerId`, `/a/:assetId`). Segments omit
-  gracefully when the data isn't there.
+- Each row renders **Site › Tower › Camera** breadcrumb as
+  display-only `.so-crumb.so-crumb-static` chips (no click — see §5.1c).
+  Segments omit gracefully when the data isn't there.
+- 🎬 **Clip** icon button appears next to Ack / Resolve when the alarm
+  carries a clip URL (resolved via `getAlarmClipUrl` — see §5.1b).
+  Click → opens the shared `ClipModal`.
 - Time row: `09:42 · 4 min ago` (HH:mm + `formatDistanceToNowStrict`).
 - **Ack** (cyan) and **Resolve** (green) buttons on every actionable row.
   Status-aware visibility:
@@ -582,11 +595,18 @@ filtered list (not just the visible page).
 removed per user request 2026-05-16 — still in CSV export.)
 
 - **When** — `HH:mm:ss` / `dd MMM yyyy` / relative ago.
-- **Event** — icon + title + optional detail.
-- **Location** — Site › Tower › Device breadcrumb with deep links.
+- **Event** — icon + title + **🎬 Clip icon button (when the alarm
+  carries a URL)** + optional detail line. The clip button sits right
+  next to the title so it's discoverable without scanning to the end of
+  the row. Click → opens the shared `ClipModal`.
+- **Location** — Site › Tower › Device breadcrumb. **Crumbs are
+  interactive here** (see §5.1c) — Site/Tower set the global filter;
+  Camera opens the full-view modal in place. Non-camera assets are
+  display-only.
 - **Severity** — pill in the matching colour (or `—` for tower-log rows).
 - **Status** — pill in the matching colour (or `—` for tower-log rows).
-- **Tag** — `Alert` (red) / `Command` (cyan) / `Info` (yellow).
+- **Tag** — `Alert` (red) / `Command` (cyan) / `Info` (yellow). No clip
+  button here anymore — it moved to the Event column 2026-05-16.
 
 ### 9.5. CSV export
 
