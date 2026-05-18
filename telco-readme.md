@@ -153,7 +153,7 @@ Every surface that renders a live camera tile (Overview's Live Camera
 Feeds, Control's Cameras panel) opens a shared **full-view modal** on
 click instead of navigating to `/a/:cameraId`. The modal lives in
 `src/components/cameras/CameraFullView.jsx` and reuses the same
-`CameraStream` URL-detection logic (`<video>` / `<img>` / `<iframe>`).
+`CameraStream` URL-detection logic (see §5.1d for the full routing table).
 Closes on Esc or backdrop click. **No "Detail" / asset-page affordance**
 inside the modal — the tile is monitoring-only; reach the asset detail
 page via the audit log or alarm row breadcrumbs when you need Controls /
@@ -161,11 +161,38 @@ History / Alarms tabs. Owners of the modal state are the parent
 **panel** components (`LiveCameraFeedsPanel`, `CamerasPanel`) —
 individual tiles are buttons that call `onOpen(camera)`.
 
+### 5.1d. CameraStream URL routing
+
+`src/components/cameras/CameraStream.jsx` is the single renderer used by
+every live tile, the full-view modal, the Video wall, and `ClipModal`. It
+picks an HTML element from the URL alone:
+
+| URL shape | Element | Why |
+|---|---|---|
+| `.jpg` / `.jpeg` / `.png` / `.webp` / `.gif` | `<img>` | Snapshot or single-frame |
+| **Extensionless path** — e.g. `https://.../api/cam238` | `<img>` | Backend MJPEG endpoint (`multipart/x-mixed-replace`). Browsers render MJPEG natively inside `<img>`; `<video>` can't decode it and would show a blank box. `<img>` also passes clicks through to the wrapping tile so the full-view modal still opens. |
+| `.mp4` / `.webm` / `.ogg` / `.m3u8` / `.mov` | `<video>` | Standard HTML5 video containers (autoplay, muted, playsinline, loop). |
+| Any other URL (e.g. `viewer.html`, `index.php`) | `<iframe>` | Vendor web UI / RTSP-to-HLS proxy page. Iframes capture clicks, so this branch is intentionally last-resort. |
+
+**Why the extensionless rule matters.** Telco cameras are often proxied via
+Cloudflare tunnels (`https://<random>.trycloudflare.com/api/cam238`). These
+endpoints serve MJPEG but expose no extension, so a naive extension switch
+would either (a) fall through to `<iframe>` and break tile-click → modal
+open, or (b) try `<video>` and render a blank box because the browser
+can't decode MJPEG as a video container. The path-segment heuristic
+(`new URL(url).pathname` → last segment → no `.` ⇒ `<img>`) handles both
+problems.
+
+If a future deployment serves HLS or progressive MP4 from an extensionless
+URL, we'll need an explicit hint (e.g. a `streamFormat` attribute) — the
+URL alone won't tell us. For now, MJPEG is the assumed default for
+extensionless paths.
+
 ### 5.2. CameraAsset attributes
 
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
-| `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Played by `<video>` if `.mp4`/`.webm`/`.ogg`/`.m3u8`/`.mov`, `<img>` if `.jpg`/`.png`/`.webp`/`.gif`, otherwise `<iframe>` (vendor web UI). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
+| `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Rendered by `CameraStream` (see §5.1d for the full URL routing rules). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
 | `history` | array | optional | Array of detection clips — see §5.2a below for the JSON contract. Drives the ALERT pill on the Overview's Live Camera tile, the Video tab's detection-type filter chips, and the clip playback list inside the camera modal. Does **not** drive the "Detections today" KPI or the env card's 8-hour bar chart — those count alarms (see §8.1, §8.6). |
 | `cameraVariant` | string | optional | `fixed` or `360`. Used to pick the PTT-capable camera under each tower. |
 | `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
@@ -188,8 +215,8 @@ recorded clip. The dashboard resolves the URL via
 
 When neither is available the View clip button hides itself (no
 placeholder data). Click → shared `ClipModal` plays the URL via the same
-`CameraStream` renderer used everywhere else (`<video>` / `<img>` /
-`<iframe>` auto-detected from URL extension).
+`CameraStream` renderer (see §5.1d for the full URL routing table — same
+rules apply to clips, including extensionless MJPEG endpoints).
 
 **The URL is never displayed as text.** `getAlarmContentText(alarm)` in
 `src/utils/alarms.js` strips every `http(s)://...` match out of
@@ -242,7 +269,7 @@ event. The dashboard consumes it read-only.
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `id` | string | yes | Stable identifier — the modal uses it as the React `key` and to compare against `activeClip.id` when highlighting the row currently playing. If the AI side doesn't have a natural id, `${cameraId}-${date.getTime()}` works fine. |
-| `url` | string | yes | Anything `CameraStream` can play — `.mp4` / `.webm` / `.ogg` / `.m3u8` / `.mov` → `<video>`, `.jpg` / `.png` / `.webp` / `.gif` → `<img>`, anything else → `<iframe>`. |
+| `url` | string | yes | Anything `CameraStream` can play — see §5.1d for the routing table. `.mp4` / `.webm` / `.m3u8` etc. → `<video>`; `.jpg` / `.png` etc. and extensionless MJPEG paths (e.g. `/api/cam238`) → `<img>`; other URLs → `<iframe>`. |
 | `date` | ISO string OR number | yes | Parsed via `new Date(value).getTime()`. Both `"2026-05-16T09:42:01Z"` and `1779111721000` work. Entries without a parseable date are silently dropped. |
 | `detection` | enum string | recommended | Case-insensitive. Anything other than `"human"` / `"animal"` falls into the `Other` bucket — including `null`, `undefined`, and unknown labels like `"vehicle"` (until/unless we add chips for those). |
 
