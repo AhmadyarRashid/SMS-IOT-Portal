@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   Video as VideoIcon, Search, X, Filter, RotateCcw,
-  RadioTower, ShieldAlert, History, Play,
+  RadioTower, ShieldAlert, History, Play, RefreshCw, Loader2,
 } from 'lucide-react';
 import { useAssets } from '../hooks/useAssets';
+import { useCameraEvents } from '../hooks/useCameraEvents';
 import {
   pickSites, pickTowersForSite, pickGatewayChildren, getCameraStreamUrl,
 } from '../utils/gateways';
@@ -14,6 +15,9 @@ import {
 import CameraStream from '../components/cameras/CameraStream';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
+import {
+  getEventClipUrl, getEventSnapshotUrl, normalizeEventLabel,
+} from '../constants/events';
 import './secureops.css';
 
 /* ==========================================================================
@@ -44,6 +48,21 @@ const DETECTION_TYPES = [
 ];
 
 const RECENT_ALERT_WINDOW_MS = 5 * 60 * 1000;     // 5 min for the on-tile ALERT pill
+
+// Time windows for the modal's history fetch. Smaller windows are the
+// default — the OR datapoints endpoint has no cursor, so "pagination" here
+// means "fetch a narrower window first, widen on demand". The operator
+// re-runs the query (and pays the bandwidth) only when they ask for more.
+const TIME_WINDOWS = [
+  { id: '24h', label: '24h', ms: 24 * 60 * 60 * 1000 },
+  { id: '7d',  label: '7d',  ms: 7 * 24 * 60 * 60 * 1000 },
+  { id: '30d', label: '30d', ms: 30 * 24 * 60 * 60 * 1000 },
+];
+
+// Client-side page size for the sidebar list. Inside the already-fetched
+// window we reveal events in chunks so a busy camera doesn't render
+// hundreds of rows on first paint.
+const PAGE_SIZE = 20;
 
 export default function SecureOpsVideoPage() {
   const { data: assets = [], isLoading } = useAssets({});
@@ -279,40 +298,149 @@ function CameraHistoryModal({ camera, tower, onClose }) {
 
   const liveUrl = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
-  const rawHistory = camera.attributes?.history?.value;
-  const history = useMemo(() => {
-    if (!Array.isArray(rawHistory)) return [];
-    return rawHistory
-      .map((h, i) => ({
-        id: h?.id || `${i}-${h?.date || ''}`,
-        url: h?.url,
-        ts: parseDate(h?.date),
-        detection: (h?.detection || 'other').toLowerCase(),
-      }))
-      .filter((h) => h.ts && h.url)
-      .sort((a, b) => b.ts - a.ts);
-  }, [rawHistory]);
+
+  // Time-window selector + anchor. Anchor is "now at modal open" by
+  // default; the refresh button bumps it. Putting `now` in state (not
+  // computing it inline at render-time) keeps the React Query key stable
+  // so the 60s poll doesn't refetch on every render.
+  const [windowId, setWindowId] = useState('24h');
+  const [anchor, setAnchor] = useState(() => new Date().getTime());
+  const range = useMemo(() => {
+    const w = TIME_WINDOWS.find((x) => x.id === windowId) || TIME_WINDOWS[0];
+    return { from: anchor - w.ms, to: anchor };
+  }, [anchor, windowId]);
+
+  const {
+    data: rawPoints, isLoading, isFetching, isError, refetch,
+  } = useCameraEvents(camera.id, range);
 
   // Local filter chips inside the modal — independent from the page-level
   // filter so the operator can drill in deeper without losing the wall scope.
   const [drawerDetection, setDrawerDetection] = useState(new Set());
-  const visibleHistory = useMemo(() => {
+
+  // Client-side pagination within the fetched window. Reset whenever the
+  // underlying filter/window changes so the operator always sees the most
+  // recent N events first. We use the "reset state when a value changes"
+  // pattern (React's recommended replacement for a setState-in-useEffect)
+  // — `filterSignature` collapses every reset trigger into one string.
+  const filterSignature = `${windowId}|${[...drawerDetection].sort().join(',')}|${rawPoints?.length ?? 0}`;
+  const [resetSignature, setResetSignature] = useState(filterSignature);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  if (resetSignature !== filterSignature) {
+    setResetSignature(filterSignature);
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  // Normalise OR datapoints into the existing clip shape the sidebar
+  // already knows how to render. The OR datapoints endpoint can ship
+  // points in several shapes depending on server version:
+  //   • `{ x: ts, y: value }`           — most common
+  //   • `[ ts, value ]`                 — older versions / chart-style
+  // And the value itself can arrive as any of:
+  //   • `[{ id, label }]`               — list of single object (what the
+  //                                       user sees in the OR datapoints
+  //                                       table for the Event id attribute)
+  //   • `{ id, label }`                 — already unwrapped
+  //   • `'{"id":"…","label":"…"}'`      — JSON-encoded string (OR will
+  //                                       stringify complex types for some
+  //                                       attribute kinds)
+  //   • `'1779269865.828876-zcx508'`    — bare event id string
+  const history = useMemo(() => {
+    if (!Array.isArray(rawPoints)) return [];
+    return rawPoints
+      .map((pt, i) => {
+        let ts, rawValue;
+        if (Array.isArray(pt)) {
+          [ts, rawValue] = pt;
+        } else {
+          ts = pt?.x ?? pt?.timestamp;
+          rawValue = pt?.y ?? pt?.value;
+        }
+        const tsNum = typeof ts === 'number' ? ts : new Date(ts).getTime();
+        if (!Number.isFinite(tsNum)) return null;
+
+        const entry = unwrapEventValue(rawValue);
+        const eventId = entry?.id;
+        if (!eventId) return null;
+
+        return {
+          // Stable React key — fall back to the datapoint index when the
+          // backend somehow ships two events with the same id in the window.
+          id: `${eventId}-${i}`,
+          eventId,
+          ts: tsNum,
+          detection: normalizeEventLabel(entry?.label),
+          rawLabel: entry?.label,
+          url: getEventClipUrl(eventId),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.ts - a.ts);
+  }, [rawPoints]);
+
+  const filteredHistory = useMemo(() => {
     if (drawerDetection.size === 0) return history;
     return history.filter((h) => drawerDetection.has(h.detection));
   }, [history, drawerDetection]);
 
-  // Player state — null = play live, otherwise play this clip's URL.
+  const visibleHistory = filteredHistory.slice(0, visibleCount);
+  const hasMore = filteredHistory.length > visibleCount;
+
+  // Player state — three modes:
+  //   • `activeClip == null`              → live stream
+  //   • `activeClip && !isPlaying`        → snapshot.jpg preview + center play button
+  //   • `activeClip && isPlaying`         → clip.mp4 playing
+  //
+  // The snapshot-first preview means a sidebar click is a low-cost peek
+  // (no video bytes loaded), and the operator opts into the full clip
+  // playback explicitly. Useful on slow links + when scanning many events.
   const [activeClip, setActiveClip] = useState(null);
-  const playerUrl = activeClip ? activeClip.url : liveUrl;
-  // Force the <video> to re-mount whenever the URL changes so the source
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  let playerUrl;
+  if (!activeClip) playerUrl = liveUrl;
+  else if (isPlaying) playerUrl = activeClip.url;
+  else playerUrl = getEventSnapshotUrl(activeClip.eventId);
+  // Force the player to re-mount whenever the URL changes so the source
   // reloads cleanly (otherwise React reuses the same element with old src).
   const playerKey = playerUrl || 'empty';
+  const showPlayOverlay = !!activeClip && !isPlaying;
+
+  // Reset playback whenever the user picks a different clip — every new
+  // selection starts on the snapshot preview, not mid-playback of the
+  // previous clip.
+  const handleSelectClip = (clip) => {
+    setActiveClip(clip);
+    setIsPlaying(false);
+  };
+  const handleBackToLive = () => {
+    setActiveClip(null);
+    setIsPlaying(false);
+  };
 
   const detectionCounts = useMemo(() => {
     const out = { human: 0, animal: 0, other: 0 };
     for (const h of history) if (h.detection in out) out[h.detection] += 1;
     return out;
   }, [history]);
+
+  const handleRefresh = () => {
+    setAnchor(new Date().getTime());
+    refetch();
+  };
+
+  const handleWindowChange = (id) => {
+    setWindowId(id);
+    // Re-anchor so the new window ends at "right now", not at the moment
+    // the modal opened — operators expect "Last 7d" to mean "right now
+    // minus 7d", not "from when I opened the modal".
+    setAnchor(new Date().getTime());
+    // If the currently-playing clip falls outside the new window the
+    // sidebar would briefly highlight nothing — clear active selection
+    // so the player snaps back to live.
+    setActiveClip(null);
+    setIsPlaying(false);
+  };
 
   return (
     <div
@@ -333,7 +461,7 @@ function CameraHistoryModal({ camera, tower, onClose }) {
             <p className="text-[11px] text-[var(--color-ink-2)] flex items-center gap-1">
               <RadioTower className="w-3 h-3" />
               {getAssetDisplayName(tower)}
-              {activeClip && <> · <strong className="text-[var(--color-accent-300)]">playing clip · {format(activeClip.ts, 'HH:mm dd MMM')}</strong></>}
+              {activeClip && <> · <strong className="text-[var(--color-accent-300)]">{isPlaying ? 'playing clip' : 'clip preview'} · {format(activeClip.ts, 'HH:mm dd MMM')}</strong></>}
             </p>
           </div>
           <button
@@ -351,17 +479,42 @@ function CameraHistoryModal({ camera, tower, onClose }) {
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,1.7fr)_minmax(280px,1fr)] gap-3">
           {/* Player */}
           <div className="flex flex-col min-h-0 min-w-0">
-            <div className="so-cam-full flex-1">
+            <div className="so-cam-full flex-1 relative">
               <CameraStream key={playerKey} url={playerUrl} offline={!activeClip && offline} />
+              {showPlayOverlay && (
+                <button
+                  type="button"
+                  onClick={() => setIsPlaying(true)}
+                  className="so-play-overlay"
+                  title="Play clip"
+                  aria-label="Play clip"
+                >
+                  <span className="so-play-overlay-disc">
+                    <Play className="w-7 h-7 ml-1" strokeWidth={2} fill="currentColor" />
+                  </span>
+                </button>
+              )}
             </div>
             {activeClip && (
-              <button
-                type="button"
-                onClick={() => setActiveClip(null)}
-                className="audit-btn mt-2 self-start"
-              >
-                ← Back to live
-              </button>
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={handleBackToLive}
+                  className="audit-btn"
+                >
+                  ← Back to live
+                </button>
+                {isPlaying && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPlaying(false)}
+                    className="audit-btn"
+                    title="Show snapshot preview again"
+                  >
+                    Show snapshot
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -372,11 +525,48 @@ function CameraHistoryModal({ camera, tower, onClose }) {
                 <History className="w-3.5 h-3.5" />
                 History
               </p>
-              <span className="text-[10px] tabular-nums text-[var(--color-ink-2)]">
-                {visibleHistory.length} of {history.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] tabular-nums text-[var(--color-ink-2)]">
+                  {isLoading
+                    ? 'loading…'
+                    : `${visibleHistory.length} of ${filteredHistory.length}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={isFetching}
+                  className="text-[var(--color-ink-3)] hover:text-[var(--color-ink-0)] disabled:opacity-40"
+                  title="Refresh history"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`}
+                    strokeWidth={2}
+                  />
+                </button>
+              </div>
             </div>
 
+            {/* Time window selector */}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              {TIME_WINDOWS.map((w) => (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => handleWindowChange(w.id)}
+                  data-active={windowId === w.id}
+                  className="audit-chip"
+                  style={windowId === w.id ? {
+                    background: 'color-mix(in srgb, var(--color-accent-400) 18%, transparent)',
+                    borderColor: 'color-mix(in srgb, var(--color-accent-400) 55%, transparent)',
+                    color: 'var(--color-accent-300)',
+                  } : {}}
+                >
+                  Last {w.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Detection chips */}
             <div className="flex items-center gap-1.5 flex-wrap mb-2">
               {DETECTION_TYPES.map((d) => (
                 <ToggleChip
@@ -395,54 +585,76 @@ function CameraHistoryModal({ camera, tower, onClose }) {
               ))}
             </div>
 
-            {visibleHistory.length === 0 ? (
-              <p className="text-[12px] text-[var(--color-ink-2)] py-6 text-center">
+            {isLoading ? (
+              <div className="flex-1 flex items-center justify-center text-[12px] text-[var(--color-ink-2)] gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Loading events…
+              </div>
+            ) : isError ? (
+              <div className="text-[12px] text-[var(--color-ink-2)] py-6 text-center px-3">
+                No history data found for this camera.
+              </div>
+            ) : visibleHistory.length === 0 ? (
+              <div className="text-[12px] text-[var(--color-ink-2)] py-6 text-center px-3">
                 {history.length === 0
-                  ? 'No clips recorded for this camera yet.'
-                  : 'No clips match the selected detection types.'}
-              </p>
+                  ? 'No history data found for this camera.'
+                  : 'No events match the selected detection types.'}
+              </div>
             ) : (
-              <ul className="space-y-1.5 overflow-y-auto pr-1 flex-1">
-                {visibleHistory.map((h) => {
-                  const meta = DETECTION_TYPES.find((d) => d.id === h.detection)
-                    || { label: 'Other', color: 'var(--color-ink-2)' };
-                  const isActive = activeClip?.id === h.id;
-                  return (
-                    <li key={h.id}>
-                      <button
-                        type="button"
-                        onClick={() => setActiveClip(h)}
-                        data-active={isActive}
-                        className="so-clip-row"
-                      >
-                        <div
-                          className="so-clip-bullet"
-                          style={{ background: meta.color, boxShadow: `0 0 6px color-mix(in srgb, ${meta.color} 60%, transparent)` }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[12px] font-semibold text-[var(--color-ink-0)] tabular-nums">
-                            {format(h.ts, 'HH:mm:ss')} · {format(h.ts, 'dd MMM')}
-                          </div>
-                          <div className="text-[10px] text-[var(--color-ink-2)]">
-                            {formatDistanceToNowStrict(h.ts)} ago
-                          </div>
-                        </div>
-                        <span
-                          className="so-clip-pill"
-                          style={{
-                            background: `color-mix(in srgb, ${meta.color} 14%, transparent)`,
-                            color: meta.color,
-                            border: `1px solid color-mix(in srgb, ${meta.color} 40%, transparent)`,
-                          }}
+              <div className="flex-1 min-h-0 flex flex-col">
+                <ul className="space-y-1.5 overflow-y-auto pr-1 flex-1">
+                  {visibleHistory.map((h) => {
+                    const meta = DETECTION_TYPES.find((d) => d.id === h.detection)
+                      || { label: 'Other', color: 'var(--color-ink-2)' };
+                    const isActive = activeClip?.id === h.id;
+                    return (
+                      <li key={h.id}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectClip(h)}
+                          data-active={isActive}
+                          className="so-clip-row"
                         >
-                          {meta.label}
-                        </span>
-                        <Play className="w-3.5 h-3.5 text-[var(--color-ink-3)] flex-shrink-0" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                          <div
+                            className="so-clip-bullet"
+                            style={{ background: meta.color, boxShadow: `0 0 6px color-mix(in srgb, ${meta.color} 60%, transparent)` }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12px] font-semibold text-[var(--color-ink-0)] tabular-nums">
+                              {format(h.ts, 'HH:mm:ss')} · {format(h.ts, 'dd MMM')}
+                            </div>
+                            <div className="text-[10px] text-[var(--color-ink-2)]">
+                              {formatDistanceToNowStrict(h.ts)} ago
+                            </div>
+                          </div>
+                          <span
+                            className="so-clip-pill"
+                            style={{
+                              background: `color-mix(in srgb, ${meta.color} 14%, transparent)`,
+                              color: meta.color,
+                              border: `1px solid color-mix(in srgb, ${meta.color} 40%, transparent)`,
+                            }}
+                          >
+                            {meta.label}
+                          </span>
+                          <Play className="w-3.5 h-3.5 text-[var(--color-ink-3)] flex-shrink-0" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                    className="audit-btn mt-2 self-center"
+                    title={`Show next ${Math.min(PAGE_SIZE, filteredHistory.length - visibleCount)} events`}
+                  >
+                    Load more ({filteredHistory.length - visibleCount} remaining)
+                  </button>
+                )}
+              </div>
             )}
           </aside>
         </div>
@@ -504,4 +716,23 @@ function parseDate(v) {
   if (v == null) return null;
   const n = typeof v === 'number' ? v : new Date(v).getTime();
   return Number.isFinite(n) ? n : null;
+}
+
+// Unwrap a datapoint value into `{ id, label }`. The OR datapoints table
+// for "Event id" shows the value column as a list of single object, but
+// the API can ship it in any of the shapes documented at the call site.
+function unwrapEventValue(raw) {
+  if (raw == null) return null;
+  let v = raw;
+  if (typeof v === 'string') {
+    // Bare event id string — no label, default to 'other'.
+    if (!v.startsWith('{') && !v.startsWith('[')) {
+      return { id: v, label: undefined };
+    }
+    try { v = JSON.parse(v); }
+    catch { return { id: raw, label: undefined }; }
+  }
+  if (Array.isArray(v)) v = v[0];
+  if (!v || typeof v !== 'object') return null;
+  return { id: v.id ?? v.eventId ?? v.event_id, label: v.label ?? v.type ?? v.category };
 }

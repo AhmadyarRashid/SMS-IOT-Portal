@@ -9,7 +9,7 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-16):** Overview, Recent Alerts, and full Audit Log pages built and shipped. Video / Control / Alerts (reskinned) / Settings tabs are routed but stubbed.
+**Status (2026-05-20):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. Video modal history sidebar now reads OR datapoints from the `eventId` attribute (§5.2b) instead of the legacy `history` array attribute; player has a snapshot-preview-then-play step (§5.2c). Missing-attribute 404s from the datapoints endpoint are swallowed and surface as a friendly "No history data found for this camera." empty state (§5.2b). Alarm clip resolution now also accepts a bare event id in the alarm description (§5.1b) and builds the clip URL via the same `getEventClipUrl()` helper the Video page uses. Settings tab still uses the legacy `SettingsPage`.
 
 ---
 
@@ -193,7 +193,8 @@ extensionless paths.
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
 | `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Rendered by `CameraStream` (see §5.1d for the full URL routing rules). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
-| `history` | array | optional | Array of detection clips — see §5.2a below for the JSON contract. Drives the ALERT pill on the Overview's Live Camera tile, the Video tab's detection-type filter chips, and the clip playback list inside the camera modal. Does **not** drive the "Detections today" KPI or the env card's 8-hour bar chart — those count alarms (see §8.1, §8.6). |
+| `eventId` | datapoints (object) | **yes** for the Video modal history sidebar | Per-detection event stream stored as OR datapoints. Each datapoint value is `[{ id, label }]` or `{ id, label }` (id = AI-side event identifier, label = raw category — "person" / "animal" / anything else). The Video modal fetches this attribute via `useCameraEvents(cameraId, {from, to})` (`src/hooks/useCameraEvents.js`) using the OR datapoints endpoint with `type: 'ALL'`, and renders one history row per datapoint. The attribute key is centralised as `CAMERA_EVENT_ATTRIBUTE` in `src/constants/events.js` — rename in one place if the OR-side schema changes. See §5.2b for the full datapoints contract and §5.2c for how clip / snapshot URLs are derived from the event id. |
+| `history` | array | **deprecated** (optional fallback) | Legacy `[{id, url, date, detection}]` array. Still read by the Overview's Live Camera tile + the Video wall tile for the on-tile ALERT pill (`isRecentHumanDetection` checks `history[0]` within the last 5 min). New deployments should populate `eventId` datapoints instead — the Video modal history sidebar **no longer reads `history`**, only `eventId` datapoints. See §5.2a for the legacy JSON shape. |
 | `cameraVariant` | string | optional | `fixed` or `360`. Used to pick the PTT-capable camera under each tower. |
 | `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
@@ -209,21 +210,40 @@ recorded clip. The dashboard resolves the URL via
    `streamUrl` (first non-empty wins). Recommended for new installations:
    the backend rule writes the clip URL straight onto the alarm as it's
    raised.
-2. **Extract from text** — first `http(s)://...` URL found in the
-   `content` or `description` fields. Useful when the AI side dumps
-   `"Person detected — https://media/.../clip.mp4"` into the alarm body.
+2. **Literal URL in the description** — first `http(s)://...` URL found
+   in the `content` or `description` fields. Useful when the AI side
+   dumps `"Person detected — https://media/.../clip.mp4"` into the alarm
+   body. Returned verbatim.
+3. **Bare event id in the description** — same id shape the Video page
+   reads from the `eventId` datapoints stream (e.g.
+   `1779269865.828876-zcx508`). Built into a clip URL via
+   `getEventClipUrl(id)` from `src/constants/events.js`, so the icon
+   points at the same media server as the Video modal — a host change
+   in `EVENTS_BASE_URL` updates both surfaces.
 
-When neither is available the View clip button hides itself (no
-placeholder data). Click → shared `ClipModal` plays the URL via the same
-`CameraStream` renderer (see §5.1d for the full URL routing table — same
-rules apply to clips, including extensionless MJPEG endpoints).
+The event-id matcher is **strict** — `\b\d{10,}(?:\.\d+)?-[A-Za-z0-9]+\b`,
+i.e. unix timestamp (optionally fractional) + dash + alphanumeric suffix
+— so arbitrary hyphenated numbers in alarm bodies (timestamps, counts)
+don't false-match. The matcher also **strips URLs from the text first**
+before searching for ids, so an event id embedded inside a URL path
+(`https://media/api/events/1779…-zcx508/clip.mp4`) doesn't get re-extracted
+and rebuilt against the wrong host — step 2 wins for that case.
 
-**The URL is never displayed as text.** `getAlarmContentText(alarm)` in
-`src/utils/alarms.js` strips every `http(s)://...` match out of
-`alarm.content` / `alarm.description` (and tidies the leftover punctuation)
-before the dashboard renders the description. The clip icon is the only
-surface that exposes the URL. So `"Person at gate — https://.../cam02.mp4"`
-shows as `"Person at gate"` + a 🎬 button.
+When none of the three is available the View clip button hides itself
+(no placeholder data). Click → shared `ClipModal` plays the URL via the
+same `CameraStream` renderer (see §5.1d for the full URL routing table
+— same rules apply to clips, including extensionless MJPEG endpoints).
+
+**Neither the URL nor the event id is displayed as text.**
+`getAlarmContentText(alarm)` in `src/utils/alarms.js` strips every
+`http(s)://...` match *and* every bare event id out of `alarm.content` /
+`alarm.description` (and tidies the leftover punctuation) before the
+dashboard renders the description. The clip icon is the only surface
+that exposes the playback target. So:
+
+- `"Person at gate — https://.../cam02.mp4"` → `"Person at gate"` + 🎬
+- `"Person at gate — 1779269865.828876-zcx508"` → `"Person at gate"` + 🎬
+- `"Person at gate"` (no URL, no id) → `"Person at gate"`, no 🎬
 
 ### 5.1c. Breadcrumb click behaviour
 
@@ -247,7 +267,15 @@ The split is deliberate: the operator's job on alert cards is to **act**
 where pivoting the dashboard scope is useful. Keeping alert-row crumbs
 inert prevents accidental scope changes during a triage flurry.
 
-### 5.2a. CameraAsset.history — JSON contract
+### 5.2a. CameraAsset.history — JSON contract (legacy)
+
+> **Status (2026-05-20):** Deprecated as the Video modal's history source.
+> The modal now fetches per-detection events from the `eventId` datapoints
+> stream (§5.2b). `history` is still read by the on-tile ALERT pill on
+> the Overview's Live Camera Feeds and the Video wall tile via
+> `isRecentHumanDetection` — it peeks at `history[0]` to decide whether to
+> show the red ALERT pill. New deployments may safely omit this attribute;
+> the pill simply won't render.
 
 `CameraAsset.history` is an OpenRemote array attribute. Each element is
 one detection clip, written by the AI side whenever it records a triggered
@@ -332,6 +360,153 @@ each over the past day:
 If you start sending a new detection label (e.g. `"vehicle"`) it just
 buckets into `Other` automatically — adding a dedicated chip is a
 one-liner in `DETECTION_TYPES` inside `SecureOpsVideoPage.jsx`.
+
+### 5.2b. CameraAsset.eventId — datapoints contract (canonical)
+
+The Video modal's history sidebar is driven by the **`eventId` attribute**
+on the camera, queried via the OR datapoints endpoint
+(`POST /asset/datapoint/{cameraId}/{eventId}` with `type: 'ALL'`). The
+hook `useCameraEvents(cameraId, {from, to})`
+(`src/hooks/useCameraEvents.js`) wraps the call; the attribute name is
+exported as `CAMERA_EVENT_ATTRIBUTE` from `src/constants/events.js` so
+an OR-side rename is a one-line change.
+
+**Why datapoints, not an array attribute.** `history` blew up the
+attribute payload as clips accumulated and forced full-list rewrites
+for every new detection. Datapoints append cheaply, the OR retention
+policy handles cap / TTL automatically, and a time-window query lets
+the operator fetch only what they're looking at instead of every clip
+ever recorded.
+
+**Per-datapoint shape returned by OR:**
+
+```jsonc
+{
+  "x": 1779269865828,         // ms since epoch (timestamp)
+  "y": [                       // value column from the OR datapoints table
+    { "id": "1779269865.828876-zcx508", "label": "person" }
+  ]
+}
+```
+
+The parser in the Video modal (`unwrapEventValue` +
+`SecureOpsVideoPage.jsx` history `useMemo`) is intentionally lenient
+and accepts every shape OR can ship:
+
+| Wire shape | Why it happens |
+|---|---|
+| `{ x, y }` — object form | Default for modern OR server versions |
+| `[ ts, value ]` — tuple form | Older OR versions / chart endpoints |
+| `y` as `[{ id, label }]` | Native OR list-of-object value (what you see in the OR datapoints table) |
+| `y` as `{ id, label }` | Already-unwrapped object |
+| `y` as `'{"id":"…","label":"…"}'` | OR stringifies complex types for some attribute kinds |
+| `y` as `"1779269865.828876-zcx508"` | Bare event id string (no label — falls into `Other`) |
+
+**Label mapping.** Raw AI labels are normalised to the three telco
+buckets via `normalizeEventLabel` in `src/constants/events.js`:
+
+| Raw label | Bucket |
+|---|---|
+| `person`, `human` | `human` |
+| `animal` | `animal` |
+| anything else (`vehicle`, `null`, …) | `other` |
+
+To add a new dedicated bucket, extend both `LABEL_MAP` in
+`src/constants/events.js` *and* `DETECTION_TYPES` in
+`SecureOpsVideoPage.jsx`.
+
+**Pagination.** The OR datapoints endpoint has **no cursor** — it's a
+time-window query. The modal "pages" in two layers:
+
+1. **Server-side (time window).** A `Last 24h / 7d / 30d` chip row
+   anchors a fresh `Date.now()` as `to` and subtracts the window for
+   `from`. Default is **24h** so first-open is cheap on busy cameras.
+   The anchor is stored in component state — recomputing on every
+   render would shift the React Query key every millisecond and
+   thrash the cache.
+2. **Client-side (rows per page).** Within the fetched window the
+   sidebar reveals `PAGE_SIZE = 20` rows at a time; a "Load more
+   (N remaining)" button appends the next 20. Changing the time
+   window, the detection chips, or the underlying response resets
+   the visible count back to 20 (handled via the
+   `resetSignature` / "reset state when a value changes" pattern,
+   not a `setState` in `useEffect`, per the `react-hooks/set-state-in-effect`
+   lint rule).
+
+**Refresh.** The header has a small spinner-icon refresh button that
+re-anchors `to = Date.now()` and calls `refetch()`. There's also a
+60s `refetchInterval` for the modal's "live" feel.
+
+**Dev-mode diagnostic.** `useCameraEvents` logs
+`[useCameraEvents]` to the console with the asset id, attribute name,
+window, count, and the first three points — open DevTools when an
+empty sidebar surprises you to confirm the attribute key is right.
+
+**404 handling.** When the camera has no `eventId` attribute (or that
+attribute has no `STORE_DATA_POINTS` meta), OR returns `404`. The hook
+catches that one status, returns `[]` from `queryFn`, and never sets
+the query into `isError`. The modal sidebar then falls through to its
+normal empty state and shows **"No history data found for this
+camera."** — same copy used when the window genuinely has zero
+events. The previous red "Couldn't load events for this camera"
+message and the dev-mode attribute-name hint are gone; the operator
+shouldn't have to distinguish "attribute missing" from "attribute
+empty" when deciding what to do next (nothing). Any other status
+(401/403/5xx) still rejects normally and surfaces as an error.
+
+### 5.2c. Event clip + snapshot URLs
+
+Clip and snapshot media live on a **separate media server** from the
+OR manager. The base URL + path layout is centralised in
+`src/constants/events.js`:
+
+```js
+export const EVENTS_BASE_URL        = 'http://203-99-61-86.sslip.io:5000';
+export const CAMERA_EVENT_ATTRIBUTE = 'eventId';
+
+getEventSnapshotUrl(id) → `${EVENTS_BASE_URL}/api/events/${id}/snapshot.jpg`
+getEventClipUrl(id)     → `${EVENTS_BASE_URL}/api/events/${id}/clip.mp4`
+```
+
+A host change is a single-line edit to `EVENTS_BASE_URL`.
+
+**Modal playback flow (three-state player):**
+
+| Operator action | Player shows | URL source |
+|---|---|---|
+| Modal opens | Live stream | `liveStreamUrl` / `streamUrl` |
+| Click a clip row in sidebar | Snapshot preview + centred play overlay | `getEventSnapshotUrl(eventId)` |
+| Click the play overlay (or anywhere on the snapshot) | Clip mp4, autoplaying | `getEventClipUrl(eventId)` |
+| Click "Show snapshot" | Snapshot again | `getEventSnapshotUrl(eventId)` |
+| Click "← Back to live" | Live stream | `liveStreamUrl` |
+
+The snapshot-first preview is deliberate: it's a cheap peek that
+doesn't pull video bytes until the operator commits, and it lets the
+operator scan through many events without burning bandwidth on each
+one. Switching the time window or picking a different sidebar clip
+always resets to the snapshot-preview step (avoids mid-playback
+confusion). The whole snapshot area is the click target — the
+centred disc is just the visual affordance.
+
+The `<video>` / `<img>` element selection is still handled by
+`CameraStream` (§5.1d) — `.mp4` → `<video>`, `.jpg` → `<img>`.
+
+**Mixed-content caveat (HTTPS deployments).** If the portal is served
+over HTTPS, browsers block plain-HTTP video/snapshot requests from
+the events host as "mixed content" (`<video>` always; modern Chrome /
+Firefox also block `<img>`). Three fixes, cheapest first:
+
+1. **Reverse-proxy** the events host through the dashboard origin
+   (Vite dev proxy + nginx/caddy in prod). Change `EVENTS_BASE_URL`
+   to the relative path (e.g. `/events`) and the browser only sees
+   one HTTPS origin.
+2. **Give the events host its own TLS cert** (Let's Encrypt /
+   certbot, or front with Cloudflare) and switch `EVENTS_BASE_URL`
+   to `https://…`. Cleanest long-term — `<video>` and `<img>` need
+   no CORS headers for cross-origin playback as long as the cert is
+   valid and the SAN matches the hostname.
+3. **Serve the portal over HTTP.** Works but throws away TLS for OR
+   auth too — not recommended.
 
 ### 5.3. TowerAsset attributes
 
@@ -769,11 +944,19 @@ the panel/page silently falls back to alarms-only.
 ```
 src/components/layout/SecureOpsHeader.jsx     Sticky top bar + tabs + site dropdown
 src/pages/SecureOpsOverviewPage.jsx           The Overview tab (`/`)
-src/pages/SecureOpsStubPage.jsx               Shared placeholder for Video / Control
+src/pages/SecureOpsVideoPage.jsx              The Video wall + history modal (`/video`)
+src/pages/SecureOpsAlertsPage.jsx             Actionable alerts inbox (`/alarms`)
+src/pages/SecureOpsControlPage.jsx            Per-tower device control panel (`/control`)
+src/pages/SecureOpsStubPage.jsx               Shared placeholder (now unused — Video/Alerts/Control shipped)
 src/pages/AuditLogPage.jsx                    Full `/audit` page
 src/pages/secureops.css                       All SecureOps-scoped styling
 src/store/secureOpsStore.js                   Zustand: selectedSiteId / selectedTowerId
 src/utils/auditEvents.js                      Shared alarm/tower event generators
+src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
+                                              getEventClipUrl / getEventSnapshotUrl,
+                                              normalizeEventLabel (person→human etc.)
+src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
+                                              endpoint for the eventId attribute (type: 'ALL')
 telco-readme.md                               This document
 ```
 
@@ -846,17 +1029,30 @@ The tab order and labels are defined in
 
 In rough priority order:
 
-1. **Video tab — ✅ shipped 2026-05-16** as `SecureOpsVideoPage` at
-   `/video`. Responsive grid of every `CameraAsset` in the current site
-   scope. **Each wall tile plays the live stream inline** via the
-   shared `CameraStream` renderer — same pattern as the Control page's
-   Cameras panel. Page-level filters: tower multi-select chips +
-   free-text search. Click any tile → modal opens with the live stream
-   on the left and a scrollable, independently filterable `history[]`
-   clip list on the right. Click a clip → swap the player to that
-   clip's URL; "Back to live" restores the live feed. Detection-type
-   filter chips remain inside the modal's history sidebar (filter
-   clips, not cameras).
+1. **Video tab — ✅ shipped 2026-05-16, history rewired 2026-05-20** as
+   `SecureOpsVideoPage` at `/video`. Responsive grid of every
+   `CameraAsset` in the current site scope. **Each wall tile plays the
+   live stream inline** via the shared `CameraStream` renderer — same
+   pattern as the Control page's Cameras panel. Page-level filters:
+   tower multi-select chips + free-text search. Click any tile → modal
+   opens.
+
+   **Modal sidebar is now driven by the `eventId` datapoints stream**
+   (§5.2b), not the legacy `history` array attribute. Layered
+   pagination: server-side **`Last 24h / 7d / 30d` window chips** keep
+   the first-open query cheap on busy cameras; client-side **"Load more
+   (N remaining)" button** reveals the next 20 rows from the fetched
+   window. Detection chips (Human / Animal / Other) filter the visible
+   list and reset paging on every change. Refresh icon re-anchors `to`
+   to `Date.now()` and refetches. Auto-poll every 60s.
+
+   **Three-state player** (§5.2c): live stream → click a clip in the
+   sidebar → **snapshot preview + centred play overlay** → click the
+   overlay → mp4 plays. "← Back to live" returns to the live feed;
+   "Show snapshot" drops back to the preview while playing. Snapshot
+   and clip URLs are derived from the event id via
+   `getEventSnapshotUrl(id)` / `getEventClipUrl(id)` in
+   `src/constants/events.js` — host change is a one-line edit.
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free

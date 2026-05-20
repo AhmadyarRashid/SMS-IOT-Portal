@@ -250,6 +250,42 @@ button.so-cam:focus-visible {
       transparent 8px,
       transparent 16px);
 }
+
+/* Snapshot-preview play button overlay — covers the whole snapshot so a
+   click anywhere on the frame starts playback (the centred disc is the
+   visual affordance, not a hit-target boundary). */
+.so-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #000 30%, transparent);
+  cursor: pointer;
+  transition: background 120ms ease;
+  border: 0;
+}
+.so-play-overlay:hover { background: color-mix(in srgb, #000 45%, transparent); }
+.so-play-overlay-disc {
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-accent-400) 92%, transparent);
+  color: #0b1220;
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.45),
+    0 0 0 6px color-mix(in srgb, var(--color-accent-400) 22%, transparent);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.so-play-overlay:hover .so-play-overlay-disc {
+  transform: scale(1.06);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.55),
+    0 0 0 8px color-mix(in srgb, var(--color-accent-400) 28%, transparent);
+}
 .so-cam-pills {
   position: absolute;
   top: 8px;
