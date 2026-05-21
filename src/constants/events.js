@@ -11,7 +11,7 @@
    change is a single-line edit.
    ========================================================================== */
 
-export const EVENTS_BASE_URL = 'http://203-99-61-86.sslip.io:5000';
+export const EVENTS_BASE_URL = 'https://media.smsiotpk.com:8971';
 
 // Attribute name on every CameraAsset that exposes the event datapoints
 // stream. Kept as a constant so the OR-side rename is a one-liner here.

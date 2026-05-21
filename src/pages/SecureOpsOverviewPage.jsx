@@ -5,7 +5,7 @@ import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
   ServerCog, AlertOctagon, Activity, Cpu,
   Video as VideoIcon, RefreshCw,
-  RadioTower, ShieldAlert, ChevronRight,
+  RadioTower, ChevronRight,
   Lock, Siren, Lightbulb, Mic,
   Thermometer, Droplets, Signal, BatteryCharging,
   ScrollText, X, Building2, Check, CheckCheck, Loader2,
@@ -15,7 +15,7 @@ import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '.
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
-  getWeatherAssetForTower, getCameraStreamUrl,
+  getWeatherAssetForTower, isCameraAsset,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -23,8 +23,7 @@ import {
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
-import CameraStream from '../components/cameras/CameraStream';
-import CameraFullView from '../components/cameras/CameraFullView';
+import CameraCard from '../components/cameras/CameraCard';
 import ClipModal from '../components/cameras/ClipModal';
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import { getAlarmClipUrl } from '../utils/alarms';
@@ -322,21 +321,16 @@ function KpiCard({ icon: Icon, label, value, subline, subTone, to }) {
    ========================================================================== */
 
 function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
+  // Matches both `CameraAsset` and `PtzCameraAsset` — `isCameraAsset` is the
+  // single place that knows which custom types count as cameras.
   const cameras = useMemo(() => {
     if (!activeTower) return [];
-    return pickGatewayChildren(assets, activeTower.id)
-      .filter((a) => getCustomAssetType(a) === 'CameraAsset');
+    return pickGatewayChildren(assets, activeTower.id).filter(isCameraAsset);
   }, [activeTower, assets]);
 
-  // Limit to a 2x2 grid; show ALL cameras when there are more via a "+N" tile
-  // (simple cap to match the sketch — full grid lives in the Video tab).
+  // 2x2 grid cap; remainder collapses into a "+N more" link to the Video tab.
   const display = cameras.slice(0, 4);
   const overflow = Math.max(0, cameras.length - 4);
-
-  // Single piece of state for which camera (if any) is currently in the
-  // full-view modal. The modal is owned by the panel — each tile is a button
-  // that calls setFullCam(camera) on click.
-  const [fullCam, setFullCam] = useState(null);
 
   return (
     <section className="panel p-4 md:p-5">
@@ -353,80 +347,26 @@ function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
           No towers in this scope yet.
         </p>
       ) : (
-        <>
-          <div className="so-cam-grid">
-            {display.length === 0 && (
-              <div className="so-cam col-span-2"><div className="so-cam-empty">No cameras linked to this tower</div></div>
-            )}
-            {display.map((cam) => (
-              <CameraTile key={cam.id} camera={cam} onOpen={setFullCam} />
-            ))}
-            {overflow > 0 && (
-              <Link to="/video" className="so-cam flex items-center justify-center"
-                    style={{ background: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
-                <div className="text-center text-[var(--color-ink-1)]">
-                  <p className="text-2xl font-bold">+{overflow}</p>
-                  <p className="text-[11px]">more cameras</p>
-                </div>
-              </Link>
-            )}
-          </div>
-
-        </>
-      )}
-
-      {fullCam && (
-        <CameraFullView camera={fullCam} onClose={() => setFullCam(null)} />
+        <div className="so-cam-grid">
+          {display.length === 0 && (
+            <div className="so-cam col-span-2"><div className="so-cam-empty">No cameras linked to this tower</div></div>
+          )}
+          {display.map((cam) => (
+            <CameraCard key={cam.id} camera={cam} tower={activeTower} />
+          ))}
+          {overflow > 0 && (
+            <Link to="/video" className="so-cam flex items-center justify-center"
+                  style={{ background: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
+              <div className="text-center text-[var(--color-ink-1)]">
+                <p className="text-2xl font-bold">+{overflow}</p>
+                <p className="text-[11px]">more cameras</p>
+              </div>
+            </Link>
+          )}
+        </div>
       )}
     </section>
   );
-}
-
-function CameraTile({ camera, onOpen }) {
-  const url = getCameraStreamUrl(camera);
-  const alerting = isCameraAlerting(camera);
-  const idx = 0; // index isn't tracked here; consumer wraps with key
-  const code = shortCamCode(camera, idx);
-  const name = getAssetDisplayName(camera);
-  const offline = camera.attributes?.connected?.value === false;
-
-  // The tile is a button — clicking opens the full-view modal (handled by
-  // the parent panel) instead of navigating to the asset detail page.
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(camera)}
-      className="so-cam block"
-      title={`Open ${name} full view`}
-    >
-      <CameraStream url={url} offline={offline} />
-      <div className="so-cam-pills">
-        <span className="so-cam-pill is-label">{code}</span>
-        {alerting
-          ? <span className="so-cam-pill is-alert"><ShieldAlert className="w-2.5 h-2.5" />Alert</span>
-          : <span className="so-cam-pill is-rec">Rec</span>}
-      </div>
-      <div className="so-cam-foot truncate">{name}</div>
-    </button>
-  );
-}
-
-function isCameraAlerting(camera) {
-  const hist = camera?.attributes?.history?.value;
-  if (!Array.isArray(hist) || hist.length === 0) return false;
-  const latest = hist[0];
-  const ts = parseDate(latest?.date);
-  if (!ts) return false;
-  // Recent (last 5 minutes) + human-flagged.
-  const recent = new Date().getTime() - ts < 5 * 60 * 1000;
-  return recent && latest?.detection === 'human';
-}
-
-function shortCamCode(camera, idx) {
-  const name = camera?.name || '';
-  const m = name.match(/CAM[-\s_]?(\d{1,3})/i);
-  if (m) return `CAM-${m[1].padStart(2, '0')}`;
-  return `CAM-${String(idx + 1).padStart(2, '0')}`;
 }
 
 function TowerSelect({ towers, value, onChange }) {
@@ -683,13 +623,17 @@ function RemoteControlPanel({ tower, assets }) {
   const siren = children.find((a) => getCustomAssetType(a) === 'BuzzerAsset')
             || children.find((a) => getCustomAssetType(a) === 'AlarmAsset');
   const light = children.find((a) => getCustomAssetType(a) === 'LightAsset');
-  // PTT-capable 360 camera under the same tower.
-  const pttCamera = children.find((a) =>
-    getCustomAssetType(a) === 'CameraAsset'
-    && (a.attributes?.cameraVariant?.value === '360' || /360/i.test(a.name || ''))
-    && typeof a.attributes?.pttUrl?.value === 'string'
-    && a.attributes.pttUrl.value.trim()
-  );
+  // PTT-capable 360 camera under the same tower. Either a CameraAsset with
+  // `cameraVariant: '360'` (legacy) or any PtzCameraAsset (new) qualifies,
+  // provided it carries a `pttUrl` attribute.
+  const pttCamera = children.find((a) => {
+    const t = normalizeAssetType(getCustomAssetType(a));
+    if (t !== 'CameraAsset' && t !== 'PtzCameraAsset') return false;
+    const url = a.attributes?.pttUrl?.value;
+    if (typeof url !== 'string' || !url.trim()) return false;
+    const is360 = a.attributes?.cameraVariant?.value === '360' || /360/i.test(a.name || '');
+    return t === 'PtzCameraAsset' || is360;
+  });
 
   const write = useWriteAttribute();
   const toggle = (asset) => {
@@ -1286,7 +1230,7 @@ function AuditLogPanel({ alarms, assets, sites, towers }) {
 
 function summariseTower(tower, allAssets, openAlarms) {
   const children = pickGatewayChildren(allAssets, tower.id);
-  const cameras = children.filter((c) => getCustomAssetType(c) === 'CameraAsset').length;
+  const cameras = children.filter(isCameraAsset).length;
   const sensors = children.filter((c) => {
     const t = getCustomAssetType(c);
     return t && t.endsWith('SensorAsset');

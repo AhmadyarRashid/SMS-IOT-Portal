@@ -9,7 +9,7 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-20):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. Video modal history sidebar now reads OR datapoints from the `eventId` attribute (§5.2b) instead of the legacy `history` array attribute; player has a snapshot-preview-then-play step (§5.2c). Missing-attribute 404s from the datapoints endpoint are swallowed and surface as a friendly "No history data found for this camera." empty state (§5.2b). Alarm clip resolution now also accepts a bare event id in the alarm description (§5.1b) and builds the clip URL via the same `getEventClipUrl()` helper the Video page uses. Settings tab still uses the legacy `SettingsPage`.
+**Status (2026-05-21):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ tiles render a directional pad (up/down/left/right) over the live frame both in the tile and in the modal's live view (§5.1e). PTZ controls are **UI-only** for now — `onMove(direction)` is a stub awaiting the OR-side write. Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
 
 ---
 
@@ -43,9 +43,10 @@
   alerts, environmental telemetry, audit log.
 - **Site** = `customAssetType: siteAsset` (top-level container; **2** in realm).
 - **Tower** = `customAssetType: towerAsset` OR any `GatewayAsset` (**4** in realm).
-- **Devices** = `CameraAsset`, `DoorLockAsset` (or `ToggleableDoorLockAsset` —
-  treated identically), `AlarmAsset`, `LightAsset`, `BatteryAsset`,
-  `SolarAsset`, `BuzzerAsset`, + the original 14 SMS IoT types.
+- **Devices** = `CameraAsset` (fixed), **`PtzCameraAsset` (pan/tilt/zoom — 180°
+  or 360°)**, `DoorLockAsset` (or `ToggleableDoorLockAsset` — treated
+  identically), `AlarmAsset`, `LightAsset`, `BatteryAsset`, `SolarAsset`,
+  `BuzzerAsset`, + the original 14 SMS IoT types.
 - **Camera attributes added:** `liveStreamUrl` (string),
   `history` (array of `{id, url, date, detection}`), `cameraVariant`
   (`fixed | 360`), and on 360 cams: `pttUrl` (string — opened in modal iframe
@@ -137,29 +138,119 @@ corresponding widget hides itself (per the no-placeholder rule).
 ### 5.1. `customAssetType` (required on every non-Gateway asset)
 
 Existing convention. Must equal one of the recognised values for the device
-to render: `siteAsset`, `towerAsset`, `CameraAsset`, `DoorLockAsset`,
-`AlarmAsset`, `LightAsset`, `BatteryAsset`, `SolarAsset`, `BuzzerAsset`,
-plus the 14 original SMS IoT types (`HeatSensorAsset`,
+to render: `siteAsset`, `towerAsset`, `CameraAsset`, **`PtzCameraAsset`**,
+`DoorLockAsset`, `AlarmAsset`, `LightAsset`, `BatteryAsset`, `SolarAsset`,
+`BuzzerAsset`, plus the 14 original SMS IoT types (`HeatSensorAsset`,
 `HumanPresenceSensorAsset`, `MotionSensorAsset`, `SmokeSensorAsset`,
 `DoorSensorAsset`, `VibrationSensorAsset`, `SOSAsset`, `FanAsset`,
 `PanelAsset`, `PlugAsset`).
 
+**Two camera variants.** Cameras come in two flavours and are matched
+together by the single helper `isCameraAsset(asset)` in
+`src/utils/gateways.js`:
+- `CameraAsset`    — fixed-position. Plays a single live stream.
+- `PtzCameraAsset` — pan/tilt/zoom (180° or 360°). Plays a live stream
+                     AND surfaces the directional pad described in §5.1e.
+
+Every camera-iterating filter in the dashboard (Overview's Live Camera
+Feeds, Video wall, Control's Cameras panel, Audit Log breadcrumb) goes
+through `isCameraAsset`, so adding a third variant later is a one-line
+change there. Use `isPtzCamera(asset)` for the PTZ-only branch.
+
 Case-insensitive — `normalizeAssetType` (§11) uppercases the first letter of
 whatever it gets.
 
-### 5.1a. Camera tiles & full-view modal
+### 5.1a. Shared camera tile + unified history modal
 
-Every surface that renders a live camera tile (Overview's Live Camera
-Feeds, Control's Cameras panel) opens a shared **full-view modal** on
-click instead of navigating to `/a/:cameraId`. The modal lives in
-`src/components/cameras/CameraFullView.jsx` and reuses the same
-`CameraStream` URL-detection logic (see §5.1d for the full routing table).
-Closes on Esc or backdrop click. **No "Detail" / asset-page affordance**
-inside the modal — the tile is monitoring-only; reach the asset detail
-page via the audit log or alarm row breadcrumbs when you need Controls /
-History / Alarms tabs. Owners of the modal state are the parent
-**panel** components (`LiveCameraFeedsPanel`, `CamerasPanel`) —
-individual tiles are buttons that call `onOpen(camera)`.
+Every surface that renders a live camera tile — Overview's Live Camera
+Feeds, the Video wall, Control's Cameras panel, the Audit Log breadcrumb
+pop-out — uses the **same `CameraCard` component**
+(`src/components/cameras/CameraCard.jsx`). Previously each page had its
+own near-identical tile implementation; consolidating means a change to
+the live-tile chrome (pills, footer, PTZ overlay) lands everywhere in
+one edit.
+
+Click anywhere on a tile opens the **unified `CameraHistoryModal`**
+(`src/components/cameras/CameraHistoryModal.jsx`) — the same modal that
+powers the Video tab, with the scrollable detection-history sidebar
+(§5.2b), time-window chips, detection filter chips, and the three-state
+player (live → snapshot preview → clip mp4, §5.2c). Owners of the modal
+state are the `CameraCard` instances themselves — each card manages
+`open` internally so parents don't have to plumb a `setFullCam` handler.
+
+The card's footer always shows the camera display name with a small
+maximise hint; pass `showTower` to also render the tower name on a
+second line (Video wall uses this). The modal closes on Esc or backdrop
+click. **No "Detail" / asset-page affordance** inside the modal — the
+tile is monitoring-only; reach the asset detail page via the audit log
+or alarm row breadcrumbs when you need Controls / History / Alarms tabs.
+
+**The legacy `CameraFullView` simple-preview modal is no longer used.**
+It still exists on disk for now but is unimported; future cleanup may
+delete it. `ClipModal` (alarm-clip playback) is unchanged.
+
+### 5.1e. PTZ directional pad (`PtzCameraAsset`)
+
+When the asset is a `PtzCameraAsset`, the **modal's live view only**
+overlays a four-button **directional pad** (up · left · right · down)
+on the live frame. The pad is rendered by
+`src/components/cameras/PtzControls.jsx` and lives above the bottom edge
+so it doesn't overlap the browser's native `<video>` controls. The pad
+hides on snapshot/clip playback frames so historical media doesn't look
+interactive.
+
+Tiles deliberately do **not** carry the d-pad — a tile's job is to be
+glanceable, not actionable, and stacking a control over a 200-pixel
+thumbnail is too fiddly. Operators open the modal to drive a PTZ feed.
+
+A small **`PTZ` pill** appears in the tile's top-right pill cluster
+(alongside `REC` / `ALERT`) and as a chip next to the camera name in the
+modal header, so the operator knows at a glance which feeds are
+controllable.
+
+**Wire-up.** Each button calls `onMove(direction)` where direction is
+one of `'up' | 'down' | 'left' | 'right'`. `CameraHistoryModal` passes
+`usePtzMove(camera).move` as that callback, which fires a
+fire-and-forget GET against the AI-side PTZ controller:
+
+```
+GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_{UP|DOWN|LEFT|RIGHT}
+```
+
+`PTZ_BASE_URL` is centralised in `src/constants/ptz.js` (currently
+`http://203.99.61.86:5002`) — host swap is a one-line edit.
+
+**Resolving `{ptzId}`** is `getCameraPtzId(camera)` in
+`src/utils/gateways.js`. Order:
+
+1. `ptzId` attribute on the CameraAsset / PtzCameraAsset (preferred —
+   add to new deployments).
+2. `cameraId` attribute (accepted as an alias).
+3. Last path segment of `liveStreamUrl`, when it matches `/^cam[…]/i` —
+   Cloudflare-tunnelled MJPEG endpoints already encode the AI-side id
+   there (`https://.../api/cam243` → `cam243`), so existing deployments
+   keep working without adding any new attribute.
+
+When no candidate resolves, the pad still renders (so the operator
+knows PTZ is intended), but pressing a button shows
+`"PTZ id not configured for this camera."` as a toast.
+
+**Networking detail.** `fetch` uses `mode: 'no-cors'` because the
+response is ignored and we don't want preflight noise. A network failure
+(DNS, refused, mixed-content blocked) still rejects the promise and
+surfaces as a `"PTZ {direction} failed — controller unreachable."`
+toast. Presses are soft-throttled at 150ms to discard double-taps
+without making rapid intentional taps feel sluggish.
+
+**Mixed-content caveat.** The PTZ controller is plain HTTP. Browsers
+will block `fetch` from an HTTPS-served dashboard — same fix-paths as
+the events host (§5.2c): reverse-proxy through the dashboard origin,
+front the controller with TLS, or serve the portal over HTTP in dev.
+
+PTT (push-to-talk) detection on the Overview's Remote Control panel is
+unchanged — it still picks any camera under the active tower that has a
+non-empty `pttUrl` attribute, but now accepts either a `CameraAsset`
+with `cameraVariant: '360'` (legacy) **or** any `PtzCameraAsset` (new).
 
 ### 5.1d. CameraStream URL routing
 
@@ -943,8 +1034,17 @@ the panel/page silently falls back to alarms-only.
 
 ```
 src/components/layout/SecureOpsHeader.jsx     Sticky top bar + tabs + site dropdown
+src/components/cameras/CameraCard.jsx         Shared camera tile — used on Overview,
+                                              Video wall, Control, Audit Log. Owns
+                                              its own history-modal state.
+src/components/cameras/CameraHistoryModal.jsx Unified history modal — live stream +
+                                              detection sidebar + 3-state player.
+                                              Extracted from SecureOpsVideoPage.
+src/components/cameras/PtzControls.jsx        Up/down/left/right pad overlaid on
+                                              PtzCameraAsset live frames inside the
+                                              history modal. onMove stub for now.
 src/pages/SecureOpsOverviewPage.jsx           The Overview tab (`/`)
-src/pages/SecureOpsVideoPage.jsx              The Video wall + history modal (`/video`)
+src/pages/SecureOpsVideoPage.jsx              The Video wall (`/video`)
 src/pages/SecureOpsAlertsPage.jsx             Actionable alerts inbox (`/alarms`)
 src/pages/SecureOpsControlPage.jsx            Per-tower device control panel (`/control`)
 src/pages/SecureOpsStubPage.jsx               Shared placeholder (now unused — Video/Alerts/Control shipped)
@@ -955,8 +1055,13 @@ src/utils/auditEvents.js                      Shared alarm/tower event generator
 src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
                                               getEventClipUrl / getEventSnapshotUrl,
                                               normalizeEventLabel (person→human etc.)
+src/constants/ptz.js                          PTZ_BASE_URL + getPtzMoveUrl(id, dir).
+                                              Single source of truth for the AI-side
+                                              PTZ controller endpoint shape.
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
+src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
+                                              with toast on failure + 150ms throttle.
 telco-readme.md                               This document
 ```
 
@@ -965,8 +1070,10 @@ telco-readme.md                               This document
 ```
 src/App.jsx                                   Routes for new pages + stubs
 src/components/layout/DashboardLayout.jsx     Renders SecureOpsHeader (was Sidebar+Header)
-src/utils/assetIcons.js                       New types + normalizeAssetType + icon/accent maps
-src/utils/gateways.js                         isSiteAsset / pickSites / isTowerAsset / pickTowersForSite / findSiteForAsset
+src/utils/assetIcons.js                       Asset types (incl. PtzCameraAsset) + normalizeAssetType
+                                              + icon/accent maps + isAssetActive / getStateLabel
+src/utils/gateways.js                         isSiteAsset / pickSites / isTowerAsset / pickTowersForSite
+                                              / findSiteForAsset / isCameraAsset / isPtzCamera
 src/api/client.js                             Refresh-token dedup (concurrent 401 handling)
 ```
 

@@ -14,6 +14,7 @@ import {
 export const DEVICE_TYPES = [
   'AlarmAsset',
   'CameraAsset',
+  'PtzCameraAsset',
   'DoorLockAsset',
   'ToggleableDoorLockAsset',
   'DoorSensorAsset',
@@ -131,6 +132,7 @@ export function getAssetIcon(customType, { on = false, alarm = false } = {}) {
   switch (normalizeAssetType(customType)) {
     case 'AlarmAsset':              return alarm ? Siren : Siren;
     case 'CameraAsset':             return Video;
+    case 'PtzCameraAsset':          return Video;
     case 'DoorLockAsset':
     case 'ToggleableDoorLockAsset': return on ? Lock : LockOpen; // on = locked (secured)
     case 'DoorSensorAsset':         return on ? DoorOpen : DoorClosed; // on = open
@@ -176,7 +178,8 @@ export function getAssetAccent(customType) {
     case 'AlarmAsset':
     case 'SOSAsset':
     case 'SmokeSensorAsset':       return 'red';
-    case 'CameraAsset':            return 'blue';
+    case 'CameraAsset':
+    case 'PtzCameraAsset':         return 'blue';
     case 'DoorLockAsset':
     case 'ToggleableDoorLockAsset':
     case 'DoorSensorAsset':        return 'amber';
@@ -246,6 +249,7 @@ export function isAssetActive(asset, customType) {
     case 'FanAsset':
       return boolish(a.on?.value ?? a.power?.value ?? a.enabled?.value);
     case 'CameraAsset':
+    case 'PtzCameraAsset':
       return true;
     default: {
       const candidates = [a.on, a.power, a.enabled, a.active, a.state, a.triggered];
@@ -390,6 +394,7 @@ export function getStateLabel(asset, customType) {
     case 'AlarmAsset':
       return isAssetActive(asset) ? 'Armed' : 'Disarmed';
     case 'CameraAsset':
+    case 'PtzCameraAsset':
       return 'Live';
     case 'PanelAsset':
       return 'Panel';

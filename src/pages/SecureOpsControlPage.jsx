@@ -1,14 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   SlidersHorizontal, Video as VideoIcon, RadioTower,
-  Thermometer, Droplets, Maximize2,
+  Thermometer, Droplets,
 } from 'lucide-react';
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
-  getWeatherAssetForTower, getCameraStreamUrl,
+  getWeatherAssetForTower, isCameraAsset,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -16,8 +16,7 @@ import {
   normalizeAssetType, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
 import AssetGlyph from '../components/tiles/AssetGlyph';
-import CameraStream from '../components/cameras/CameraStream';
-import CameraFullView from '../components/cameras/CameraFullView';
+import CameraCard from '../components/cameras/CameraCard';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import './secureops.css';
@@ -77,9 +76,10 @@ export default function SecureOpsControlPage() {
   );
 
   // Cap to the first 2 cameras per the spec — the full grid lives in the
-  // Video tab.
+  // Video tab. `isCameraAsset` matches both fixed (`CameraAsset`) and
+  // pan/tilt/zoom (`PtzCameraAsset`) variants.
   const cameras = useMemo(
-    () => children.filter((c) => normalizeAssetType(getCustomAssetType(c)) === 'CameraAsset').slice(0, 2),
+    () => children.filter(isCameraAsset).slice(0, 2),
     [children]
   );
 
@@ -126,7 +126,7 @@ export default function SecureOpsControlPage() {
         <>
           {/* ===== Cameras + Environment ===== */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4">
-            <CamerasPanel cameras={cameras} towerId={activeTower.id} />
+            <CamerasPanel cameras={cameras} tower={activeTower} />
             <EnvironmentPanel weather={weather} />
           </div>
 
@@ -165,9 +165,7 @@ function TowerSelect({ towers, value, onChange }) {
    Cameras panel — at most two tiles per the spec
    ========================================================================== */
 
-function CamerasPanel({ cameras }) {
-  const [fullCam, setFullCam] = useState(null);
-
+function CamerasPanel({ cameras, tower }) {
   return (
     <section className="panel p-4 md:p-5">
       <div className="so-panel-head">
@@ -192,52 +190,12 @@ function CamerasPanel({ cameras }) {
       ) : (
         <div className="so-cam-grid">
           {cameras.map((cam) => (
-            <CameraTile key={cam.id} camera={cam} onOpen={setFullCam} />
+            <CameraCard key={cam.id} camera={cam} tower={tower} />
           ))}
         </div>
       )}
-
-      {fullCam && (
-        <CameraFullView camera={fullCam} onClose={() => setFullCam(null)} />
-      )}
     </section>
   );
-}
-
-function CameraTile({ camera, onOpen }) {
-  const url = getCameraStreamUrl(camera);
-  const offline = camera.attributes?.connected?.value === false;
-  const code = shortCamCode(camera);
-  const name = getAssetDisplayName(camera);
-
-  // Button instead of Link — clicking opens the full-view modal owned by
-  // the parent panel rather than navigating away to the asset detail page.
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(camera)}
-      className="so-cam block"
-      title={`Open ${name} full view`}
-    >
-      <CameraStream url={url} offline={offline} />
-      <div className="so-cam-pills">
-        <span className="so-cam-pill is-label">{code}</span>
-        <span className="so-cam-pill is-rec">Rec</span>
-      </div>
-      <div className="so-cam-foot truncate flex items-center justify-between gap-2">
-        <span className="truncate">{name}</span>
-        <span className="inline-flex items-center gap-1 text-[10px] opacity-80">
-          <Maximize2 className="w-3 h-3" />
-        </span>
-      </div>
-    </button>
-  );
-}
-
-function shortCamCode(camera) {
-  const m = (camera?.name || '').match(/CAM[-\s_]?(\d{1,3})/i);
-  if (m) return `CAM-${m[1].padStart(2, '0')}`;
-  return 'CAM';
 }
 
 /* ==========================================================================

@@ -17,8 +17,9 @@ import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import { downloadCsv } from '../utils/csv';
-import CameraFullView from '../components/cameras/CameraFullView';
+import CameraHistoryModal from '../components/cameras/CameraHistoryModal';
 import ClipModal from '../components/cameras/ClipModal';
+import { findGatewayForAsset } from '../utils/gateways';
 import './secureops.css';
 
 /* ==========================================================================
@@ -398,7 +399,11 @@ export default function AuditLogPage() {
       </section>
 
       {cameraInView && (
-        <CameraFullView camera={cameraInView} onClose={() => setCameraInView(null)} />
+        <CameraHistoryModal
+          camera={cameraInView}
+          tower={findGatewayForAsset(cameraInView, towers)}
+          onClose={() => setCameraInView(null)}
+        />
       )}
       {clipInView && (
         <ClipModal

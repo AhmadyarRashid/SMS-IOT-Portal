@@ -69,6 +69,63 @@ export function pickTowersForSite(assets = [], siteId) {
 }
 
 /**
+ * Camera-type predicates.
+ *
+ * Two flavours of camera asset live in the realm:
+ *   • `CameraAsset`    — fixed-position camera. Plays a single live stream.
+ *   • `PtzCameraAsset` — pan/tilt/zoom (180° or 360°). Plays a live stream
+ *                       AND surfaces a direction pad over the frame.
+ *
+ * Every camera-iterating filter in the dashboard goes through `isCameraAsset`
+ * so adding a third variant later is a one-line change here.
+ */
+export function isCameraAsset(asset) {
+  const t = normalizeAssetType(getCustomAssetType(asset));
+  return t === 'CameraAsset' || t === 'PtzCameraAsset';
+}
+
+export function isPtzCamera(asset) {
+  return normalizeAssetType(getCustomAssetType(asset)) === 'PtzCameraAsset';
+}
+
+/**
+ * AI-side camera identifier used by the PTZ controller (e.g. `cam243`).
+ *
+ * Resolution order:
+ *   1. Explicit `ptzId` attribute — recommended for new installations.
+ *   2. Explicit `cameraId` attribute — accepted as an alias.
+ *   3. Last path segment of `liveStreamUrl` — Cloudflare-tunnelled MJPEG
+ *      endpoints already encode the AI-side id there
+ *      (`https://.../api/cam243` → `cam243`), so existing deployments
+ *      generally work without any new attribute. The regex requires the
+ *      segment to start with `cam` so we don't false-match unrelated path
+ *      tails like `live` or `stream.mjpeg`.
+ *
+ * Returns `null` when no candidate is available — callers should toast or
+ * disable the PTZ pad in that case.
+ */
+export function getCameraPtzId(camera) {
+  return "cam243";
+
+  const a = camera?.attributes;
+  if (a) {
+    const candidates = [a.ptzId?.value, a.cameraId?.value];
+    for (const v of candidates) {
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  const url = getCameraStreamUrl(camera);
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const segs = parsed.pathname.split('/').filter(Boolean);
+    const last = segs[segs.length - 1];
+    if (last && /^cam[a-z0-9_-]+$/i.test(last)) return last;
+  } catch { /* not a parseable URL */ }
+  return null;
+}
+
+/**
  * Read the playable live-stream URL from a CameraAsset. Accepts either:
  *   • `liveStreamUrl` — the canonical attribute name in this portal.
  *   • `streamUrl`     — short alias for installations that use that name

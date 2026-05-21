@@ -331,6 +331,72 @@ button.so-cam:focus-visible {
   letter-spacing: 0;
   font-weight: 600;
 }
+.so-cam-pill.is-ptz {
+  /* PTZ badge — shown alongside REC/ALERT on PtzCameraAsset tiles.
+     Cyan to match the accent so it reads as a capability hint, not a
+     fault state. */
+  background: color-mix(in srgb, var(--color-accent-400) 78%, transparent);
+  color: #0b1220;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- PTZ directional pad (modal live view only) ----------
+
+   Three-row / three-column grid forming a + pattern: up centre-top,
+   left/right flanking the middle row, down centre-bottom. The middle
+   cell is left empty so the live stream remains visible behind the pad.
+
+   Only rendered inside the CameraHistoryModal's live frame — tiles get
+   only the PTZ pill (capability hint), not the pad. The `bottom` offset
+   leaves room for native browser <video> controls along the bottom edge
+   so the pad never overlaps them. */
+
+.so-ptz {
+  position: absolute;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  grid-template-rows: repeat(3, auto);
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;            /* clicks pass through the gaps */
+  bottom: 64px;                    /* clear of native video controls (~44px) */
+  right: 16px;
+}
+.so-ptz .so-ptz-btn { pointer-events: auto; }
+
+.so-ptz-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  transition: background 120ms ease, transform 120ms ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.so-ptz-btn:hover {
+  background: color-mix(in srgb, var(--color-accent-500) 75%, rgba(15, 23, 42, 0.6));
+}
+.so-ptz-btn:active { transform: scale(0.92); }
+.so-ptz-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent-400) 80%, transparent);
+  outline-offset: 1px;
+}
+.so-ptz-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Grid placement: up centre-top, left/right flanking middle, down centre-bottom. */
+.so-ptz-up    { grid-column: 2; grid-row: 1; }
+.so-ptz-left  { grid-column: 1; grid-row: 2; }
+.so-ptz-right { grid-column: 3; grid-row: 2; }
+.so-ptz-down  { grid-column: 2; grid-row: 3; }
 .so-cam-foot {
   position: absolute;
   bottom: 0;
