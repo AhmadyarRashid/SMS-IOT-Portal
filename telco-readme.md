@@ -9,7 +9,7 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-22):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
+**Status (2026-05-22):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **Asset history on /control (2026-05-22):** the Control page now hosts an **Asset history** panel below the Controls grid — a dropdown of the active tower's children (filtered to those with chartable numeric/boolean attributes) drives the new `AssetHistoryCard` (Recharts AreaChart). The card was extracted from `AssetPage`'s legacy inline `HistoryTab` so both surfaces share one renderer; `AssetPage` now delegates to it. The Control panel is keyed on `activeTower.id` so a tower change remounts and resets selection; the inner `AssetHistoryCard` is keyed on `selected.id` so its `attr` state resets when the operator picks a different asset (avoids setState-in-effect). Chartable predicates live in `src/utils/chartable.js` so `AssetHistoryCard.jsx` keeps a component-only export surface. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
 
 ---
 
@@ -325,16 +325,27 @@ When none of the three is available the View clip button hides itself
 same `CameraStream` renderer (see §5.1d for the full URL routing table
 — same rules apply to clips, including extensionless MJPEG endpoints).
 
-**Neither the URL nor the event id is displayed as text.**
-`getAlarmContentText(alarm)` in `src/utils/alarms.js` strips every
-`http(s)://...` match *and* every bare event id out of `alarm.content` /
-`alarm.description` (and tidies the leftover punctuation) before the
-dashboard renders the description. The clip icon is the only surface
-that exposes the playback target. So:
+**Description text is no longer rendered on alert cards (2026-05-22).**
+The Overview's Recent Alerts panel, the `/alarms` page, and the `/audit`
+page all show **only** the alarm title, breadcrumb (Site › Tower ›
+Asset), timestamp, and the action cluster (clip icon / Ack / Resolve).
+The free-text body is intentionally hidden — operators triage on the
+title + asset + severity; the description rarely added signal and often
+duplicated the title.
 
-- `"Person at gate — https://.../cam02.mp4"` → `"Person at gate"` + 🎬
-- `"Person at gate — 1779269865.828876-zcx508"` → `"Person at gate"` + 🎬
-- `"Person at gate"` (no URL, no id) → `"Person at gate"`, no 🎬
+`getAlarmContentText(alarm)` in `src/utils/alarms.js` is still used by
+`src/utils/auditEvents.js` to populate `e.detail`, so the cleaned text
+is still indexed by the Audit Log search field and exported by the CSV
+"Detail" column — it's just not rendered on the row. If a future UI
+wants to surface it again (e.g. an expanded-row drawer), pull it back
+through that helper; the URL/event-id stripping still works.
+
+The stripping rules `getAlarmContentText` applies (URLs out, bare event
+ids out — both extracted only for the clip icon, never shown as text):
+
+- `"Person at gate — https://.../cam02.mp4"` → search/CSV: `"Person at gate"`; row: title only + 🎬
+- `"Person at gate — 1779269865.828876-zcx508"` → search/CSV: `"Person at gate"`; row: title only + 🎬
+- `"Person at gate"` (no URL, no id) → search/CSV: `"Person at gate"`; row: title only, no 🎬
 
 ### 5.1c. Breadcrumb click behaviour
 
@@ -1051,7 +1062,13 @@ src/components/cameras/PtzControls.jsx        Up/down/left/right pad overlaid on
 src/pages/SecureOpsOverviewPage.jsx           The Overview tab (`/`)
 src/pages/SecureOpsVideoPage.jsx              The Video wall (`/video`)
 src/pages/SecureOpsAlertsPage.jsx             Actionable alerts inbox (`/alarms`)
-src/pages/SecureOpsControlPage.jsx            Per-tower device control panel (`/control`)
+src/pages/SecureOpsControlPage.jsx            Per-tower device control panel (`/control`).
+                                              Also hosts the Asset history
+                                              panel below Controls — dropdown
+                                              of tower children with chartable
+                                              attributes + AssetHistoryCard.
+                                              Panel is keyed on activeTower.id
+                                              so a tower change remounts it.
 src/pages/SecureOpsStubPage.jsx               Shared placeholder (now unused — Video/Alerts/Control shipped)
 src/pages/AuditLogPage.jsx                    Full `/audit` page
 src/pages/secureops.css                       All SecureOps-scoped styling
@@ -1067,6 +1084,21 @@ src/hooks/useCameraEvents.js                  React Query hook around the OR dat
                                               endpoint for the eventId attribute (type: 'ALL')
 src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
                                               with toast on failure + 150ms throttle.
+src/components/charts/AssetHistoryCard.jsx    Reusable history chart for a single asset
+                                              (Recharts AreaChart). Picks chartable
+                                              attributes automatically, defaults to the
+                                              asset's primary reading attribute, has its
+                                              own attribute + time-range chips. Used by
+                                              AssetPage's History tab AND the /control
+                                              page's Asset history panel. NOT
+                                              self-resetting on asset change — parents
+                                              that swap assets must pass `key={asset.id}`.
+src/utils/chartable.js                        `isChartableAttr` / `hasChartableAttributes`
+                                              predicates. Lives in utils/ so eslint's
+                                              `react-refresh/only-export-components`
+                                              rule stays happy (non-component exports
+                                              would break Fast Refresh in
+                                              AssetHistoryCard.jsx).
 telco-readme.md                               This document
 public/telco-logo.jpeg                        SMS Sentinel AI brand logo. Served from
                                               the Vite static root (so referenced as
@@ -1114,9 +1146,14 @@ src/api/client.js                             Refresh-token dedup (concurrent 40
   - Medium → `var(--color-warning-400)`
   - Low → `var(--color-ink-2)`
   - Resolved / OK → `var(--color-ok-500)`
-- Dark-first; light mode is the existing `:root[data-theme="light"]`
-  override in `index.css`. Test new widgets in both themes — every token
-  pivots automatically as long as you stick to the variables.
+- **Light-first** (changed 2026-05-22). First-time visitors load with
+  `data-theme="light"`; dark mode is the `:root[data-theme="dark"]`
+  override in `index.css`. The default is driven by the localStorage
+  fallback in `src/store/appStore.js` — `localStorage.getItem('sms_theme') || 'light'`.
+  Users who have explicitly toggled via the Settings tab keep their saved
+  preference (we only set the default; we don't clobber a saved value).
+  Test new widgets in both themes — every token pivots automatically as
+  long as you stick to the variables.
 
 ### Brand asset
 

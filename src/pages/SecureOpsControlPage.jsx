@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   SlidersHorizontal, Video as VideoIcon, RadioTower,
-  Thermometer, Droplets,
+  Thermometer, Droplets, LineChart as LineIcon,
 } from 'lucide-react';
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
@@ -17,6 +17,8 @@ import {
 } from '../utils/assetIcons';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 import CameraCard from '../components/cameras/CameraCard';
+import AssetHistoryCard from '../components/charts/AssetHistoryCard';
+import { hasChartableAttributes } from '../utils/chartable';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import './secureops.css';
@@ -132,9 +134,73 @@ export default function SecureOpsControlPage() {
 
           {/* ===== Controllable devices ===== */}
           <ControlsPanel assets={controllables} />
+
+          {/* ===== Asset history (chart) =====
+              Key on tower id so switching tower remounts the panel and
+              resets its internal asset selection — avoids the
+              setState-in-effect anti-pattern. */}
+          <HistoryPanel key={activeTower.id} assets={children} />
         </>
       )}
     </div>
+  );
+}
+
+/* ==========================================================================
+   History panel — chart of one tower-child asset at a time.
+
+   The asset list is filtered to children with at least one chartable
+   (numeric or boolean) attribute; without this filter the dropdown would
+   offer entries that always render AssetHistoryCard's empty state.
+
+   The parent passes `key={activeTower.id}` so a tower change remounts the
+   panel and resets `assetId`. Inside the panel, AssetHistoryCard is keyed
+   on the picked asset's id so its internal `attr` state resets when the
+   operator picks a different device.
+   ========================================================================== */
+
+function HistoryPanel({ assets }) {
+  const chartable = useMemo(
+    () => (assets || []).filter(hasChartableAttributes),
+    [assets],
+  );
+
+  const [assetId, setAssetId] = useState(chartable[0]?.id || null);
+  const selected = chartable.find((a) => a.id === assetId) || chartable[0] || null;
+
+  return (
+    <section className="panel p-4 md:p-5">
+      <div className="so-panel-head">
+        <div className="so-panel-title">
+          <LineIcon className="so-panel-icon" strokeWidth={2} />
+          Asset history
+        </div>
+        {chartable.length > 0 && (
+          <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-ink-2)]">
+            Asset
+            <select
+              value={selected?.id || ''}
+              onChange={(e) => setAssetId(e.target.value || null)}
+              className="so-tower-select"
+            >
+              {chartable.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {getAssetDisplayName(a)} · {getAssetTypeLabel(getCustomAssetType(a))}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {selected ? (
+        <AssetHistoryCard key={selected.id} asset={selected} className="mt-3" />
+      ) : (
+        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
+          No assets under this tower have chartable attributes.
+        </p>
+      )}
+    </section>
   );
 }
 

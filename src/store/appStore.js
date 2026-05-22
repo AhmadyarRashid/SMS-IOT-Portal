@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-const savedTheme = localStorage.getItem('sms_theme') || 'dark';
+const savedTheme = localStorage.getItem('sms_theme') || 'light';
 const savedDensity = localStorage.getItem('sms_density') || 'comfortable';
 
 if (typeof document !== 'undefined') {

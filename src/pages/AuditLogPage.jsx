@@ -455,7 +455,6 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
                 </button>
               )}
             </div>
-            {e.detail && <div className="text-[11px] text-[var(--color-ink-2)] truncate">{e.detail}</div>}
           </div>
         </div>
       </td>

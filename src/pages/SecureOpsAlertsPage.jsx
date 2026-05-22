@@ -12,7 +12,7 @@ import {
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
 } from '../utils/assetIcons';
-import { getAlarmClipUrl, getAlarmContentText } from '../utils/alarms';
+import { getAlarmClipUrl } from '../utils/alarms';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import ClipModal from '../components/cameras/ClipModal';
@@ -320,9 +320,6 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
   const clipUrl = getAlarmClipUrl(alarm);
-  // Description with URLs stripped — the clip URL surfaces only via the
-  // "Clip" icon button, never as raw text in the row.
-  const contentText = getAlarmContentText(alarm);
 
   const mutatingThis = update?.isPending && update.variables?.alarm?.id === alarm.id;
   const ackPending = mutatingThis && update.variables?.status === 'ACKNOWLEDGED';
@@ -333,9 +330,6 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
     <div className="so-alert-row" style={{ '--rail': sevMeta.color }}>
       <div className="flex-1 min-w-0">
         <p className="so-alert-title">{alarm.title || 'Alarm'}</p>
-        {contentText && (
-          <p className="so-alert-meta mt-0.5 truncate">{contentText}</p>
-        )}
 
         {/* Site → Tower → Camera breadcrumb is display-only on alert rows.
             Only the Clip icon button is interactive. */}

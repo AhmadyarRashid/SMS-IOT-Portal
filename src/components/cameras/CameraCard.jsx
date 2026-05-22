@@ -16,7 +16,7 @@ import { getAssetDisplayName } from '../../utils/assetIcons';
 
    Behaviour:
      • Plays the live stream inline via the shared `CameraStream`.
-     • REC pill (steady) or ALERT pill (recent human detection within 5 min).
+     • LIVE pill (steady) or ALERT pill (recent human detection within 5 min).
      • For `PtzCameraAsset`: a PTZ badge in the top-right pill cluster.
        The directional pad itself lives only inside the history modal — the
        tile is meant to be glanceable, not actionable.
@@ -72,7 +72,7 @@ export default function CameraCard({ camera, tower, showTower = false }) {
             {ptz && <span className="so-cam-pill is-ptz">PTZ</span>}
             {alerting
               ? <span className="so-cam-pill is-alert"><ShieldAlert className="w-2.5 h-2.5" />Alert</span>
-              : <span className="so-cam-pill is-rec">Rec</span>}
+              : <span className="so-cam-pill is-rec">Live</span>}
           </div>
         </div>
 
