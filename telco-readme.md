@@ -9,7 +9,7 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-21):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
+**Status (2026-05-22):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
 
 ---
 
@@ -1033,7 +1033,12 @@ the panel/page silently falls back to alarms-only.
 ### New files
 
 ```
-src/components/layout/SecureOpsHeader.jsx     Sticky top bar + tabs + site dropdown
+src/components/layout/SecureOpsHeader.jsx     Sticky top bar + tabs + site dropdown.
+                                              Left-side brand is the SMS Sentinel AI
+                                              logo (`/telco-logo.jpeg`), wrapped in a
+                                              `<NavLink to="/" end>` so click returns
+                                              to Overview. Replaces the legacy
+                                              ShieldCheck icon + two-line title.
 src/components/cameras/CameraCard.jsx         Shared camera tile — used on Overview,
                                               Video wall, Control, Audit Log. Owns
                                               its own history-modal state.
@@ -1063,6 +1068,11 @@ src/hooks/useCameraEvents.js                  React Query hook around the OR dat
 src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
                                               with toast on failure + 150ms throttle.
 telco-readme.md                               This document
+public/telco-logo.jpeg                        SMS Sentinel AI brand logo. Served from
+                                              the Vite static root (so referenced as
+                                              `/telco-logo.jpeg` — no import). Used by
+                                              SecureOpsHeader's left-side brand block.
+                                              See §14 Brand asset for sizing rules.
 ```
 
 ### Edited files
@@ -1107,6 +1117,33 @@ src/api/client.js                             Refresh-token dedup (concurrent 40
 - Dark-first; light mode is the existing `:root[data-theme="light"]`
   override in `index.css`. Test new widgets in both themes — every token
   pivots automatically as long as you stick to the variables.
+
+### Brand asset
+
+- The SecureOps top-bar identity is the **SMS Sentinel AI logo** at
+  `public/telco-logo.jpeg`. It's served from the Vite static root, so the
+  reference in `SecureOpsHeader.jsx` is a plain string `/telco-logo.jpeg`
+  — no `import` and no Vite asset hashing. Replace the file in place to
+  swap the logo; no code change needed.
+- Render rules (kept in `SecureOpsHeader.jsx` row 1):
+  - `h-10 md:h-12 w-auto object-contain` — height-anchored so the row
+    height stays consistent across breakpoints, width follows the image's
+    intrinsic aspect ratio (~4.7:1) so the logo never squashes.
+  - Wrapped in `<NavLink to="/" end>` with `aria-label="SMS Sentinel AI
+    — Overview"` so the brand mark doubles as a "home" affordance.
+  - **No accompanying inline title text.** The logo's bitmap already
+    carries "SMS Sentinel AI" + the "Intelligence that protects" tagline;
+    re-stating them next to the image is redundant and creates two
+    competing wordmarks. If a future redesign needs a text-only brand
+    (e.g. on a narrow device or in print), generate a separate SVG —
+    don't try to crop the JPEG.
+- The image is a JPEG, not an SVG or PNG-with-alpha. It assumes the row
+  background is light/white-ish — currently `var(--color-surface-1)` in
+  the dark theme is dark, but the logo's solid white-ish background
+  blends visually with the row by happy coincidence of the JPEG having
+  no transparent regions. If you re-theme the chrome, audit the logo at
+  the same time — swap to a transparent PNG/SVG or a dark-theme variant
+  if you see a white rectangle around it.
 
 ---
 

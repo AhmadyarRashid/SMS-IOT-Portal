@@ -105,7 +105,7 @@ export function isPtzCamera(asset) {
  * disable the PTZ pad in that case.
  */
 export function getCameraPtzId(camera) {
-  return "cam243";
+  // return "cam243";
 
   const a = camera?.attributes;
   if (a) {

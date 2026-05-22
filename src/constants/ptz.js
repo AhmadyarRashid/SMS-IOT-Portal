@@ -19,7 +19,7 @@
    with TLS so this becomes a one-line change here.
    ========================================================================== */
 
-export const PTZ_BASE_URL = 'http://203.99.61.86:5002';
+export const PTZ_BASE_URL = 'https://media.smsiotpk.com:5002';
 
 const ACTION_BY_DIRECTION = {
   up:    'MOVE_UP',

@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Video, Bell, SlidersHorizontal, ScrollText, Settings,
-  ChevronDown, Check, Thermometer, Droplets, ShieldCheck,
+  ChevronDown, Check, Thermometer, Droplets,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
 import { pickSites, pickTowersForSite, getWeatherAssetForTower } from '../../utils/gateways';
@@ -71,22 +71,13 @@ export default function SecureOpsHeader() {
     >
       {/* Row 1: brand + live + city dropdown */}
       <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg, var(--color-accent-400), var(--color-accent-600))' }}
-          >
-            <ShieldCheck className="w-5 h-5 text-white" strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-sm md:text-base font-bold text-[var(--color-ink-0)] leading-tight">
-              SecureOps Platform
-            </h1>
-            <p className="text-[10px] md:text-[11px] text-[var(--color-ink-2)] leading-tight">
-              Digital Security Management Console
-            </p>
-          </div>
-        </div>
+        <NavLink to="/" end className="flex items-center min-w-0 shrink-0" aria-label="SMS Sentinel AI — Overview">
+          <img
+            src="/telco-logo.jpeg"
+            alt="SMS Sentinel AI — Intelligence that protects"
+            className="h-10 md:h-12 w-auto object-contain"
+          />
+        </NavLink>
 
         <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
           <LivePill />
