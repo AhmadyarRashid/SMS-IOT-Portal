@@ -24,6 +24,7 @@
 7. [State management (`secureOpsStore`)](#7-state-management-secureopsstore)
 8. [The Overview page, panel by panel](#8-the-overview-page-panel-by-panel)
 9. [The Audit Log page](#9-the-audit-log-page)
+9a. [The Control page, panel by panel](#9a-the-control-page-panel-by-panel)
 10. [Token refresh fix](#10-token-refresh-fix)
 11. [Case-insensitive type matching](#11-case-insensitive-type-matching)
 12. [Audit events shared util](#12-audit-events-shared-util)
@@ -932,6 +933,104 @@ you'll get `columns.map is not a function`.
 
 ---
 
+## 9a. The Control page, panel by panel
+
+`SecureOpsControlPage` (`src/pages/SecureOpsControlPage.jsx`) is the
+per-tower operator surface at `/control`. Layout, top to bottom:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Control · Tower-level controls for <Tower>  [ Tower ▾ ]  │   header
+├─────────────────────────────────┬────────────────────────┤
+│  Cameras (first 2 of tower)     │  Environment           │   row 1
+│  ─ CameraCard · CameraCard      │  Temp / Humidity tiles │
+├─────────────────────────────────┴────────────────────────┤
+│  Controls grid (every controllable device)               │   row 2
+├──────────────────────────────────────────────────────────┤
+│  Asset history                              [ Asset ▾ ]  │   row 3
+│  ─ chip strip (attributes) ─ chip strip (1h/6h/24h/7d/30d)│
+│  ─ Recharts AreaChart, h-72                              │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 9a.1. Scope
+
+Tower scope is the global `secureOpsStore.selectedTowerId`. The tower
+dropdown in the header writes back to the store so the Overview tab
+follows the same selection (Live Camera Feeds, Remote Control,
+Environmental Telemetry all re-scope). The site scope (from the
+`SecureOpsHeader` site dropdown) bounds the tower dropdown's options.
+
+### 9a.2. Cameras + Environment + Controls
+
+Unchanged from the 2026-05-16 ship — `CamerasPanel` shows the first
+two children matching `isCameraAsset` (fixed or PTZ); `EnvironmentPanel`
+reads `temperature` / `humidity` from `getWeatherAssetForTower`;
+`ControlsPanel` filters tower children to `CONTROLLABLE_TYPES` and
+renders a `ControllableTile` per device. Each tile toggles via
+`useWriteAttribute(getPrimaryControlAttr(asset, customType))`.
+
+### 9a.3. Asset history panel (added 2026-05-22)
+
+The bottom panel charts a single tower-child asset's history. It is the
+same renderer as `AssetPage`'s History tab — `AssetHistoryCard` in
+`src/components/charts/AssetHistoryCard.jsx`. The Control page wraps it
+in a local `HistoryPanel` that owns the asset dropdown; the dropdown's
+options are the tower's children **filtered to those with at least one
+chartable (numeric or boolean) attribute** via `hasChartableAttributes`
+(`src/utils/chartable.js`). Without the filter the dropdown would
+offer assets that always render the card's empty state.
+
+The `AssetHistoryCard` itself:
+
+- Picks chartable attributes via `isChartableAttr` (`src/utils/chartable.js`)
+  and renders one chip per attribute name; default is the asset's
+  primary reading attribute (`getPrimaryReadingAttr`, falls back to the
+  first chartable).
+- Time-range chips: `1h / 6h / 24h / 7d / 30d`. The selected range is
+  memoised via `getTimeRanges()[range]` — **must be `useMemo`'d**
+  because `getTimeRanges()` calls `Date.now()`, and a fresh object
+  every render would change the React Query key every tick and put the
+  datapoints hook in an infinite refetch loop.
+- Datapoints come from `useAssetDatapoints(assetId, attr, timeRange)`
+  which hits the OR `/asset/datapoint/{assetId}/{attributeName}` endpoint.
+  The backend can return points as `{x, y}` objects, `{timestamp, value}`
+  objects, or `[ts, v]` tuples depending on server version — all three
+  are accepted. Booleans are coerced to `0/1` so Recharts can plot them.
+- Booleans render as a step line with a `[0, 1]` Y domain and an
+  `Off / On` tick formatter; numbers render as a smooth monotone area
+  with `auto` domain.
+
+**Key-on-remount pattern (anti-flicker).** `AssetHistoryCard` does NOT
+reset its internal `attr` state when the `asset` prop changes — that
+would require a setState inside `useEffect`, which eslint flags as
+the "cascading renders" anti-pattern. Parents that swap assets must
+pass `key={asset.id}`. The Control page does this in both directions:
+
+- `HistoryPanel` is keyed on `activeTower.id` → switching tower
+  remounts the panel and resets `assetId` to the new tower's first
+  chartable child.
+- The inner `AssetHistoryCard` is keyed on `selected.id` → picking a
+  different asset in the dropdown remounts the card and resets `attr`
+  to the new asset's preferred reading.
+
+This pattern matches React's official recommendation for "reset state
+when a prop changes" — preferred over `useEffect(setState, [prop])`.
+
+### 9a.4. Why the chart lives on /control
+
+The Control page is the per-tower operator surface — the place you go
+to *act* on a single tower. Pulling up an attribute trend (battery
+voltage over 24 h, signal strength over 7 d, door-lock state over 6 h)
+is part of the same workflow: the operator has already picked a tower
+and now wants to see how a specific device has been behaving. Putting
+the chart here means no context switch to the asset detail page just
+to glance at a graph; the dropdown surfaces every chartable child in
+one place. The `AssetPage` History tab still exists for deep links and
+the "Open in asset page" flow — both surfaces now share `AssetHistoryCard`.
+
+---
+
 ## 10. Token refresh fix
 
 `src/api/client.js` — the existing axios interceptor refreshed on 401, but
@@ -1239,13 +1338,15 @@ In rough priority order:
    chips (High/Medium/Low), tower chips scoped to the selected site, free
    text search, Ack + Resolve on every row. Acknowledged or resolved
    alarms drop off this view and appear in the Audit log instead.
-3. **Control tab — ✅ shipped 2026-05-16** as `SecureOpsControlPage` at
-   `/control`. Tower dropdown (auto-pick first, syncs with global
-   `selectedTowerId`), first 2 cameras via the shared `CameraStream`
-   renderer, Environment card (temp/humidity from the tower's
-   HeatSensorAsset), and a grid of every controllable device under the
-   tower (each tile is its own toggle via `useWriteAttribute`). Bulk
-   operations (lock-all-doors, lights-off, etc.) still TODO.
+3. **Control tab — ✅ shipped 2026-05-16, Asset history added 2026-05-22**
+   as `SecureOpsControlPage` at `/control`. Tower dropdown (auto-pick
+   first, syncs with global `selectedTowerId`), first 2 cameras via the
+   shared `CameraCard`, Environment card (temp/humidity from the tower's
+   HeatSensorAsset), a grid of every controllable device under the
+   tower (each tile is its own toggle via `useWriteAttribute`), **and
+   an Asset history panel** that charts any tower child's numeric or
+   boolean attribute over 1h/6h/24h/7d/30d. See §9a for the full
+   layout. Bulk operations (lock-all-doors, lights-off, etc.) still TODO.
 4. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
    section: default site, live-camera autoplay, alert sound for new
    Critical alerts, camera-history retention display.
