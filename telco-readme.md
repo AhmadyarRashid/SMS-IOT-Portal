@@ -9,7 +9,7 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-22):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **Asset history on /control (2026-05-22):** the Control page now hosts an **Asset history** panel below the Controls grid — a dropdown of the active tower's children (filtered to those with chartable numeric/boolean attributes) drives the new `AssetHistoryCard` (Recharts AreaChart). The card was extracted from `AssetPage`'s legacy inline `HistoryTab` so both surfaces share one renderer; `AssetPage` now delegates to it. The Control panel is keyed on `activeTower.id` so a tower change remounts and resets selection; the inner `AssetHistoryCard` is keyed on `selected.id` so its `attr` state resets when the operator picks a different asset (avoids setState-in-effect). Chartable predicates live in `src/utils/chartable.js` so `AssetHistoryCard.jsx` keeps a component-only export surface. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
+**Status (2026-05-23):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **OS notification body trimmed (2026-05-23):** `buildAlarmNotificationPayload` in `src/hooks/useAlarmNotifications.js` no longer concatenates `alarm.content` into the notification body — only the severity-emoji title + `sourceName` remain, mirroring the in-app alert-card policy from 2026-05-22 (§5.1b). **Push-to-talk (2026-05-23):** the Overview's Remote Control panel no longer opens an iframe modal. The 4-tile 2×2 grid has been compressed to a **3-tile row** (Door / Siren / Lights) and a self-contained **`PushToTalkCard`** lives inline below. It streams **16-bit PCM (mono, 48 kHz)** over a WebSocket to the AI-side PC running `server.js`, which plays the audio out the site speaker. The pipeline is fully native — `usePushToTalk` hook + inline AudioWorklet + `getUserMedia` — no camera dependency, no iframe, no per-camera `pttUrl` attribute. Endpoint is centralised as `PTT_WS_URL` in `src/constants/ptt.js` (currently `ws://203.99.61.86:3000`); same mixed-content caveat as PTZ / events (§5.5). UX: hold the circular mic button (mouse or touch), red status pill blinks while transmitting, live level meter, inline error line. The legacy `PttModal` component is gone and the `pttCamera` finder logic in `RemoteControlPanel` was removed entirely. **Asset history on /control (2026-05-22):** the Control page now hosts an **Asset history** panel below the Controls grid — a dropdown of the active tower's children (filtered to those with chartable numeric/boolean attributes) drives the new `AssetHistoryCard` (Recharts AreaChart). The card was extracted from `AssetPage`'s legacy inline `HistoryTab` so both surfaces share one renderer; `AssetPage` now delegates to it. The Control panel is keyed on `activeTower.id` so a tower change remounts and resets selection; the inner `AssetHistoryCard` is keyed on `selected.id` so its `attr` state resets when the operator picks a different asset (avoids setState-in-effect). Chartable predicates live in `src/utils/chartable.js` so `AssetHistoryCard.jsx` keeps a component-only export surface. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
 
 ---
 
@@ -50,8 +50,9 @@
   `BuzzerAsset`, + the original 14 SMS IoT types.
 - **Camera attributes added:** `liveStreamUrl` (string),
   `history` (array of `{id, url, date, detection}`), `cameraVariant`
-  (`fixed | 360`), and on 360 cams: `pttUrl` (string — opened in modal iframe
-  on Push-to-talk click).
+  (`fixed | 360`). The legacy `pttUrl` attribute is no longer read —
+  push-to-talk routes to a single PC speaker via `PTT_WS_URL`
+  (§5.5), not per-camera.
 - **Tower attributes used:** `temperature`, `humidity`, `signalStrength`,
   `batteryLevel`, `connected`, `aiHeartbeatAt`, `aiUptime30d`, and an
   **optional `auditLog`** array attribute populated by backend rules.
@@ -74,9 +75,11 @@ It **is not**:
 - A video management system (no Frigate, no recording, no RTSP transcoding).
   Cameras play whatever URL is in their `liveStreamUrl` attribute via
   `<video>` / `<img>` / `<iframe>` auto-detection — the URL is OR's problem.
-- A push-to-talk audio bridge. The PTT button opens the 360 camera's own
-  vendor web UI (whose URL lives in `pttUrl`) in a full-bleed iframe; that
-  UI carries the actual mic/speaker controls.
+- A multi-party intercom. PTT is **half-duplex from operator → site
+  speaker only** — there's no return audio path from the camera into
+  the browser. The portal captures the operator's mic, streams 16-bit
+  PCM over a WebSocket to the PC running `server.js`, which plays it
+  out the site speaker. See §5.5 for the wire protocol.
 - A general-purpose VMS / AMS / ANPR aggregator. That direction lives on the
   separate `one-box-solution` branch and was **explicitly de-scoped** for
   this branch.
@@ -94,6 +97,8 @@ It **is not**:
 | **Top tab strip replaces the left sidebar** | The sketch shows tabs along the top, not a sidebar. The `DashboardLayout` now mounts `SecureOpsHeader` only — no `Sidebar` import. Legacy pages (`SitesPage`, `QuickAccessPage`, etc.) are still reachable by URL but not in the chrome. |
 | **Site dropdown is the only global scope** | The site dropdown in the header is the single source of truth for "which towers do I care about". The per-panel tower selector (Live Camera Feeds, Remote control, Environmental telemetry) is a **local** selection inside that scope. The Audit Log filters by site scope only, never by selected tower. |
 | **Severity colors:** High = red, Medium = yellow, Low = grey | User-specified 2026-05-16. CRITICAL maps to the same red as HIGH. |
+| **PTT is a single PC-speaker endpoint, not per-camera** | User decided 2026-05-23. Don't bring back `pttUrl`, don't gate the PTT card on a 360 / PTZ camera under the active tower. The URL is `PTT_WS_URL` in `src/constants/ptt.js` and the card is always present in Remote Control. |
+| **PTT is a card, not a modal** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT — the hold-to-talk button + meter live inline inside the Remote Control panel. |
 
 ---
 
@@ -103,7 +108,7 @@ It **is not**:
 SiteAsset                          (e.g. "Karachi District A")
 ├── TowerAsset (or GatewayAsset)   (e.g. "Tower 3 — North")
 │   ├── CameraAsset                  (CAM-01 Gate entrance, fixed)
-│   ├── CameraAsset                  (CAM-02 Perimeter NW, 360, pttUrl)
+│   ├── CameraAsset                  (CAM-02 Perimeter NW, 360)
 │   ├── DoorLockAsset                (Tower gate lock)
 │   ├── AlarmAsset / BuzzerAsset     (Siren)
 │   ├── LightAsset                   (Tower lights)
@@ -248,10 +253,10 @@ will block `fetch` from an HTTPS-served dashboard — same fix-paths as
 the events host (§5.2c): reverse-proxy through the dashboard origin,
 front the controller with TLS, or serve the portal over HTTP in dev.
 
-PTT (push-to-talk) detection on the Overview's Remote Control panel is
-unchanged — it still picks any camera under the active tower that has a
-non-empty `pttUrl` attribute, but now accepts either a `CameraAsset`
-with `cameraVariant: '360'` (legacy) **or** any `PtzCameraAsset` (new).
+PTT (push-to-talk) is no longer routed through any camera attribute —
+it's a global PC-speaker endpoint (`PTT_WS_URL`, see §5.5). The legacy
+behaviour of opening a `pttUrl` iframe modal under a 360 / PTZ camera
+was removed 2026-05-23.
 
 ### 5.1d. CameraStream URL routing
 
@@ -287,8 +292,7 @@ extensionless paths.
 | `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Rendered by `CameraStream` (see §5.1d for the full URL routing rules). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
 | `eventId` | datapoints (object) | **yes** for the Video modal history sidebar | Per-detection event stream stored as OR datapoints. Each datapoint value is `[{ id, label }]` or `{ id, label }` (id = AI-side event identifier, label = raw category — "person" / "animal" / anything else). The Video modal fetches this attribute via `useCameraEvents(cameraId, {from, to})` (`src/hooks/useCameraEvents.js`) using the OR datapoints endpoint with `type: 'ALL'`, and renders one history row per datapoint. The attribute key is centralised as `CAMERA_EVENT_ATTRIBUTE` in `src/constants/events.js` — rename in one place if the OR-side schema changes. See §5.2b for the full datapoints contract and §5.2c for how clip / snapshot URLs are derived from the event id. |
 | `history` | array | **deprecated** (optional fallback) | Legacy `[{id, url, date, detection}]` array. Still read by the Overview's Live Camera tile + the Video wall tile for the on-tile ALERT pill (`isRecentHumanDetection` checks `history[0]` within the last 5 min). New deployments should populate `eventId` datapoints instead — the Video modal history sidebar **no longer reads `history`**, only `eventId` datapoints. See §5.2a for the legacy JSON shape. |
-| `cameraVariant` | string | optional | `fixed` or `360`. Used to pick the PTT-capable camera under each tower. |
-| `pttUrl` | string | optional, on 360 cams only | Vendor web UI URL with built-in mic/speaker controls. Opened in an iframe modal on Push-to-talk click (mic permission granted via `allow="microphone; camera; …"`). |
+| `cameraVariant` | string | optional | `fixed` or `360`. Historical hint only — no longer routes any UI (PTT is now a single PC-speaker endpoint, see §5.5). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 
 ### 5.1b. Alarm clip URLs
@@ -326,7 +330,8 @@ When none of the three is available the View clip button hides itself
 same `CameraStream` renderer (see §5.1d for the full URL routing table
 — same rules apply to clips, including extensionless MJPEG endpoints).
 
-**Description text is no longer rendered on alert cards (2026-05-22).**
+**Description text is no longer rendered on alert cards (2026-05-22)
+or in OS notifications (2026-05-23).**
 The Overview's Recent Alerts panel, the `/alarms` page, and the `/audit`
 page all show **only** the alarm title, breadcrumb (Site › Tower ›
 Asset), timestamp, and the action cluster (clip icon / Ack / Resolve).
@@ -334,12 +339,22 @@ The free-text body is intentionally hidden — operators triage on the
 title + asset + severity; the description rarely added signal and often
 duplicated the title.
 
+**OS notifications (2026-05-23)** follow the same policy.
+`buildAlarmNotificationPayload(alarm)` in `src/hooks/useAlarmNotifications.js`
+no longer concatenates `alarm.content` into the notification body — the
+payload is now strictly `{ title: "🚨 <severity emoji> <alarm title>",
+body: <sourceName | fallback> }`. The fallback `"Tap to open the alarms
+page."` kicks in only when the alarm has no `sourceName` (rare — OR
+populates it for any alarm tied to an asset). This keeps the OS
+notification's two visible lines mirroring the in-app row exactly:
+emoji + title on top, asset name underneath.
+
 `getAlarmContentText(alarm)` in `src/utils/alarms.js` is still used by
 `src/utils/auditEvents.js` to populate `e.detail`, so the cleaned text
 is still indexed by the Audit Log search field and exported by the CSV
-"Detail" column — it's just not rendered on the row. If a future UI
-wants to surface it again (e.g. an expanded-row drawer), pull it back
-through that helper; the URL/event-id stripping still works.
+"Detail" column — it's just not rendered on the row or in notifications.
+If a future UI wants to surface it again (e.g. an expanded-row drawer),
+pull it back through that helper; the URL/event-id stripping still works.
 
 The stripping rules `getAlarmContentText` applies (URLs out, bare event
 ids out — both extracted only for the clip icon, never shown as text):
@@ -646,6 +661,50 @@ The original SMS IoT contract is unchanged:
   `src/utils/assetIcons.js` for the canonical rules.
 - DoorLock convention: `onOff=true` ⇒ Locked ⇒ "active" (cyan glow).
 
+### 5.5. Push-to-talk endpoint
+
+PTT is **not a per-camera attribute** — it's a single global WebSocket
+endpoint pointed at a Windows PC running `server.js` near the site
+speaker. The URL is centralised in `src/constants/ptt.js`:
+
+```js
+export const PTT_WS_URL = 'ws://203.99.61.86:3000';
+```
+
+**Wire protocol** (must match the PC-side `server.js`):
+
+| Direction | Frame type | Payload |
+|---|---|---|
+| → server | JSON | `{"type":"ptt_start"}` — emitted on hold-down |
+| → server | binary (ArrayBuffer) | Int16 little-endian PCM, **mono, 48 kHz**, ~10 ms chunks |
+| → server | JSON | `{"type":"ptt_stop"}` — emitted on release |
+| ← client | JSON | `{"type":"ptt_started"}` / `{"type":"ptt_stopped"}` — acks (currently ignored by the hook) |
+| ← client | JSON | `{"type":"error","message":"…"}` — surfaced as the card's inline error line |
+
+**Hook contract.** `src/hooks/usePushToTalk.js` exposes
+`{ status, error, level, start, stop, talking }`:
+
+- `status` — `idle | connecting | connected | talking | error | disconnected`
+- `error`  — last error string (clears on next `start()`)
+- `level`  — 0..100 mic level (drives the card's meter, RAF-paced)
+- `start()` / `stop()` — wired to the card button's hold-down / release.
+  `start()` opens the socket lazily on first press and re-uses it
+  thereafter; mic permission is requested on each press but the
+  browser usually remembers the grant for the origin.
+
+**Audio pipeline.** Mic → `AudioContext({sampleRate:48000})` →
+`MediaStreamSource` → `AnalyserNode` (level meter) → `AudioWorkletNode`
+(inline blob, converts Float32 → Int16 → posts `ArrayBuffer` to the
+main thread) → `ws.send(arrayBuffer)`. The worklet code is shipped as
+a string and loaded via `URL.createObjectURL(blob)` so there's no
+separate `.js` file to bundle.
+
+**Mixed-content caveat** — same as PTZ (§5.1e) and events (§5.2c):
+an HTTPS-served portal cannot open a `ws://` socket. Switch to
+`wss://` once the PC has TLS, or reverse-proxy through the dashboard
+origin (Vite dev proxy + nginx/caddy in prod) and point
+`PTT_WS_URL` at a relative `/ptt` path.
+
 ---
 
 ## 6. Routing + the SecureOps shell
@@ -736,7 +795,7 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 │ Site status                  │ Environmental telemetry           │
 │   button rows                │   temp/humidity/signal/battery    │
 │ Remote control               │   + 8h detections bar chart       │
-│   2×2 buttons + PTT modal    │ Audit log                         │
+│   3 buttons + PTT card       │ Audit log                         │
 │                              │   scrollable, last N events       │
 └──────────────────────────────┴───────────────────────────────────┘
 ```
@@ -788,18 +847,32 @@ that needs attention first.
 
 ### 8.4. Remote control
 
-Four buttons for the active tower:
+Three toggle buttons for the active tower, plus an inline **Push-to-talk
+card** below the grid:
+
 - **Door lock** — first `DoorLockAsset` child. Toggles `onOff`. Labels:
   "Locked" / "Unlocked".
 - **Siren** — first `BuzzerAsset` or `AlarmAsset`. Toggles `onOff`.
 - **Lights** — first `LightAsset`. Toggles `onOff`.
-- **Push to talk** — opens an iframe modal pointing at `pttUrl` of the
-  active tower's 360 camera (`cameraVariant === '360'` OR `/360/i` in the
-  asset name). Modal has `allow="microphone; camera; autoplay; encrypted-media"`.
-  Disabled when no PTT-capable camera exists.
 
-All writes go through the existing optimistic `useWriteAttribute` (cache
-patches instantly, rolls back + toast on error, 15 s poll reconciles).
+Toggle writes go through the existing optimistic `useWriteAttribute`
+(cache patches instantly, rolls back + toast on error, 15 s poll
+reconciles).
+
+**Push-to-talk card** (`PushToTalkCard`, inline — no modal):
+- Hold the circular mic button (mouse-down / touch-start) to transmit;
+  release to stop. `onMouseLeave` while talking also releases so the
+  mic can't get stuck open if the operator drags off.
+- Backed by `usePushToTalk` (see §5.5). Connection is lazy — the
+  WebSocket opens on first press, stays warm between holds, and tears
+  down on unmount.
+- Status pill cycles `Idle / Connecting / Ready / Transmitting / Error
+  / Offline`. The red `Transmitting` dot blinks at 0.7 s while live.
+- Live mic level meter (accent → danger gradient) and an inline error
+  line for connect / mic-permission failures.
+- **Not gated on any tower / camera attribute.** The endpoint is global,
+  so the card is always present — there's no "No 360 cam" disabled
+  state anymore.
 
 ### 8.5. Recent alerts
 
@@ -1179,10 +1252,21 @@ src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTR
 src/constants/ptz.js                          PTZ_BASE_URL + getPtzMoveUrl(id, dir).
                                               Single source of truth for the AI-side
                                               PTZ controller endpoint shape.
+src/constants/ptt.js                          PTT_WS_URL. Single source of truth for
+                                              the PC-speaker WebSocket endpoint
+                                              (`ws://host:port`) consumed by
+                                              usePushToTalk.
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
 src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
                                               with toast on failure + 150ms throttle.
+src/hooks/usePushToTalk.js                    Hold-to-talk PCM-over-WebSocket
+                                              pipeline. Wraps WebSocket lifecycle,
+                                              getUserMedia, and an inline
+                                              AudioWorklet that converts Float32→Int16.
+                                              Exposes { status, error, level, start,
+                                              stop, talking }. Socket stays warm
+                                              between presses; full teardown on unmount.
 src/components/charts/AssetHistoryCard.jsx    Reusable history chart for a single asset
                                               (Recharts AreaChart). Picks chartable
                                               attributes automatically, defaults to the
@@ -1347,15 +1431,25 @@ In rough priority order:
    an Asset history panel** that charts any tower child's numeric or
    boolean attribute over 1h/6h/24h/7d/30d. See §9a for the full
    layout. Bulk operations (lock-all-doors, lights-off, etc.) still TODO.
-4. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
+4. **Push-to-talk — ✅ shipped 2026-05-23** as `PushToTalkCard` inline
+   in Remote Control on the Overview page. Routes 16-bit PCM (mono,
+   48 kHz) over a WebSocket (`PTT_WS_URL`) to a PC speaker via
+   `usePushToTalk` (§5.5). Hold-to-talk button + live mic level meter
+   + status pill. **Open polish:** TLS for the PTT server so an HTTPS
+   portal stops being blocked by mixed-content (currently swap
+   `PTT_WS_URL` to `wss://…` once cert lands); optional Space hotkey
+   while the Overview is focused; per-operator transmit lock if more
+   than one operator can hold a tower.
+5. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
    section: default site, live-camera autoplay, alert sound for new
-   Critical alerts, camera-history retention display.
-5. **Device-state-change history from datapoints** — for towers that don't
+   Critical alerts, camera-history retention display, **PTT server URL
+   override** (so the constant doesn't have to be edited per-deployment).
+6. **Device-state-change history from datapoints** — for towers that don't
    carry an `auditLog` attribute, optionally fetch datapoints for each
    controllable asset's `onOff` over the last 24 h and surface them in
    the audit log. Cap to ~5 towers at a time; use `useQueries` with a
    stable id list to avoid query churn.
-6. **Detect when `aiHeartbeatAt` is stale** — if no tower has reported a
+7. **Detect when `aiHeartbeatAt` is stale** — if no tower has reported a
    heartbeat in > 5 min, drop the AI uptime KPI to `—` (currently it stays
    at 100% as long as any heartbeat exists, regardless of recency).
 

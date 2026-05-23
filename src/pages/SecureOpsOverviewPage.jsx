@@ -15,7 +15,7 @@ import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '.
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
-  getWeatherAssetForTower, isCameraAsset,
+  getWeatherAssetForTower, isCameraAsset, findPttAssetForTower,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -27,6 +27,8 @@ import CameraCard from '../components/cameras/CameraCard';
 import ClipModal from '../components/cameras/ClipModal';
 import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
 import { getAlarmClipUrl } from '../utils/alarms';
+import usePushToTalk from '../hooks/usePushToTalk';
+import { buildPttWsUrl } from '../constants/ptt';
 import './secureops.css';
 
 /* ==========================================================================
@@ -623,17 +625,18 @@ function RemoteControlPanel({ tower, assets }) {
   const siren = children.find((a) => getCustomAssetType(a) === 'BuzzerAsset')
             || children.find((a) => getCustomAssetType(a) === 'AlarmAsset');
   const light = children.find((a) => getCustomAssetType(a) === 'LightAsset');
-  // PTT-capable 360 camera under the same tower. Either a CameraAsset with
-  // `cameraVariant: '360'` (legacy) or any PtzCameraAsset (new) qualifies,
-  // provided it carries a `pttUrl` attribute.
-  const pttCamera = children.find((a) => {
-    const t = normalizeAssetType(getCustomAssetType(a));
-    if (t !== 'CameraAsset' && t !== 'PtzCameraAsset') return false;
-    const url = a.attributes?.pttUrl?.value;
-    if (typeof url !== 'string' || !url.trim()) return false;
-    const is360 = a.attributes?.cameraVariant?.value === '360' || /360/i.test(a.name || '');
-    return t === 'PtzCameraAsset' || is360;
-  });
+
+  // PTT endpoint is per-tower: each tower must carry a `PttAsset` child whose
+  // `socketIP` attribute points at the on-site PC speaker. The `wss://`
+  // scheme is hard-coded here — only host/port/path comes from the attribute
+  // (see `buildPttWsUrl` in `constants/ptt.js`). Towers without a PttAsset
+  // (or a blank `socketIP`) render the PTT card in a disabled state — there
+  // is no global fallback.
+  const pttUrl = useMemo(() => {
+    const pttAsset = findPttAssetForTower(tower, assets);
+    const socketIP = pttAsset?.attributes?.socketIP?.value;
+    return buildPttWsUrl(socketIP);
+  }, [tower, assets]);
 
   const write = useWriteAttribute();
   const toggle = (asset) => {
@@ -641,8 +644,6 @@ function RemoteControlPanel({ tower, assets }) {
     const attr = getPrimaryControlAttr(asset, getCustomAssetType(asset));
     write.mutate({ assetId: asset.id, attributeName: attr, value: nextToggleValue(asset, attr) });
   };
-
-  const [pttOpen, setPttOpen] = useState(false);
 
   return (
     <section className="panel p-4 md:p-5">
@@ -656,7 +657,7 @@ function RemoteControlPanel({ tower, assets }) {
         </span>
       </div>
 
-      <div className="so-remote-grid">
+      <div className="so-remote-grid so-remote-grid--3">
         <RemoteButton
           icon={Lock}
           label="Door lock"
@@ -681,19 +682,13 @@ function RemoteControlPanel({ tower, assets }) {
           disabled={!light}
           onClick={() => toggle(light)}
         />
-        <RemoteButton
-          icon={Mic}
-          label="Push to talk"
-          stateLabel={pttCamera ? 'Hold to speak' : 'No 360 cam'}
-          active={false}
-          disabled={!pttCamera}
-          onClick={() => setPttOpen(true)}
-        />
       </div>
 
-      {pttOpen && pttCamera && (
-        <PttModal camera={pttCamera} onClose={() => setPttOpen(false)} />
-      )}
+      {/* Re-key on URL so a tower change tears down the previous socket +
+          audio graph instead of silently reusing them with the wrong host.
+          Falls back to a stable string when the tower has no PttAsset so
+          React doesn't see a null key. */}
+      <PushToTalkCard key={pttUrl || 'ptt-disabled'} url={pttUrl} />
     </section>
   );
 }
@@ -728,44 +723,119 @@ function SlidersIcon() {
   );
 }
 
-function PttModal({ camera, onClose }) {
-  // Lock body scroll while the modal is open.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
+const PTT_STATUS_COPY = {
+  idle:         { label: 'Idle',         tone: 'mute' },
+  connecting:   { label: 'Connecting',   tone: 'warn' },
+  connected:    { label: 'Ready',        tone: 'ok'   },
+  talking:      { label: 'Transmitting', tone: 'hot'  },
+  error:        { label: 'Error',        tone: 'hot'  },
+  disconnected: { label: 'Offline',      tone: 'mute' },
+};
 
-  const url = camera.attributes?.pttUrl?.value;
+function PushToTalkCard({ url }) {
+  // When the active tower has no PttAsset (or its `socketIP` is blank) the
+  // card is rendered in a disabled, no-op state — no socket, no mic, no
+  // status polling. No global fallback URL.
+  const disabled = !url;
+  return disabled
+    ? <PushToTalkCardDisabled />
+    : <PushToTalkCardLive url={url} />;
+}
+
+function PushToTalkCardDisabled() {
+  return (
+    <div className="so-ptt-card" data-disabled="true" aria-disabled="true">
+      <div className="so-ptt-head">
+        <span className="so-ptt-title">
+          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+          Push to talk
+        </span>
+        <span className="so-ptt-status" data-tone="mute">
+          <span className="so-ptt-status-dot" />
+          Unavailable
+        </span>
+      </div>
+
+      <div className="so-ptt-body">
+        <button
+          type="button"
+          className="so-ptt-btn"
+          disabled
+          aria-label="Push to talk unavailable"
+          title="No PTT device configured for this tower"
+        >
+          <Mic className="so-ptt-btn-icon" strokeWidth={1.75} />
+        </button>
+
+        <div className="so-ptt-info">
+          <div className="so-ptt-hint">No PTT device configured for this tower</div>
+          <div className="so-ptt-meter" aria-hidden="true">
+            <div className="so-ptt-meter-fill" style={{ width: '0%' }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PushToTalkCardLive({ url }) {
+  const { status, error, level, start, stop, talking } = usePushToTalk(url);
+  const copy = PTT_STATUS_COPY[status] || PTT_STATUS_COPY.idle;
+
+  const onPress = (e) => {
+    e.preventDefault();
+    start();
+  };
+  const onRelease = (e) => {
+    e.preventDefault();
+    stop();
+  };
+
+  const hint = talking
+    ? 'Release to stop'
+    : status === 'connecting'
+      ? 'Connecting to PC speaker…'
+      : status === 'error'
+        ? 'Tap and hold to retry'
+        : 'Hold to speak through PC speaker';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(2, 6, 23, 0.78)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div
-        className="panel p-3 w-[min(960px,95vw)] h-[min(640px,80vh)] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div>
-            <p className="text-sm font-bold">Push to talk — {getAssetDisplayName(camera)}</p>
-            <p className="text-[11px] text-[var(--color-ink-2)]">360° feed with bidirectional audio</p>
+    <div className="so-ptt-card" data-talking={talking}>
+      <div className="so-ptt-head">
+        <span className="so-ptt-title">
+          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+          Push to talk
+        </span>
+        <span className="so-ptt-status" data-tone={copy.tone}>
+          <span className="so-ptt-status-dot" />
+          {copy.label}
+        </span>
+      </div>
+
+      <div className="so-ptt-body">
+        <button
+          type="button"
+          className="so-ptt-btn"
+          data-talking={talking}
+          onMouseDown={onPress}
+          onMouseUp={onRelease}
+          onMouseLeave={talking ? onRelease : undefined}
+          onTouchStart={onPress}
+          onTouchEnd={onRelease}
+          onContextMenu={(e) => e.preventDefault()}
+          aria-pressed={talking}
+          aria-label="Hold to talk"
+        >
+          <Mic className="so-ptt-btn-icon" strokeWidth={1.75} />
+        </button>
+
+        <div className="so-ptt-info">
+          <div className="so-ptt-hint">{hint}</div>
+          <div className="so-ptt-meter" aria-hidden="true">
+            <div className="so-ptt-meter-fill" style={{ width: `${level}%` }} />
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[color-mix(in_srgb,var(--color-ink-0)_8%,transparent)]"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {error && <div className="so-ptt-error">{error}</div>}
         </div>
-        <iframe
-          src={url}
-          title="Push to talk"
-          className="flex-1 w-full rounded-lg border-0"
-          allow="microphone; camera; autoplay; encrypted-media"
-        />
       </div>
     </div>
   );

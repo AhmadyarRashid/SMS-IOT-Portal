@@ -86,8 +86,12 @@ const log = (...args) => { if (dev) console.debug('[notify]', ...args); };
 
 /**
  * Format an OpenRemote SentAlarm into a polished notification payload.
- * Severity-emoji in the title, asset + content in the body, and a
+ * Severity-emoji in the title, asset name in the body, and a
  * `url: '/alarms'` payload so the SW can deep-link on click.
+ *
+ * The free-text `content` / description is intentionally NOT included —
+ * matches the in-app alert-card policy (operators triage on title +
+ * asset + severity; the description added little signal).
  */
 export function buildAlarmNotificationPayload(alarm) {
   const sev = (alarm?.severity || 'MEDIUM').toUpperCase();
@@ -97,10 +101,7 @@ export function buildAlarmNotificationPayload(alarm) {
     sev === 'LOW'      ? 'ℹ️' :
     '🔔';
   const title = `${emoji} ${alarm?.title || 'New alarm'}`;
-  const pieces = [];
-  if (alarm?.sourceName) pieces.push(alarm.sourceName);
-  if (alarm?.content) pieces.push(alarm.content);
-  const body = pieces.join(' · ') || 'Tap to open the alarms page.';
+  const body = alarm?.sourceName || 'Tap to open the alarms page.';
   return {
     title,
     body,

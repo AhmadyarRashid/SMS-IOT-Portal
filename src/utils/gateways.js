@@ -166,6 +166,33 @@ export function getWeatherAssetForTower(tower, allAssets = []) {
 }
 
 /**
+ * Find the PTT asset under a tower.
+ *
+ * Match rules (all case-insensitive — telco realms inconsistently capitalise
+ * type strings, and the operator may have renamed the asset by hand):
+ *   • `customAssetType` equals `PttAsset`, OR
+ *   • display `name` equals `PTT Asset` (also accepts the `PTT Assest` typo).
+ *
+ * Walks `isDescendantOfGateway` directly rather than `pickGatewayChildren`
+ * because `PttAsset` is not in `DEVICE_TYPES` — it's a single-purpose
+ * configuration asset that carries the `socketIP` attribute used to build
+ * the PTT WebSocket URL.
+ *
+ * Returns the first match or `null` — callers should fall back to the
+ * global `PTT_WS_URL` constant when null.
+ */
+export function findPttAssetForTower(tower, allAssets = []) {
+  if (!tower) return null;
+  return (allAssets || []).find((a) => {
+    if (!isDescendantOfGateway(a, tower.id)) return false;
+    const type = String(getCustomAssetType(a) || '').toLowerCase();
+    if (type === 'pttasset') return true;
+    const name = String(a?.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return name === 'ptt asset' || name === 'ptt assest';
+  }) || null;
+}
+
+/**
  * The single site an asset (usually a tower or device) belongs to. Returns
  * the first matching site found via `path` descent; falls back to a direct
  * `parentId` lookup.

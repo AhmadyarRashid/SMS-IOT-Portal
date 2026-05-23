@@ -559,12 +559,162 @@ button.so-cam:focus-visible {
   border-color: color-mix(in srgb, var(--color-accent-500) 55%, transparent);
   color: var(--color-accent-300);
 }
+.so-remote-grid--3 { grid-template-columns: repeat(3, 1fr); }
 .so-remote-btn .so-remote-state {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 700;
   opacity: 0.85;
+}
+
+/* ---------- Push to talk card ---------- */
+
+.so-ptt-card {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 9%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color .18s ease, background .18s ease;
+}
+.so-ptt-card[data-talking="true"] {
+  border-color: color-mix(in srgb, var(--color-danger-400) 55%, transparent);
+  background: color-mix(in srgb, var(--color-danger-400) 8%, transparent);
+}
+
+.so-ptt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.so-ptt-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-ink-1);
+}
+
+.so-ptt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+  color: var(--color-ink-2);
+}
+.so-ptt-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.so-ptt-status[data-tone="ok"] {
+  color: var(--color-ok-500);
+  border-color: color-mix(in srgb, var(--color-ok-500) 40%, transparent);
+}
+.so-ptt-status[data-tone="hot"] {
+  color: var(--color-danger-400);
+  border-color: color-mix(in srgb, var(--color-danger-400) 45%, transparent);
+}
+.so-ptt-status[data-tone="hot"] .so-ptt-status-dot {
+  animation: so-ptt-blink 0.7s ease-in-out infinite;
+}
+.so-ptt-status[data-tone="warn"] {
+  color: var(--color-warning-400);
+  border-color: color-mix(in srgb, var(--color-warning-400) 40%, transparent);
+}
+
+@keyframes so-ptt-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+
+.so-ptt-body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.so-ptt-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  border: 2px solid color-mix(in srgb, var(--color-ink-0) 14%, transparent);
+  color: var(--color-ink-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform .1s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.so-ptt-btn:hover {
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+  color: var(--color-accent-300);
+}
+.so-ptt-btn:active { transform: scale(0.97); }
+.so-ptt-btn[data-talking="true"] {
+  background: color-mix(in srgb, var(--color-danger-400) 22%, var(--color-surface-1));
+  border-color: var(--color-danger-400);
+  color: var(--color-danger-400);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-danger-400) 18%, transparent),
+              0 0 0 14px color-mix(in srgb, var(--color-danger-400) 7%, transparent);
+}
+.so-ptt-btn-icon {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+}
+
+.so-ptt-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.so-ptt-hint {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-2);
+}
+.so-ptt-meter {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  overflow: hidden;
+}
+.so-ptt-meter-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--color-accent-500), var(--color-danger-400));
+  transition: width .05s linear;
+}
+.so-ptt-error {
+  font-size: 11px;
+  color: var(--color-danger-400);
+  word-break: break-word;
 }
 
 /* ---------- Alerts list ---------- */
