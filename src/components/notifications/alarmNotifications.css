@@ -1,0 +1,199 @@
+/* ==========================================================================
+   Alarm notification stack — Mac-style, fixed-position overlay below the
+   SecureOpsHeader. See AlarmNotificationStack.jsx for the JSX-side contract.
+   ========================================================================== */
+
+/* The container itself is pointer-events:none so transparent gaps don't
+   capture clicks meant for the page below; only the visible cards opt back
+   in via the universal `.alarm-stack > *` rule. */
+.alarm-stack {
+  position: fixed;
+  top: 124px;                                     /* clears the 2-row header */
+  right: 16px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  z-index: 20;                                    /* below site dropdown menu (z-40) */
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.alarm-stack > * { pointer-events: auto; }
+
+/* Header bar — count + Expand/Collapse + Close all. Always visible whenever
+   the stack has at least one item. */
+.alarm-stack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: color-mix(in srgb, var(--color-surface-1) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.alarm-stack-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-ink-1);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.alarm-stack-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.alarm-stack-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+  color: var(--color-ink-1);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.alarm-stack-btn:hover {
+  background: color-mix(in srgb, var(--color-ink-0) 6%, transparent);
+  color: var(--color-ink-0);
+}
+.alarm-stack-btn-danger {
+  color: var(--color-danger-400);
+  border-color: color-mix(in srgb, var(--color-danger-500) 36%, transparent);
+}
+.alarm-stack-btn-danger:hover {
+  background: color-mix(in srgb, var(--color-danger-500) 12%, transparent);
+  color: var(--color-danger-400);
+}
+
+/* Expanded list — one full card per alarm. */
+.alarm-stack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 2px;                             /* room for scrollbar */
+}
+.alarm-stack-item { /* hands off to .alarm-card-body */ }
+
+/* Collapsed peek — height matches a single card plus the bottom offsets so
+   the bottom-most card doesn't bleed past the container. */
+.alarm-stack-collapsed {
+  position: relative;
+  height: 96px;
+  cursor: pointer;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: 100%;
+  outline: none;
+}
+.alarm-stack-collapsed:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent-500) 70%, transparent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+.alarm-stack-peek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform-origin: top center;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+/* The card body itself — used identically in the expanded list AND in each
+   peek layer of the collapsed view. */
+.alarm-card-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px 24px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px 10px 0;
+  background: var(--color-surface-1);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px -16px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.alarm-card-rail {
+  align-self: stretch;
+  background: var(--rail, var(--color-ink-2));
+}
+.alarm-card-body[data-tone='danger']  { --rail: var(--color-danger-400); }
+.alarm-card-body[data-tone='warning'] { --rail: var(--color-warning-400); }
+.alarm-card-body[data-tone='mute']    { --rail: var(--color-ink-2); }
+
+.alarm-card-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--rail);
+  justify-self: center;
+}
+.alarm-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.alarm-card-text--static { cursor: default; }
+.alarm-card-text:hover .alarm-card-title { color: var(--color-accent-300); }
+.alarm-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-ink-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.12s;
+}
+.alarm-card-source {
+  font-size: 11px;
+  color: var(--color-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.alarm-card-when {
+  font-size: 10px;
+  color: var(--color-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.alarm-card-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-ink-2);
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.alarm-card-close:hover {
+  background: color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  color: var(--color-ink-0);
+  border-color: color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+}

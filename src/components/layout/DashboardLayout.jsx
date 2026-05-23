@@ -8,6 +8,7 @@ import useLiveEvents from '../../hooks/useLiveEvents';
 import usePwaStore from '../../store/pwaStore';
 import CommandPalette from '../commandpalette/CommandPalette';
 import InstallPrompt from '../pwa/InstallPrompt';
+import AlarmNotificationStack from '../notifications/AlarmNotificationStack';
 
 /**
  * Remember scroll positions per pathname. When the user navigates away we
@@ -71,6 +72,7 @@ export default function DashboardLayout() {
       </main>
       <CommandPalette />
       <InstallPrompt />
+      <AlarmNotificationStack />
       <Toaster
         position="top-right"
         toastOptions={{

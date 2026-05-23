@@ -4,7 +4,9 @@ import { useState } from 'react';
  * Renders a live camera feed from a URL with smart fallback detection:
  *   • `.jpg` / `.png` / `.webp` / `.gif` — `<img>` (still snapshot or MJPEG)
  *   • Extensionless URLs (e.g. `/api/cam238`) — `<img>` (MJPEG stream endpoint)
- *   • `.mp4` / `.webm` / `.ogg` / `.m3u8` / `.mov` — `<video>` (autoplay, muted, loop)
+ *   • `.mp4` / `.webm` / `.ogg` / `.m3u8` / `.mov` — `<video>` (autoplay,
+ *     muted, loop). Audio is OFF by default — `muted` is required for
+ *     browser autoplay policy anyway.
  *   • Anything else — `<iframe>` (vendor web UI / RTSP-to-HLS proxy page)
  *
  * Used by every SecureOps surface that shows a live feed — keeps the URL

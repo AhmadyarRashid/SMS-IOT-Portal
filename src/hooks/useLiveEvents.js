@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import toast from 'react-hot-toast';
 import { useAlarms, useAssets } from './useAssets';
 import useActivityStore from '../store/activityStore';
+import useAlarmNotificationsStore from '../store/alarmNotificationsStore';
 import { REALM } from '../api/client';
 import {
   getCustomAssetType, getStateLabel, CONTROLLABLE_TYPES, getAssetDisplayName,
@@ -80,18 +80,19 @@ export default function useLiveEvents() {
       pushMany(fresh.map(toEvent));
       const onAlarmsPage = locRef.current.startsWith('/alarms');
       if (!onAlarmsPage) {
-        fresh.slice(0, 3).forEach((a) => {
-          toast.error(a.title || 'New alarm', {
-            duration: 4500,
-            icon: '🔔',
-          });
-          // Rich OS notification: severity emoji in the title, site + content
-          // in the body, deep-links to /alarms when clicked.
+        // Push EVERY fresh alarm into the in-app notification stack — it's
+        // designed to handle multiple items (Mac-style collapsed stack with
+        // expand + close-all). The old `react-hot-toast` flow only showed
+        // the first 3 and a "+N more" summary, and the cards covered the
+        // site dropdown until they auto-expired.
+        const pushNotification = useAlarmNotificationsStore.getState().push;
+        fresh.forEach((a) => {
+          pushNotification(a);
+          // Rich OS notification: severity emoji in the title, source name
+          // in the body, deep-links to /alarms when clicked. Fires only
+          // when the tab is hidden (see useAlarmNotifications.js).
           fireAlarmNotification(buildAlarmNotificationPayload(a));
         });
-        if (fresh.length > 3) {
-          toast(`+${fresh.length - 3} more alarms`, { icon: '…' });
-        }
       }
     }
     prevIdsRef.current = new Set(alarms.map((a) => a.id));
