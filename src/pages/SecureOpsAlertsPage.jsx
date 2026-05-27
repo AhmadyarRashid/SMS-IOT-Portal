@@ -15,7 +15,7 @@ import {
 import { getAlarmClipUrl } from '../utils/alarms';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
-import ClipModal from '../components/cameras/ClipModal';
+import AlarmClipModal from '../components/cameras/AlarmClipModal';
 import './secureops.css';
 
 /* ==========================================================================
@@ -288,10 +288,11 @@ export default function SecureOpsAlertsPage() {
       </section>
 
       {clipInView && (
-        <ClipModal
-          title={clipInView.title}
-          subtitle={clipInView.subtitle}
-          url={clipInView.url}
+        <AlarmClipModal
+          alarm={clipInView.alarm}
+          asset={clipInView.asset}
+          tower={clipInView.tower}
+          site={clipInView.site}
           onClose={() => setClipInView(null)}
         />
       )}
@@ -380,13 +381,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
           {clipUrl && (
             <button
               type="button"
-              onClick={() => onClipClick?.({
-                url: clipUrl,
-                title: alarm.title || 'Alarm clip',
-                subtitle: createdAt
-                  ? `${format(createdAt, 'HH:mm dd MMM')}${assetName ? ` · ${assetName}` : ''}`
-                  : assetName,
-              })}
+              onClick={() => onClipClick?.({ alarm, asset, tower, site })}
               className="so-clip-btn"
               title="View the clip attached to this alarm"
             >

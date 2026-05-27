@@ -119,12 +119,20 @@ export function useUpdateAlarmStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ alarm, status }) => updateAlarm({ ...alarm, status }),
-    onSuccess: () => {
+    // Callers can pass `successMessage` / `errorMessage` in variables to
+    // surface action-specific copy (e.g. "Alarm acknowledged" vs "Alarm
+    // resolved"). Falls back to the generic copy when omitted so older
+    // call sites keep their existing behaviour.
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['alarms'] });
-      toast.success('Alarm status updated');
+      toast.success(variables?.successMessage || 'Alarm status updated');
     },
-    onError: (err) => {
-      toast.error(err.response?.data?.message || 'Failed to update alarm');
+    onError: (err, variables) => {
+      toast.error(
+        variables?.errorMessage
+        || err.response?.data?.message
+        || 'Failed to update alarm'
+      );
     },
   });
 }

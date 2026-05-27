@@ -1,46 +1,49 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useTransition } from 'react';
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
   ServerCog, AlertOctagon, Activity, Cpu,
-  Video as VideoIcon, RefreshCw,
   RadioTower, ChevronRight,
-  Lock, Siren, Lightbulb, Mic,
-  Thermometer, Droplets, Signal, BatteryCharging,
-  ScrollText, X, Building2, Check, CheckCheck, Loader2,
-  ChevronsRight,
+  Building2, Check, CheckCheck, Loader2, Clock, RotateCcw,
 } from 'lucide-react';
-import { useAssets, useAlarms, useWriteAttribute, useUpdateAlarmStatus } from '../hooks/useAssets';
+import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
-  pickSites, pickTowersForSite, pickGatewayChildren,
+  pickSites, pickTowersForSite,
   alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
-  getWeatherAssetForTower, isCameraAsset, findPttAssetForTower,
 } from '../utils/gateways';
 import {
-  getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
-  isAssetActive, getPrimaryControlAttr, nextToggleValue, normalizeAssetType,
+  getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
-import CameraCard from '../components/cameras/CameraCard';
-import ClipModal from '../components/cameras/ClipModal';
-import { alarmAuditEvents, towerAuditEvents } from '../utils/auditEvents';
+import AlarmClipModal from '../components/cameras/AlarmClipModal';
 import { getAlarmClipUrl } from '../utils/alarms';
-import usePushToTalk from '../hooks/usePushToTalk';
-import { buildPttWsUrl } from '../constants/ptt';
 import './secureops.css';
 
 /* ==========================================================================
-   SecureOps Overview — telco dashboard, every block derived from
-   useAssets + useAlarms (no extra endpoints). Mirrors the prototype 1:1.
+   SecureOps Overview — telco dashboard.
+   Slimmed surface: KPI strip + full-width Recent Alerts only. Tower-scoped
+   environmental telemetry (temp/humidity/signal/battery) is rendered as
+   chips in `SecureOpsHeader` so it stays visible across every tab. Site
+   Status, Remote Control, and Environmental Telemetry panels were removed
+   per design — Remote Control still lives on `/control`.
    ========================================================================== */
 
 export default function SecureOpsOverviewPage() {
   const { data: assets = [], isLoading } = useAssets({});
   const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
   const { data: allAlarms = [] } = useAlarms({});
-  const { selectedSiteId, selectedTowerId, setTower, setSite } = useSecureOpsStore();
+  const { selectedSiteId } = useSecureOpsStore();
+
+  // Time-range filter — drives the "Active alerts" + "Detections" KPIs and
+  // the Recent Alerts list. "Sites online" and "AI uptime" are state-based
+  // snapshots and ignore the range. Default 24h matches a typical operator
+  // shift; `all` removes the filter entirely. The setter is wrapped in
+  // `startTransition` so React keeps the previous list visible during the
+  // re-derive instead of flashing an empty intermediate frame.
+  const [range, setRange] = useState('24h');
+  const [isRangePending, startRangeTransition] = useTransition();
+  const rangeWindow = useMemo(() => getRangeWindow(range), [range]);
 
   const sites = useMemo(() => pickSites(assets), [assets]);
 
@@ -49,7 +52,6 @@ export default function SecureOpsOverviewPage() {
   const towers = useMemo(() => {
     if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
     if (sites.length === 0) {
-      // No SiteAssets configured: treat every gateway / TowerAsset as a tower.
       return assets.filter((a) =>
         a.type === 'GatewayAsset'
         || normalizeAssetType(getCustomAssetType(a)) === 'TowerAsset'
@@ -58,42 +60,7 @@ export default function SecureOpsOverviewPage() {
     return sites.flatMap((s) => pickTowersForSite(assets, s.id));
   }, [assets, sites, selectedSiteId]);
 
-  // Auto-pick first tower for panels that need a single tower context.
-  const activeTower = useMemo(() => {
-    if (selectedTowerId) {
-      const t = towers.find((x) => x.id === selectedTowerId);
-      if (t) return t;
-    }
-    return towers[0] || null;
-  }, [towers, selectedTowerId]);
-
-  // Per-tower derived summary (used by Site Status + KPI strip).
-  const towerSummaries = useMemo(
-    () => towers.map((t) => summariseTower(t, assets, openAlarms)),
-    [towers, assets, openAlarms]
-  );
-
-  /* ----- Per-site summary (drives the "Sites online" KPI) -----
-   *
-   * Offline detection — real-scenario, OpenRemote-native:
-   *   • Tower (or any gateway) is OFFLINE when its `connected` attribute is
-   *     explicitly `false`. OR's Agent layer sets this when it loses contact
-   *     with the physical device (heartbeat / TCP / MQTT, whichever the
-   *     agent uses). An undefined attribute is treated as ONLINE — only an
-   *     explicit `false` counts as down, so freshly-added assets that
-   *     haven't received their first connectivity event don't show as
-   *     phantom-offline.
-   *   • Site is OFFLINE when:
-   *       (a) the SiteAsset itself carries `connected === false`, OR
-   *       (b) it has one or more towers and ALL of them are offline.
-   *     Sites with no towers fall back to (a) only — an empty container is
-   *     considered online unless someone explicitly marked it down.
-   *
-   * The summary spans EVERY site in the realm regardless of the selected
-   * site scope, so the KPI is a realm-wide health indicator. When the realm
-   * has no SiteAssets at all we synthesise one entry from the tower list
-   * so the card always renders something useful.
-   */
+  /* ----- Per-site summary (drives the "Sites online" KPI) ----- */
   const siteSummaries = useMemo(() => {
     const assetMap = new Map(assets.map((a) => [a.id, a]));
     if (sites.length === 0) {
@@ -135,37 +102,67 @@ export default function SecureOpsOverviewPage() {
     });
   }, [sites, assets, openAlarms]);
 
+  /* ----- Range + scope filtered alarm lists (single source of truth for
+   *       both the KPI strip AND the Recent Alerts panel).
+   *
+   * Site/tower scope is applied here so the "Active alerts" KPI mirrors the
+   * sum of the panel's severity chip counts exactly — picking a specific
+   * site shrinks both surfaces in lockstep instead of leaving the KPI at
+   * the realm-wide total.
+   */
+  const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  const scopeTowerIds = useMemo(() => towers.map((t) => t.id), [towers]);
+  const scopeAlarmsToTowers = useMemo(() => {
+    return (list) => {
+      if (!scopeTowerIds.length) return list;
+      return list.filter((al) =>
+        scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers))
+      );
+    };
+  }, [scopeTowerIds, assetMap, towers]);
+
+  const openAlarmsInScope = useMemo(
+    () => scopeAlarmsToTowers(filterAlarmsByCreatedOn(openAlarms, rangeWindow.start)),
+    [openAlarms, rangeWindow.start, scopeAlarmsToTowers]
+  );
+  const allAlarmsInScope = useMemo(
+    () => scopeAlarmsToTowers(filterAlarmsByCreatedOn(allAlarms, rangeWindow.start)),
+    [allAlarms, rangeWindow.start, scopeAlarmsToTowers]
+  );
+  // Previous-window scope-filtered alarms — used only for the Detections
+  // KPI delta line. We don't memo the full list, only the count it produces.
+  const prevWindowHighPriorityCount = useMemo(() => {
+    if (rangeWindow.prevStart == null || rangeWindow.start == null) return null;
+    const inPrev = allAlarms.filter((al) => {
+      const ts = parseDate(al.createdOn);
+      return ts != null && ts >= rangeWindow.prevStart && ts < rangeWindow.start;
+    });
+    return scopeAlarmsToTowers(inPrev).filter((al) => isHighPrioritySeverity(al.severity)).length;
+  }, [allAlarms, rangeWindow, scopeAlarmsToTowers]);
+
   /* ----- KPI numbers ----- */
 
   const kpis = useMemo(() => {
     const onlineSites = siteSummaries.filter((s) => s.connected).length;
     const offlineSiteCount = siteSummaries.length - onlineSites;
     const firstOfflineSite = siteSummaries.find((s) => !s.connected);
-    const critical = openAlarms.filter((a) => a.severity === 'CRITICAL' || a.severity === 'HIGH').length;
-    const warning = openAlarms.length - critical;
 
-    // "Detections today" = alarms created today. Every detection (human,
-    // animal, ANPR, whatever the AI side reports) raises an alarm via the
-    // backend rule, so the alarm history is the canonical, persistent count.
-    // Source unchanged when an alarm is acked/resolved — that's a status
-    // transition, not a deletion, so the daily total stays stable across
-    // operator actions.
-    const today = startOfDay(new Date()).getTime();
-    const yesterday = today - 24 * 3600 * 1000;
-    let dToday = 0, dYesterday = 0;
-    for (const al of allAlarms) {
-      const ts = parseDate(al.createdOn);
-      if (!ts) continue;
-      if (ts >= today) dToday += 1;
-      else if (ts >= yesterday && ts < today) dYesterday += 1;
-    }
-    const detectionDelta = dToday - dYesterday;
+    // Active alerts — open alarms in the current site + range scope. The
+    // count and critical/warning split match exactly what the Recent Alerts
+    // panel's chip badges show.
+    const critical = openAlarmsInScope.filter((a) => isHighPrioritySeverity(a.severity)).length;
+    const warning = openAlarmsInScope.length - critical;
 
-    // AI uptime: % of the last 30 days that an `aiHeartbeatAt` timestamp on any
-    // tower in scope was within the 5 min window. Cheap proxy from current
-    // heartbeat: if any tower reports a recent heartbeat, count it as up.
-    // (Full uptime % would need datapoints — flagged in the design as needing
-    // a `aiUptime30d` attribute. Hide the % when no heartbeat anywhere.)
+    // Human detections = high-priority alarms (CRITICAL + HIGH). On this
+    // deployment the AI side raises human-detection events at HIGH severity,
+    // so counting them here keeps the KPI focused on what the operator
+    // actually needs to look at — animal / vehicle / "other" events stay
+    // out of the headline number (still visible in the alerts list).
+    const detectionsCount = allAlarmsInScope.filter((al) => isHighPrioritySeverity(al.severity)).length;
+    const detectionDelta = prevWindowHighPriorityCount == null
+      ? null
+      : detectionsCount - prevWindowHighPriorityCount;
+
     const heartbeats = towers
       .map((t) => parseDate(t.attributes?.aiHeartbeatAt?.value))
       .filter(Boolean);
@@ -187,20 +184,27 @@ export default function SecureOpsOverviewPage() {
         offlineCount: offlineSiteCount,
         offlineName: firstOfflineSite?.name || null,
       },
-      alerts: { total: openAlarms.length, critical, warning },
-      detections: { today: dToday, delta: detectionDelta },
+      alerts: { total: openAlarmsInScope.length, critical, warning },
+      detections: { count: detectionsCount, delta: detectionDelta },
       aiUptime: aiUp,
     };
-  }, [siteSummaries, openAlarms, allAlarms, towers]);
+  }, [siteSummaries, openAlarmsInScope, allAlarmsInScope, prevWindowHighPriorityCount, towers]);
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-[1500px] mx-auto space-y-5">
+    <div className="so-overview-shell">
+      {/* ===== Time-range filter ===== */}
+      <TimeRangeBar
+        range={range}
+        onChange={(v) => startRangeTransition(() => setRange(v))}
+        pending={isRangePending}
+      />
+
       {/* ===== KPI Strip ===== */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
         <KpiCard
           icon={ServerCog}
           label="Sites online"
@@ -214,7 +218,7 @@ export default function SecureOpsOverviewPage() {
         />
         <KpiCard
           icon={AlertOctagon}
-          label="Active alerts"
+          label={`Active alerts · ${rangeWindow.shortLabel}`}
           value={kpis.alerts.total}
           subline={
             kpis.alerts.total === 0
@@ -226,14 +230,10 @@ export default function SecureOpsOverviewPage() {
         />
         <KpiCard
           icon={Activity}
-          label="Detections today"
-          value={kpis.detections.today}
-          subline={
-            kpis.detections.delta === 0
-              ? 'Same as yesterday'
-              : `${kpis.detections.delta > 0 ? '+' : ''}${kpis.detections.delta} vs yesterday`
-          }
-          subTone={kpis.detections.delta > 0 ? 'warning' : 'ok'}
+          label={`Human detections · ${rangeWindow.shortLabel}`}
+          value={kpis.detections.count}
+          subline={detectionSubline(kpis.detections.delta, rangeWindow.shortLabel)}
+          subTone={kpis.detections.delta != null && kpis.detections.delta > 0 ? 'warning' : 'ok'}
         />
         <KpiCard
           icon={Cpu}
@@ -244,50 +244,68 @@ export default function SecureOpsOverviewPage() {
         />
       </section>
 
-      {/* ===== Main two-column grid ===== */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4">
-        {/* ----- Left column ----- */}
-        <div className="space-y-4 min-w-0">
-          <LiveCameraFeedsPanel
-            towers={towers}
-            activeTower={activeTower}
-            onTowerChange={setTower}
-            assets={assets}
-          />
-          <SiteStatusPanel
-            summaries={towerSummaries}
-            siteSummaries={siteSummaries}
-            activeId={activeTower?.id}
-            onPick={setTower}
-            onPickSite={setSite}
-          />
-          <RemoteControlPanel tower={activeTower} assets={assets} />
-        </div>
+      {/* ===== Full-width Recent Alerts — same scoped list the KPI uses ===== */}
+      <RecentAlertsPanel
+        alarms={openAlarmsInScope}
+        rangeLabel={rangeWindow.label}
+        assets={assets}
+        sites={sites}
+        towers={towers}
+        externalLoading={isRangePending}
+      />
+    </div>
+  );
+}
 
-        {/* ----- Right column ----- */}
-        <div className="space-y-4 min-w-0">
-          <RecentAlertsPanel
-            alarms={openAlarms}
-            assets={assets}
-            sites={sites}
-            towers={towers}
-            scopeTowerIds={towers.map((t) => t.id)}
+/* ==========================================================================
+   Time range bar
+   ========================================================================== */
+
+const RANGE_OPTIONS = [
+  { key: 'today', label: 'Today' },
+  { key: '24h',   label: '24h'   },
+  { key: '7d',    label: '7d'    },
+  { key: '30d',   label: '30d'   },
+  { key: 'all',   label: 'All'   },
+];
+
+function TimeRangeBar({ range, onChange, pending }) {
+  return (
+    <div className="so-range-bar shrink-0">
+      <div className="so-range-label">
+        <Clock className="w-3.5 h-3.5" strokeWidth={2} />
+        <span>Time range</span>
+        {pending && (
+          <Loader2
+            className="w-3 h-3 spin-slow text-[var(--color-accent-400)]"
+            aria-label="Updating"
           />
-          <EnvironmentalTelemetryPanel
-            tower={activeTower}
-            assets={assets}
-            allAlarms={allAlarms}
-          />
-          <AuditLogPanel
-            alarms={allAlarms}
-            assets={assets}
-            sites={sites}
-            towers={towers}
-          />
-        </div>
+        )}
+      </div>
+      <div className="so-range-chips" role="tablist" aria-label="Time range" data-pending={pending}>
+        {RANGE_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            role="tab"
+            aria-selected={range === opt.key}
+            data-active={range === opt.key}
+            onClick={() => onChange(opt.key)}
+            className="so-range-chip"
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
     </div>
   );
+}
+
+function detectionSubline(delta, shortLabel) {
+  if (delta == null) return 'All time';
+  if (delta === 0) return `Same as prev ${shortLabel}`;
+  const sign = delta > 0 ? '+' : '';
+  return `${sign}${delta} vs prev ${shortLabel}`;
 }
 
 /* ==========================================================================
@@ -295,9 +313,6 @@ export default function SecureOpsOverviewPage() {
    ========================================================================== */
 
 function KpiCard({ icon: Icon, label, value, subline, subTone, to }) {
-  // When `to` is set, render as a Link so clicking the card navigates.
-  // The card surface stays visually identical — only the cursor + a subtle
-  // hover lift change to hint at interactivity.
   const body = (
     <>
       <div className="so-kpi-label">
@@ -319,596 +334,253 @@ function KpiCard({ icon: Icon, label, value, subline, subTone, to }) {
 }
 
 /* ==========================================================================
-   Live Camera Feeds
+   Recent Alerts (full width)
    ========================================================================== */
 
-function LiveCameraFeedsPanel({ towers, activeTower, onTowerChange, assets }) {
-  // Matches both `CameraAsset` and `PtzCameraAsset` — `isCameraAsset` is the
-  // single place that knows which custom types count as cameras.
-  const cameras = useMemo(() => {
-    if (!activeTower) return [];
-    return pickGatewayChildren(assets, activeTower.id).filter(isCameraAsset);
-  }, [activeTower, assets]);
-
-  // 2x2 grid cap; remainder collapses into a "+N more" link to the Video tab.
-  const display = cameras.slice(0, 4);
-  const overflow = Math.max(0, cameras.length - 4);
-
-  return (
-    <section className="panel p-4 md:p-5">
-      <div className="so-panel-head">
-        <div className="so-panel-title">
-          <VideoIcon className="so-panel-icon" strokeWidth={2} />
-          Live camera feeds
-        </div>
-        <TowerSelect towers={towers} value={activeTower?.id} onChange={onTowerChange} />
-      </div>
-
-      {!activeTower ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-10 text-center">
-          No towers in this scope yet.
-        </p>
-      ) : (
-        <div className="so-cam-grid">
-          {display.length === 0 && (
-            <div className="so-cam col-span-2"><div className="so-cam-empty">No cameras linked to this tower</div></div>
-          )}
-          {display.map((cam) => (
-            <CameraCard key={cam.id} camera={cam} tower={activeTower} />
-          ))}
-          {overflow > 0 && (
-            <Link to="/video" className="so-cam flex items-center justify-center"
-                  style={{ background: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}>
-              <div className="text-center text-[var(--color-ink-1)]">
-                <p className="text-2xl font-bold">+{overflow}</p>
-                <p className="text-[11px]">more cameras</p>
-              </div>
-            </Link>
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TowerSelect({ towers, value, onChange }) {
-  return (
-    <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="so-tower-select"
-    >
-      {towers.length === 0 && <option value="">No towers</option>}
-      {towers.map((t) => (
-        <option key={t.id} value={t.id}>{getAssetDisplayName(t)}</option>
-      ))}
-    </select>
-  );
-}
-
-/* ==========================================================================
-   Site Status
-   ========================================================================== */
-
-function SiteStatusPanel({ summaries, siteSummaries, activeId, onPick, onPickSite }) {
-  const [showAllSites, setShowAllSites] = useState(false);
-
-  // Sort: offline towers first, then alarming, then online (priority sort).
-  // Within the same bucket: highest open-alarm count first, then by name.
-  const sorted = useMemo(() => sortByAlertPriority(summaries), [summaries]);
-
-  return (
-    <section className="panel p-4 md:p-5">
-      <div className="so-panel-head">
-        <div className="so-panel-title">
-          <RadioTower className="so-panel-icon" strokeWidth={2} />
-          Site status
-        </div>
-        <div className="flex items-center gap-1.5">
-          <RefreshButton queryKey={['assets']} title="Refresh tower status" />
-          <button
-            type="button"
-            onClick={() => setShowAllSites(true)}
-            className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)]"
-          >
-            All sites
-          </button>
-        </div>
-      </div>
-
-      {sorted.length === 0 ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">No towers in this scope.</p>
-      ) : (
-        <div className="space-y-2">
-          {sorted.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => onPick(s.id)}
-              data-active={s.id === activeId}
-              className="so-site-row"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="so-site-name truncate">{s.name}</div>
-                <div className="so-site-meta">
-                  {s.connectionType ? `${s.connectionType} · ` : ''}
-                  {s.cameras > 0 ? `${s.cameras} cam${s.cameras === 1 ? '' : 's'}` : 'No cams'}
-                  {s.sensors > 0 ? ` · ${s.sensors} sensor${s.sensors === 1 ? '' : 's'}` : ''}
-                </div>
-              </div>
-              <span className={`so-status-badge ${
-                !s.connected ? 'is-offline' : s.openAlarms > 0 ? 'is-alert' : 'is-online'
-              }`}>
-                {!s.connected
-                  ? 'Offline'
-                  : (s.openAlarms > 0 ? (s.intrusion ? 'Intrusion!' : 'Alert') : 'Online')}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {showAllSites && (
-        <AllSitesModal
-          sites={siteSummaries}
-          onSelect={(id) => { onPickSite(id); setShowAllSites(false); }}
-          onClose={() => setShowAllSites(false)}
-        />
-      )}
-    </section>
-  );
-}
-
-/* ----- All-sites modal (opened from Site Status header) ----- */
-
-function AllSitesModal({ sites, onSelect, onClose }) {
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
-  }, []);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const sorted = useMemo(() => sortByAlertPriority(sites), [sites]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(2, 6, 23, 0.78)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div
-        className="panel p-4 w-[min(560px,96vw)] max-h-[80vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <p className="text-sm font-bold text-[var(--color-ink-0)]">All sites</p>
-            <p className="text-[11px] text-[var(--color-ink-2)]">
-              {sorted.length} site{sorted.length === 1 ? '' : 's'} — sorted by health (offline / alerts first)
-            </p>
-          </div>
-          <button onClick={onClose} className="audit-btn flex-shrink-0" title="Close (Esc)">
-            <X className="w-3.5 h-3.5" />
-            Close
-          </button>
-        </div>
-        {sorted.length === 0 ? (
-          <p className="text-sm text-[var(--color-ink-2)] py-8 text-center">No sites in the realm.</p>
-        ) : (
-          <ul className="space-y-2 overflow-y-auto pr-1 flex-1">
-            <li>
-              <button
-                type="button"
-                onClick={() => onSelect(null)}
-                className="so-site-row w-full"
-                title="Show every site in scope"
-              >
-                <Building2 className="w-4 h-4 text-[var(--color-accent-400)]" />
-                <div className="flex-1 min-w-0">
-                  <div className="so-site-name">All Sites</div>
-                  <div className="so-site-meta">Clear the site filter</div>
-                </div>
-                <ChevronsRight className="w-3.5 h-3.5 text-[var(--color-ink-3)]" />
-              </button>
-            </li>
-            {sorted.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(s.id)}
-                  className="so-site-row w-full"
-                >
-                  <Building2
-                    className="w-4 h-4"
-                    style={{
-                      color: !s.connected
-                        ? 'var(--color-ink-2)'
-                        : s.openAlarms > 0
-                          ? 'var(--color-danger-400)'
-                          : 'var(--color-accent-400)',
-                    }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="so-site-name truncate">{s.name}</div>
-                    <div className="so-site-meta">
-                      {s.onlineTowerCount}/{s.towerCount} tower{s.towerCount === 1 ? '' : 's'} online
-                      {s.openAlarms > 0 && ` · ${s.openAlarms} alert${s.openAlarms === 1 ? '' : 's'}`}
-                    </div>
-                  </div>
-                  <span className={`so-status-badge ${
-                    !s.connected ? 'is-offline' : s.openAlarms > 0 ? 'is-alert' : 'is-online'
-                  }`}>
-                    {!s.connected ? 'Offline' : (s.openAlarms > 0 ? 'Alert' : 'Online')}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* Priority sort used by Site Status panel AND the All Sites modal: items
-   that the operator should look at first come first. Offline > alarming >
-   online. Within the same bucket, more alarms first, then alphabetical. */
-function sortByAlertPriority(items) {
-  const priority = (s) => {
-    if (!s.connected) return 0;
-    if ((s.openAlarms || 0) > 0) return 1;
-    return 2;
-  };
-  return [...items].sort((a, b) => {
-    const pa = priority(a);
-    const pb = priority(b);
-    if (pa !== pb) return pa - pb;
-    const ad = (b.openAlarms || 0) - (a.openAlarms || 0);
-    if (ad !== 0) return ad;
-    return (a.name || '').localeCompare(b.name || '');
-  });
-}
-
-/* Refresh button — invalidates a React Query key and shows a brief spin
-   animation. Used in Site Status and Environmental Telemetry headers. */
-function RefreshButton({ queryKey, title = 'Refresh' }) {
-  const qc = useQueryClient();
-  const [spinning, setSpinning] = useState(false);
-
-  const refresh = async () => {
-    if (spinning) return;
-    setSpinning(true);
-    try {
-      await qc.invalidateQueries({ queryKey });
-    } finally {
-      // Hold the spin briefly so the user sees feedback even when the
-      // refetch resolves from cache instantly.
-      setTimeout(() => setSpinning(false), 600);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={refresh}
-      disabled={spinning}
-      className="so-refresh-btn"
-      title={title}
-      aria-label={title}
-    >
-      <RefreshCw className={`w-3.5 h-3.5 ${spinning ? 'so-spin' : ''}`} strokeWidth={2} />
-    </button>
-  );
-}
-
-/* ==========================================================================
-   Remote Control (Door / Siren / Lights / PTT)
-   ========================================================================== */
-
-function RemoteControlPanel({ tower, assets }) {
-  const children = useMemo(
-    () => (tower ? pickGatewayChildren(assets, tower.id) : []),
-    [tower, assets]
-  );
-
-  // Door is either a DoorLockAsset or the newer ToggleableDoorLockAsset —
-  // both behave the same way (toggle `onOff`/`locked`, on = Locked).
-  const door = children.find((a) => {
-    const t = normalizeAssetType(getCustomAssetType(a));
-    return t === 'DoorLockAsset' || t === 'ToggleableDoorLockAsset';
-  });
-  const siren = children.find((a) => getCustomAssetType(a) === 'BuzzerAsset')
-            || children.find((a) => getCustomAssetType(a) === 'AlarmAsset');
-  const light = children.find((a) => getCustomAssetType(a) === 'LightAsset');
-
-  // PTT endpoint is per-tower: each tower must carry a `PttAsset` child whose
-  // `socketIP` attribute points at the on-site PC speaker. The `wss://`
-  // scheme is hard-coded here — only host/port/path comes from the attribute
-  // (see `buildPttWsUrl` in `constants/ptt.js`). Towers without a PttAsset
-  // (or a blank `socketIP`) render the PTT card in a disabled state — there
-  // is no global fallback.
-  const pttUrl = useMemo(() => {
-    const pttAsset = findPttAssetForTower(tower, assets);
-    const socketIP = pttAsset?.attributes?.socketIP?.value;
-    return buildPttWsUrl(socketIP);
-  }, [tower, assets]);
-
-  const write = useWriteAttribute();
-  const toggle = (asset) => {
-    if (!asset) return;
-    const attr = getPrimaryControlAttr(asset, getCustomAssetType(asset));
-    write.mutate({ assetId: asset.id, attributeName: attr, value: nextToggleValue(asset, attr) });
-  };
-
-  return (
-    <section className="panel p-4 md:p-5">
-      <div className="so-panel-head">
-        <div className="so-panel-title">
-          <SlidersIcon />
-          Remote control
-        </div>
-        <span className="so-panel-meta">
-          {tower ? getAssetDisplayName(tower) : '—'}
-        </span>
-      </div>
-
-      <div className="so-remote-grid so-remote-grid--3">
-        <RemoteButton
-          icon={Lock}
-          label="Door lock"
-          stateLabel={door ? (isAssetActive(door, getCustomAssetType(door)) ? 'Locked' : 'Unlocked') : 'No device'}
-          active={door ? isAssetActive(door, getCustomAssetType(door)) : false}
-          disabled={!door}
-          onClick={() => toggle(door)}
-        />
-        <RemoteButton
-          icon={Siren}
-          label="Siren"
-          stateLabel={siren ? (isAssetActive(siren, getCustomAssetType(siren)) ? 'Active' : 'Silent') : 'No device'}
-          active={siren ? isAssetActive(siren, getCustomAssetType(siren)) : false}
-          disabled={!siren}
-          onClick={() => toggle(siren)}
-        />
-        <RemoteButton
-          icon={Lightbulb}
-          label="Lights"
-          stateLabel={light ? (isAssetActive(light, 'LightAsset') ? 'On' : 'Off') : 'No device'}
-          active={light ? isAssetActive(light, 'LightAsset') : false}
-          disabled={!light}
-          onClick={() => toggle(light)}
-        />
-      </div>
-
-      {/* Re-key on URL so a tower change tears down the previous socket +
-          audio graph instead of silently reusing them with the wrong host.
-          Falls back to a stable string when the tower has no PttAsset so
-          React doesn't see a null key. */}
-      <PushToTalkCard key={pttUrl || 'ptt-disabled'} url={pttUrl} />
-    </section>
-  );
-}
-
-function RemoteButton({ icon: Icon, label, stateLabel, active, disabled, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-active={active}
-      className="so-remote-btn"
-    >
-      <Icon className="w-5 h-5" strokeWidth={1.75} />
-      <div>
-        <div>{label}</div>
-        <div className="so-remote-state">{stateLabel}</div>
-      </div>
-    </button>
-  );
-}
-
-function SlidersIcon() {
-  // Local stand-in so we don't pull yet another Lucide icon into the file.
-  return (
-    <svg className="so-panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
-      <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
-      <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
-    </svg>
-  );
-}
-
-const PTT_STATUS_COPY = {
-  idle:         { label: 'Idle',         tone: 'mute' },
-  connecting:   { label: 'Connecting',   tone: 'warn' },
-  connected:    { label: 'Ready',        tone: 'ok'   },
-  talking:      { label: 'Transmitting', tone: 'hot'  },
-  error:        { label: 'Error',        tone: 'hot'  },
-  disconnected: { label: 'Offline',      tone: 'mute' },
-};
-
-function PushToTalkCard({ url }) {
-  // When the active tower has no PttAsset (or its `socketIP` is blank) the
-  // card is rendered in a disabled, no-op state — no socket, no mic, no
-  // status polling. No global fallback URL.
-  const disabled = !url;
-  return disabled
-    ? <PushToTalkCardDisabled />
-    : <PushToTalkCardLive url={url} />;
-}
-
-function PushToTalkCardDisabled() {
-  return (
-    <div className="so-ptt-card" data-disabled="true" aria-disabled="true">
-      <div className="so-ptt-head">
-        <span className="so-ptt-title">
-          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
-          Push to talk
-        </span>
-        <span className="so-ptt-status" data-tone="mute">
-          <span className="so-ptt-status-dot" />
-          Unavailable
-        </span>
-      </div>
-
-      <div className="so-ptt-body">
-        <button
-          type="button"
-          className="so-ptt-btn"
-          disabled
-          aria-label="Push to talk unavailable"
-          title="No PTT device configured for this tower"
-        >
-          <Mic className="so-ptt-btn-icon" strokeWidth={1.75} />
-        </button>
-
-        <div className="so-ptt-info">
-          <div className="so-ptt-hint">No PTT device configured for this tower</div>
-          <div className="so-ptt-meter" aria-hidden="true">
-            <div className="so-ptt-meter-fill" style={{ width: '0%' }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PushToTalkCardLive({ url }) {
-  const { status, error, level, start, stop, talking } = usePushToTalk(url);
-  const copy = PTT_STATUS_COPY[status] || PTT_STATUS_COPY.idle;
-
-  const onPress = (e) => {
-    e.preventDefault();
-    start();
-  };
-  const onRelease = (e) => {
-    e.preventDefault();
-    stop();
-  };
-
-  const hint = talking
-    ? 'Release to stop'
-    : status === 'connecting'
-      ? 'Connecting to PC speaker…'
-      : status === 'error'
-        ? 'Tap and hold to retry'
-        : 'Hold to speak through PC speaker';
-
-  return (
-    <div className="so-ptt-card" data-talking={talking}>
-      <div className="so-ptt-head">
-        <span className="so-ptt-title">
-          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
-          Push to talk
-        </span>
-        <span className="so-ptt-status" data-tone={copy.tone}>
-          <span className="so-ptt-status-dot" />
-          {copy.label}
-        </span>
-      </div>
-
-      <div className="so-ptt-body">
-        <button
-          type="button"
-          className="so-ptt-btn"
-          data-talking={talking}
-          onMouseDown={onPress}
-          onMouseUp={onRelease}
-          onMouseLeave={talking ? onRelease : undefined}
-          onTouchStart={onPress}
-          onTouchEnd={onRelease}
-          onContextMenu={(e) => e.preventDefault()}
-          aria-pressed={talking}
-          aria-label="Hold to talk"
-        >
-          <Mic className="so-ptt-btn-icon" strokeWidth={1.75} />
-        </button>
-
-        <div className="so-ptt-info">
-          <div className="so-ptt-hint">{hint}</div>
-          <div className="so-ptt-meter" aria-hidden="true">
-            <div className="so-ptt-meter-fill" style={{ width: `${level}%` }} />
-          </div>
-          {error && <div className="so-ptt-error">{error}</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ==========================================================================
-   Recent Alerts
-   ========================================================================== */
-
-function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
+function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, externalLoading }) {
   const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   const update = useUpdateAlarmStatus();
-  const [clipInView, setClipInView] = useState(null);
-  const scoped = useMemo(() => {
-    if (!scopeTowerIds.length) return alarms;
-    return alarms.filter((al) =>
-      scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers))
-    );
-  }, [alarms, scopeTowerIds, assetMap, towers]);
+  // The clip modal stores just the alarm id — `alarms` is the source of
+  // truth, so when the underlying alarm changes (acked / resolved / vanishes)
+  // we recompute current/prev/next from the live list on the next render.
+  const [clipAlarmId, setClipAlarmId] = useState(null);
+
+  // Local filter state — mirrors the /alarms page: severity (High/Med/Low,
+  // multi-select with CRITICAL folded into HIGH) and Tower (multi-select).
+  // Empty Set = no constraint, so default behaviour is "show everything in
+  // the parent's range/site scope".
+  //
+  // `useTransition` keeps the prior list visible while React re-derives the
+  // filtered view — without it, clicking a chip momentarily blanks the panel
+  // when the filtered count changes a lot.
+  const [severityFilter, setSeverityFilter] = useState(new Set());
+  const [towerFilter, setTowerFilter] = useState(new Set());
+  const [isFilterPending, startFilterTransition] = useTransition();
+
+  // `alarms` is already site + range scoped by the parent — by design, so
+  // the "Active alerts" KPI total matches the sum of these chip counts.
+  // Pre-filter counts feed the chip badges so the operator sees how many
+  // alarms are available per bucket before clicking.
+  const severityCounts = useMemo(() => {
+    const out = { HIGH: 0, MEDIUM: 0, LOW: 0 };
+    for (const al of alarms) {
+      const s = (al.severity || 'LOW').toUpperCase();
+      if (s === 'CRITICAL' || s === 'HIGH') out.HIGH += 1;
+      else if (s === 'MEDIUM') out.MEDIUM += 1;
+      else out.LOW += 1;
+    }
+    return out;
+  }, [alarms]);
+
+  const towerCounts = useMemo(() => {
+    const out = new Map();
+    for (const t of towers) out.set(t.id, 0);
+    for (const al of alarms) {
+      for (const t of towers) {
+        if (alarmBelongsToGateway(al, t.id, assetMap, towers)) {
+          out.set(t.id, (out.get(t.id) || 0) + 1);
+          break;
+        }
+      }
+    }
+    return out;
+  }, [alarms, towers, assetMap]);
+
+  // Apply severity + tower filters.
+  const filtered = useMemo(() => {
+    const sevSet = expandSeverity(severityFilter);
+    return alarms.filter((al) => {
+      if (sevSet.size > 0) {
+        const sev = (al.severity || 'LOW').toUpperCase();
+        if (!sevSet.has(sev)) return false;
+      }
+      if (towerFilter.size > 0) {
+        const hit = [...towerFilter].some((tid) =>
+          alarmBelongsToGateway(al, tid, assetMap, towers)
+        );
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [alarms, severityFilter, towerFilter, assetMap, towers]);
 
   const sorted = useMemo(
-    () => scoped.slice().sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0)),
-    [scoped]
+    () => filtered.slice().sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0)),
+    [filtered]
   );
 
-  // Severity counts for the header chips.
-  const counts = useMemo(() => {
-    const c = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    for (const al of sorted) {
-      const k = (al.severity || 'LOW').toUpperCase();
-      if (k in c) c[k] += 1;
-    }
-    return c;
-  }, [sorted]);
+  const toggleInSet = (setter) => (id) => startFilterTransition(() => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  });
+  const toggleSeverity = toggleInSet(setSeverityFilter);
+  const toggleTower = toggleInSet(setTowerFilter);
+  const activeFilterCount = severityFilter.size + towerFilter.size;
+  const clearFilters = () => startFilterTransition(() => {
+    setSeverityFilter(new Set());
+    setTowerFilter(new Set());
+  });
+
+  // Combined loader signal — true while either:
+  //   • parent React-Query fetches data, OR
+  //   • parent is mid-time-range transition, OR
+  //   • we're mid-severity/tower transition.
+  // Used to dim the list and overlay a small spinner so chip toggles and
+  // refetches feel intentional instead of "blink-and-it's-different".
+  const loading = !!externalLoading || isFilterPending;
+
+  /* ----- Clip-modal queue (Prev / Next navigation) -----
+   *
+   * When the modal is open, build a tower-scoped queue of OPEN alarms with
+   * a clip URL so the operator can navigate between siblings without
+   * closing the modal. The queue is derived from `alarms` (the parent's
+   * already-scoped list) on every render — so when an alarm is acked /
+   * resolved and drops off the list, the queue shrinks automatically and
+   * Prev/Next pointers update.
+   *
+   * Severity/tower CHIP filters are deliberately ignored here — the
+   * operator triaging clip-by-clip wants every alarm in the tower in the
+   * queue, regardless of what chips happen to be active in the list view.
+   */
+  const resolveAlarmContext = useCallback((al) => {
+    if (!al) return null;
+    const linked = Array.isArray(al.asset) && al.asset[0];
+    const asset = linked?.id
+      ? (assetMap.get(linked.id) || linked)
+      : (al.assetId ? assetMap.get(al.assetId) : null);
+    const tower = asset ? findGatewayForAsset(asset, towers) : null;
+    const site = tower
+      ? findSiteForAsset(tower, sites)
+      : (asset ? findSiteForAsset(asset, sites) : null);
+    return { alarm: al, asset, tower, site };
+  }, [assetMap, towers, sites]);
+
+  const clipModal = useMemo(() => {
+    if (!clipAlarmId) return null;
+    const currentAlarm = alarms.find((a) => a.id === clipAlarmId);
+    if (!currentAlarm) return null; // alarm vanished — modal will close
+    const current = resolveAlarmContext(currentAlarm);
+    const tower = current.tower;
+    // Without a tower we can't build a tower-scoped queue, so render the
+    // modal alone (no Prev/Next siblings).
+    if (!tower) return { current, queue: [current], index: 0 };
+    const queue = alarms
+      .filter((al) => alarmBelongsToGateway(al, tower.id, assetMap, towers))
+      .filter((al) => getAlarmClipUrl(al))
+      .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
+      .map(resolveAlarmContext);
+    const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
+    return { current, queue, index };
+  }, [clipAlarmId, alarms, resolveAlarmContext, assetMap, towers]);
+
+  const clipPrev = (clipModal && clipModal.index > 0)
+    ? clipModal.queue[clipModal.index - 1]
+    : null;
+  const clipNext = (clipModal && clipModal.index >= 0 && clipModal.index < clipModal.queue.length - 1)
+    ? clipModal.queue[clipModal.index + 1]
+    : null;
 
   return (
-    <section className="panel p-4 md:p-5">
+    <section className="panel p-4 md:p-5 so-panel-fit">
       <div className="so-panel-head">
         <div className="so-panel-title">
           <AlertOctagon className="so-panel-icon" strokeWidth={2} />
           Recent alerts
+          {rangeLabel && (
+            <span className="so-panel-meta normal-case font-medium ml-1">· {rangeLabel}</span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
-          {counts.CRITICAL + counts.HIGH > 0 && (
-            <SeverityChip count={counts.CRITICAL + counts.HIGH} color="var(--color-danger-400)" label="High" />
+          {loading && (
+            <Loader2
+              className="w-3.5 h-3.5 spin-slow text-[var(--color-accent-400)]"
+              aria-label="Loading alerts"
+            />
           )}
-          {counts.MEDIUM > 0 && (
-            <SeverityChip count={counts.MEDIUM} color="var(--color-warning-400)" label="Med" />
+          <span className="so-panel-meta tabular-nums">
+            {activeFilterCount > 0
+              ? `${sorted.length} of ${alarms.length} active`
+              : `${sorted.length} active`}
+          </span>
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="audit-btn"
+              title="Reset alerts panel filters"
+            >
+              <RotateCcw className="w-3 h-3" strokeWidth={2} />
+              Reset
+            </button>
           )}
-          {counts.LOW > 0 && (
-            <SeverityChip count={counts.LOW} color="var(--color-ink-2)" label="Low" />
-          )}
-          <span className="so-panel-meta tabular-nums ml-1">{sorted.length} active</span>
         </div>
       </div>
 
-      {sorted.length === 0 ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">All clear in this scope.</p>
-      ) : (
-        <div className="so-alert-list">
-          {sorted.map((al) => (
-            <AlertRow
-              key={al.id}
-              alarm={al}
-              assetMap={assetMap}
-              towers={towers}
-              sites={sites}
-              update={update}
-              onClipClick={(payload) => setClipInView(payload)}
-            />
+      {/* Filter chips: severity + tower (mirrors /alarms page) */}
+      <div className="so-alert-filters">
+        <div className="so-alert-filter-group">
+          <span className="so-alert-filter-label">Severity</span>
+          {SEVERITY_GROUPS.map((g) => (
+            <ToggleChip
+              key={g.id}
+              active={severityFilter.has(g.id)}
+              onClick={() => toggleSeverity(g.id)}
+              color={g.color}
+              count={severityCounts[g.id]}
+            >
+              {g.label}
+            </ToggleChip>
           ))}
         </div>
-      )}
+        {towers.length > 0 && (
+          <div className="so-alert-filter-group">
+            <span className="so-alert-filter-label">Tower</span>
+            {towers.map((t) => (
+              <ToggleChip
+                key={t.id}
+                active={towerFilter.has(t.id)}
+                onClick={() => toggleTower(t.id)}
+                count={towerCounts.get(t.id) || 0}
+                icon={RadioTower}
+              >
+                {getAssetDisplayName(t)}
+              </ToggleChip>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="so-alert-list-wrap" data-loading={loading}>
+        {sorted.length === 0 ? (
+          <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
+            {activeFilterCount > 0
+              ? 'No alerts match these filters.'
+              : (rangeLabel ? `No alerts in ${rangeLabel.toLowerCase()}.` : 'All clear in this scope.')}
+          </p>
+        ) : (
+          <div className="so-alert-list">
+            {sorted.map((al) => (
+              <AlertRow
+                key={al.id}
+                alarm={al}
+                assetMap={assetMap}
+                towers={towers}
+                sites={sites}
+                update={update}
+                onClipClick={(alarmId) => setClipAlarmId(alarmId)}
+              />
+            ))}
+          </div>
+        )}
+        {loading && (
+          <div className="so-alert-loader-overlay" aria-hidden="true">
+            <Loader2 className="w-5 h-5 spin-slow text-[var(--color-accent-400)]" />
+          </div>
+        )}
+      </div>
 
       <div className="text-right mt-2">
         <Link to="/alarms" className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5">
@@ -916,31 +588,65 @@ function RecentAlertsPanel({ alarms, assets, sites, towers, scopeTowerIds }) {
         </Link>
       </div>
 
-      {clipInView && (
-        <ClipModal
-          title={clipInView.title}
-          subtitle={clipInView.subtitle}
-          url={clipInView.url}
-          onClose={() => setClipInView(null)}
+      {clipModal && (
+        <AlarmClipModal
+          // Key on alarm id so a Prev/Next navigation remounts the modal
+          // with a fresh `view` (snapshot-first), fresh download state,
+          // and a fresh mutation hook — sidesteps the project's
+          // react-hooks/set-state-in-effect rule.
+          key={clipModal.current.alarm.id}
+          alarm={clipModal.current.alarm}
+          asset={clipModal.current.asset}
+          tower={clipModal.current.tower}
+          site={clipModal.current.site}
+          prev={clipPrev}
+          next={clipNext}
+          position={{ current: clipModal.index + 1, total: clipModal.queue.length }}
+          onSelect={setClipAlarmId}
+          onClose={() => setClipAlarmId(null)}
         />
       )}
     </section>
   );
 }
 
-function SeverityChip({ count, color, label }) {
+/* ---------- Severity + tower filter primitives ----------
+ * Mirrors the chip pattern used by `SecureOpsAlertsPage` so both surfaces
+ * behave identically. Severity is grouped (CRITICAL folds into HIGH) so the
+ * three buttons map cleanly to the three colour rails (red/yellow/grey).
+ */
+const SEVERITY_GROUPS = [
+  { id: 'HIGH',   label: 'High',   color: 'var(--color-danger-400)',  matches: ['CRITICAL', 'HIGH'] },
+  { id: 'MEDIUM', label: 'Medium', color: 'var(--color-warning-400)', matches: ['MEDIUM'] },
+  { id: 'LOW',    label: 'Low',    color: 'var(--color-ink-2)',       matches: ['LOW'] },
+];
+
+function expandSeverity(set) {
+  const out = new Set();
+  for (const g of SEVERITY_GROUPS) {
+    if (set.has(g.id)) for (const m of g.matches) out.add(m);
+  }
+  return out;
+}
+
+function ToggleChip({ active, onClick, color, count, icon: Icon, children }) {
+  const tint = color || 'var(--color-ink-1)';
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums"
-      style={{
-        background: `color-mix(in srgb, ${color} 14%, transparent)`,
-        color,
-        border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
-      }}
-      title={`${count} ${label.toLowerCase()}-priority`}
+    <button
+      type="button"
+      onClick={onClick}
+      data-active={active}
+      className="audit-chip"
+      style={active ? {
+        background: `color-mix(in srgb, ${tint} 18%, transparent)`,
+        borderColor: `color-mix(in srgb, ${tint} 55%, transparent)`,
+        color: tint,
+      } : {}}
     >
-      {label} {count}
-    </span>
+      {Icon && <Icon className="w-3 h-3" strokeWidth={2} />}
+      <span>{children}</span>
+      {count != null && <span className="audit-chip-count">{count}</span>}
+    </button>
   );
 }
 
@@ -959,10 +665,6 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
   const clipUrl = getAlarmClipUrl(alarm);
 
-  // Status-aware action visibility:
-  //  • OPEN              → both Ack and Resolve enabled
-  //  • ACKNOWLEDGED      → only Resolve (already acked)
-  //  • RESOLVED / CLOSED → nothing actionable (row is informational)
   const status = (alarm.status || 'OPEN').toUpperCase();
   const canAck = status === 'OPEN';
   const canResolve = status === 'OPEN' || status === 'ACKNOWLEDGED' || status === 'IN_PROGRESS';
@@ -973,13 +675,14 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
   const anyPending = ackPending || resolvePending;
 
   return (
-    <div className="so-alert-row" style={{ '--rail': sevMeta.color }}>
+    <div
+      className="so-alert-row"
+      style={{ '--rail': sevMeta.color }}
+      data-pending={anyPending}
+    >
       <div className="flex-1 min-w-0">
         <p className="so-alert-title truncate">{alarm.title || 'Alarm'}</p>
 
-        {/* Site → Tower → Camera breadcrumb is display-only on alert rows
-            (each segment is just informational). The clip icon next to the
-            actions is the only interactive element. */}
         <p className="so-alert-meta flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mt-0.5">
           {site && (
             <span className="so-crumb so-crumb-static">
@@ -1030,13 +733,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
             {clipUrl && (
               <button
                 type="button"
-                onClick={() => onClipClick?.({
-                  url: clipUrl,
-                  title: alarm.title || 'Alarm clip',
-                  subtitle: createdAt
-                    ? `${format(createdAt, 'HH:mm dd MMM')}${assetName ? ` · ${assetName}` : ''}`
-                    : assetName,
-                })}
+                onClick={() => onClipClick?.(alarm.id)}
                 className="so-clip-btn"
                 title="View the clip attached to this alarm"
               >
@@ -1047,7 +744,12 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
             {canAck && update && (
               <button
                 type="button"
-                onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
+                onClick={() => update.mutate({
+                  alarm,
+                  status: 'ACKNOWLEDGED',
+                  successMessage: `Alarm acknowledged — ${alarm.title || 'alarm'}`,
+                  errorMessage: 'Failed to acknowledge alarm',
+                })}
                 disabled={anyPending}
                 className="so-alert-btn so-alert-btn-ack"
                 title="Acknowledge"
@@ -1055,13 +757,18 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
                 {ackPending
                   ? <Loader2 className="w-3 h-3 spin-slow" />
                   : <Check className="w-3 h-3" strokeWidth={2.25} />}
-                <span>Ack</span>
+                <span>{ackPending ? 'Acking…' : 'Ack'}</span>
               </button>
             )}
             {canResolve && update && (
               <button
                 type="button"
-                onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}
+                onClick={() => update.mutate({
+                  alarm,
+                  status: 'RESOLVED',
+                  successMessage: `Alarm resolved — ${alarm.title || 'alarm'}`,
+                  errorMessage: 'Failed to resolve alarm',
+                })}
                 disabled={anyPending}
                 className="so-alert-btn so-alert-btn-resolve"
                 title="Resolve"
@@ -1069,7 +776,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
                 {resolvePending
                   ? <Loader2 className="w-3 h-3 spin-slow" />
                   : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
-                <span>Resolve</span>
+                <span>{resolvePending ? 'Resolving…' : 'Resolve'}</span>
               </button>
             )}
           </div>
@@ -1080,9 +787,6 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
 }
 
 function Video2() {
-  // Small inline video glyph — reusing the lucide camera icon by name would
-  // require an extra import and Lucide's `Video` is already imported as the
-  // panel icon for Live camera feeds. This keeps things self-contained.
   return (
     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m22 8-6 4 6 4V8Z" /><rect width="14" height="12" x="2" y="6" rx="2" ry="2" />
@@ -1098,235 +802,6 @@ const SEVERITY_META = {
 };
 
 /* ==========================================================================
-   Environmental telemetry
-   ========================================================================== */
-
-function EnvironmentalTelemetryPanel({ tower, assets, allAlarms }) {
-  // Temperature + humidity live on the tower's HeatSensorAsset child
-  // (a packaged temp/humidity sensor inside the IP67 box). Signal and
-  // battery remain tower-level attributes.
-  const weather = useMemo(() => getWeatherAssetForTower(tower, assets), [tower, assets]);
-  const temp = readNumber(weather?.attributes?.temperature?.value);
-  const humidity = readNumber(weather?.attributes?.humidity?.value);
-  const signal = readNumber(tower?.attributes?.signalStrength?.value);
-  const battery = readNumber(tower?.attributes?.batteryLevel?.value);
-  const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
-                 || parseDate(tower?.attributes?.connected?.timestamp)
-                 || parseDate(tower?.lastModified);
-
-  // Detections past 8 hours, sourced from alarms (every detection raises
-  // one — same logic as the "Detections today" KPI). Scoped to this tower
-  // so the bars reflect what's been happening at the selected location.
-  const buckets = useMemo(() => {
-    if (!tower) return Array(8).fill(0);
-    const assetMap = new Map(assets.map((a) => [a.id, a]));
-    const towerAlarms = (allAlarms || []).filter((al) =>
-      alarmBelongsToGateway(al, tower.id, assetMap, [tower])
-    );
-    const now = new Date().getTime();
-    const start = now - 8 * 3600 * 1000;
-    const out = Array(8).fill(0);
-    for (const al of towerAlarms) {
-      const ts = parseDate(al.createdOn);
-      if (!ts || ts < start || ts > now) continue;
-      const i = Math.min(7, Math.floor((ts - start) / (3600 * 1000)));
-      out[i] += 1;
-    }
-    return out;
-  }, [tower, assets, allAlarms]);
-  const maxBucket = Math.max(1, ...buckets);
-  const totalDetections = buckets.reduce((s, n) => s + n, 0);
-
-  return (
-    <section className="panel p-4 md:p-5">
-      <div className="so-panel-head">
-        <div className="so-panel-title">
-          <Thermometer className="so-panel-icon" strokeWidth={2} />
-          Environmental telemetry
-        </div>
-        <RefreshButton queryKey={['assets']} title="Refresh telemetry" />
-      </div>
-
-      {!tower ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">Select a tower to view telemetry.</p>
-      ) : (
-        <>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)]">
-            {getAssetDisplayName(tower)} · updated {updatedAt ? `${formatDistanceToNowStrict(updatedAt)} ago` : '—'}
-          </p>
-
-          <div className="mt-3">
-            <EnvRow icon={Thermometer} label="Temperature" value={temp != null ? `${temp.toFixed(0)}°C` : '—'} pct={temp != null ? clamp01(temp / 60) : null} />
-            <EnvRow icon={Droplets} label="Humidity" value={humidity != null ? `${humidity.toFixed(0)}%` : '—'} pct={humidity != null ? clamp01(humidity / 100) : null} />
-            <EnvRow icon={Signal} label="Signal (4G)" value={signal != null ? `${signal} dBm` : '—'} pct={signal != null ? clamp01((signal + 110) / 60) : null} />
-            <EnvRow icon={BatteryCharging} label="Battery backup" value={battery != null ? `${battery.toFixed(0)}%` : '—'} pct={battery != null ? clamp01(battery / 100) : null} />
-          </div>
-
-          <div className="flex items-end justify-between gap-2 mt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)]">
-              Detections — past 8 hours
-            </p>
-            <p className="text-[11px] font-semibold tabular-nums text-[var(--color-ink-1)]">
-              {totalDetections} total
-            </p>
-          </div>
-          <div className="so-bars">
-            {buckets.map((n, i) => (
-              <span
-                key={i}
-                data-active={i === buckets.length - 1 && n > 0}
-                style={{ height: `${Math.max(4, (n / maxBucket) * 100)}%` }}
-                title={`${n} detection${n === 1 ? '' : 's'} · ${formatHourLabel(i, buckets.length)}`}
-              />
-            ))}
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-function EnvRow({ icon: Icon, label, value, pct }) {
-  return (
-    <div className="so-env-row">
-      <span className="inline-flex items-center gap-2 text-[var(--color-ink-1)]">
-        <Icon className="w-3.5 h-3.5 text-[var(--color-ink-2)]" strokeWidth={2} />
-        {label}
-      </span>
-      <span className="so-env-bar">
-        <span style={{ width: pct != null ? `${pct * 100}%` : '0%' }} />
-      </span>
-      <span className="text-right tabular-nums text-[var(--color-ink-0)] font-semibold">{value}</span>
-    </div>
-  );
-}
-
-/* ==========================================================================
-   Audit log
-   ========================================================================== */
-
-/**
- * Audit log
- *
- * Persistence: every row is sourced from server-stored data, so the panel is
- * stable across page reloads (no in-memory ring buffer).
- *
- *   1. Alarms — `useAlarms({})` returns the full alarm history. Each alarm
- *      yields one "raised" event at `createdOn` and (when applicable) a
- *      transition event at `lastModified` (Acknowledged / Resolved / Closed).
- *
- *   2. Tower-level `auditLog` attribute — optional. If a tower carries an
- *      `auditLog` array attribute (populated by a backend rule on every
- *      device write — shape: `[{ ts, actor, action, target, tag? }]`), we
- *      surface those entries too. This is how device-state-change rows show
- *      up *persistently*. If the attribute isn't declared on any tower, the
- *      audit log silently falls back to alarms only.
- *
- * Scope: filtered by the global site dropdown only (NOT the selected tower).
- * The `towers` prop is already restricted to the chosen site by the parent;
- * "All Sites" means towers spans every site.
- */
-/**
- * Audit log panel — small preview of the full /audit page.
- *
- * Persistence: every row is sourced from server-stored data
- *   (alarms + per-tower `auditLog` attribute) so the list survives reloads.
- *
- * Scope: filtered by the global site dropdown only — NOT the selected tower.
- * The `towers` prop is already restricted to the chosen site by the parent.
- */
-function AuditLogPanel({ alarms, assets, sites, towers }) {
-  const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const scopeTowerIds = useMemo(() => towers.map((t) => t.id), [towers]);
-
-  const rows = useMemo(() => {
-    const ctx = { assetMap, sites, towers };
-    const fromAlarms = (alarms || [])
-      .filter((al) => {
-        if (!scopeTowerIds.length) return true;
-        return scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers));
-      })
-      .flatMap((al) => alarmAuditEvents(al, ctx));
-
-    const fromTowerLogs = (towers || []).flatMap((t) => towerAuditEvents(t));
-
-    return [...fromAlarms, ...fromTowerLogs].sort((a, b) => b.ts - a.ts);
-  }, [alarms, towers, sites, scopeTowerIds, assetMap]);
-
-  return (
-    <section className="panel p-4 md:p-5">
-      <div className="so-panel-head">
-        <div className="so-panel-title">
-          <ScrollText className="so-panel-icon" strokeWidth={2} />
-          Audit log
-        </div>
-        <span className="so-panel-meta tabular-nums">
-          {rows.length} event{rows.length === 1 ? '' : 's'}
-        </span>
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
-          No audit events yet.
-        </p>
-      ) : (
-        <div className="so-audit-list">
-          {rows.map((r, i) => (
-            <div key={`${r.ts}-${i}`} className="so-audit-row">
-              <span className="so-audit-time">{format(r.ts, 'HH:mm')}</span>
-              <r.icon className="w-4 h-4 text-[var(--color-ink-2)]" strokeWidth={1.75} />
-              <span className="truncate text-[var(--color-ink-0)]">{r.title}</span>
-              <span className={`so-audit-tag is-${r.tagTone}`}>{r.tag}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="text-right mt-2">
-        <Link
-          to="/audit"
-          className="text-[11px] font-semibold text-[var(--color-accent-400)] hover:text-[var(--color-accent-300)] inline-flex items-center gap-0.5"
-        >
-          Full audit trail <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-/* ==========================================================================
-   Per-tower derived summary
-   ========================================================================== */
-
-function summariseTower(tower, allAssets, openAlarms) {
-  const children = pickGatewayChildren(allAssets, tower.id);
-  const cameras = children.filter(isCameraAsset).length;
-  const sensors = children.filter((c) => {
-    const t = getCustomAssetType(c);
-    return t && t.endsWith('SensorAsset');
-  }).length;
-  const connected = tower.attributes?.connected?.value !== false;
-  const assetIds = new Set(children.map((c) => c.id));
-  assetIds.add(tower.id);
-  const alarmsHere = (openAlarms || []).filter((al) => {
-    if (Array.isArray(al.asset)) return al.asset.some((a) => a && assetIds.has(a.id));
-    if (al.assetId) return assetIds.has(al.assetId);
-    return false;
-  });
-  const intrusion = alarmsHere.some((a) => /intrus|unauth|breach|forced/i.test(a.title || ''));
-  return {
-    id: tower.id,
-    name: getAssetDisplayName(tower),
-    connected,
-    cameras,
-    sensors,
-    openAlarms: alarmsHere.length,
-    intrusion,
-    connectionType: tower.attributes?.connectionType?.value || tower.attributes?.network?.value || null,
-  };
-}
-
-/* ==========================================================================
    Misc helpers
    ========================================================================== */
 
@@ -1334,6 +809,14 @@ function readNumber(v) {
   if (v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+// "High priority" = CRITICAL or HIGH. Maps to the AI side's human-detection
+// events on this deployment; lower-severity rows (animal / vehicle / other)
+// are excluded from the Detections KPI.
+function isHighPrioritySeverity(s) {
+  const sev = (s || '').toUpperCase();
+  return sev === 'CRITICAL' || sev === 'HIGH';
 }
 function parseDate(v) {
   if (!v) return null;
@@ -1345,9 +828,43 @@ function startOfDay(d) {
   x.setHours(0, 0, 0, 0);
   return x;
 }
-function clamp01(x) { return Math.max(0, Math.min(1, x)); }
-function formatHourLabel(i, total) {
-  // Bucket i covers (now - (total-i) hours, now - (total-i-1) hours].
-  const hoursAgo = total - i;
-  return hoursAgo === 1 ? 'within the last hour' : `${hoursAgo}h ago → ${hoursAgo - 1}h ago`;
+
+/**
+ * Compute the time-range window for the Overview filter.
+ *
+ * Returns the current window `[start, now)` and the immediately-preceding
+ * equal window `[prevStart, start)` used for the Detections-delta KPI. For
+ * the `all` selection both timestamps are null — `filterAlarmsByCreatedOn`
+ * treats a null `start` as "no filter" and the delta subline collapses.
+ *
+ * `today` snaps to local midnight (so the count doesn't drift second-by-
+ * second); the rolling windows (`24h`/`7d`/`30d`) use `Date.now()` as the
+ * anchor. `new Date().getTime()` is used instead of `Date.now()` to keep
+ * the `react-hooks/purity` rule happy when called from a `useMemo`.
+ */
+function getRangeWindow(range) {
+  const now = new Date().getTime();
+  const DAY = 24 * 3600 * 1000;
+  switch (range) {
+    case 'today': {
+      const start = startOfDay(new Date()).getTime();
+      return { start, prevStart: start - DAY, label: 'Today', shortLabel: 'today' };
+    }
+    case '24h':
+      return { start: now - DAY, prevStart: now - 2 * DAY, label: 'Last 24h', shortLabel: '24h' };
+    case '7d':
+      return { start: now - 7 * DAY, prevStart: now - 14 * DAY, label: 'Last 7 days', shortLabel: '7d' };
+    case '30d':
+      return { start: now - 30 * DAY, prevStart: now - 60 * DAY, label: 'Last 30 days', shortLabel: '30d' };
+    default:
+      return { start: null, prevStart: null, label: 'All time', shortLabel: 'all time' };
+  }
+}
+
+function filterAlarmsByCreatedOn(alarms, start) {
+  if (start == null) return alarms;
+  return alarms.filter((a) => {
+    const ts = parseDate(a.createdOn);
+    return ts != null && ts >= start;
+  });
 }

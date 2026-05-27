@@ -9,7 +9,17 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-23):** Overview, Video, Alerts, Control, and full Audit Log pages built and shipped. **OS notification body trimmed (2026-05-23):** `buildAlarmNotificationPayload` in `src/hooks/useAlarmNotifications.js` no longer concatenates `alarm.content` into the notification body — only the severity-emoji title + `sourceName` remain, mirroring the in-app alert-card policy from 2026-05-22 (§5.1b). **Push-to-talk (2026-05-23):** the Overview's Remote Control panel no longer opens an iframe modal. The 4-tile 2×2 grid has been compressed to a **3-tile row** (Door / Siren / Lights) and a self-contained **`PushToTalkCard`** lives inline below. It streams **16-bit PCM (mono, 48 kHz)** over a WebSocket to the AI-side PC running `server.js`, which plays the audio out the site speaker. The pipeline is fully native — `usePushToTalk` hook + inline AudioWorklet + `getUserMedia` — no camera dependency, no iframe, no per-camera `pttUrl` attribute. Endpoint is centralised as `PTT_WS_URL` in `src/constants/ptt.js` (currently `ws://203.99.61.86:3000`); same mixed-content caveat as PTZ / events (§5.5). UX: hold the circular mic button (mouse or touch), red status pill blinks while transmitting, live level meter, inline error line. The legacy `PttModal` component is gone and the `pttCamera` finder logic in `RemoteControlPanel` was removed entirely. **Asset history on /control (2026-05-22):** the Control page now hosts an **Asset history** panel below the Controls grid — a dropdown of the active tower's children (filtered to those with chartable numeric/boolean attributes) drives the new `AssetHistoryCard` (Recharts AreaChart). The card was extracted from `AssetPage`'s legacy inline `HistoryTab` so both surfaces share one renderer; `AssetPage` now delegates to it. The Control panel is keyed on `activeTower.id` so a tower change remounts and resets selection; the inner `AssetHistoryCard` is keyed on `selected.id` so its `attr` state resets when the operator picks a different asset (avoids setState-in-effect). Chartable predicates live in `src/utils/chartable.js` so `AssetHistoryCard.jsx` keeps a component-only export surface. **Brand swap (2026-05-22):** the `SecureOpsHeader` left-side identity is now the **SMS Sentinel AI logo** served from `public/telco-logo.jpeg` (see §14 *Brand asset*) — it replaces the previous `ShieldCheck` gradient tile + the two-line "SecureOps Platform / Digital Security Management Console" text block. The image is wrapped in a `<NavLink to="/" end>` so clicking the logo returns to Overview, and is sized `h-10 md:h-12 w-auto object-contain` so it scales with the row without distorting the aspect ratio. Camera tiles are now a **single shared component** (`CameraCard` — §5.1a) on every surface, and clicking any tile opens the same **unified history modal** (`CameraHistoryModal`) that previously lived only on the Video tab. A second camera type — `PtzCameraAsset` (§5.1) — is recognised alongside `CameraAsset`; PTZ feeds carry a **directional pad inside the history modal's live view** (not on tiles — see §5.1e), and the pad is **wired to the AI-side PTZ controller** via `usePtzMove` (fire-and-forget `GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_…`, with `ptzId` resolved from a `ptzId` attribute or the last segment of `liveStreamUrl`). Mixed-content caveat applies — production HTTPS portal must reverse-proxy the PTZ host (§5.1e). Earlier wins still in place: Video modal history sidebar reads OR datapoints from the `eventId` attribute (§5.2b); snapshot-preview-then-play (§5.2c); missing-attribute 404s swallowed (§5.2b); alarm clip resolution accepts a bare event id (§5.1b). Settings tab still uses the legacy `SettingsPage`.
+**Status (2026-05-27):** Overview, Video, Alerts, Control, full Audit, Settings shipped. Recent waves of work concentrated on the **Overview** and the **alarm clip modal**.
+
+**Overview redesign (2026-05-27):** the page is now slimmed to **KPI strip + full-width Recent Alerts**, sized to fit the viewport (`h-[calc(100dvh-112px)]`) so the page itself never scrolls — only the alert list does, internally (§8). The Live Camera Feeds, Site Status, Remote Control, Environmental Telemetry, and Audit Log panels were all removed from this surface (Remote Control + Env Telemetry's data moved into the `AlarmClipModal` and the header chips respectively; the Control / Audit tabs still hold the full versions). A **time-range filter** (Today · 24h · 7d · 30d · All, default 24h) drives both KPIs and the Recent Alerts list (§8.1). The Recent Alerts panel now carries the same **Severity + Tower chip filters** as `/alarms` (§8.4) and a loader overlay for filter transitions (`useTransition`, not React-Query `isFetching` — background polls don't blink the loader). The **"Active alerts" KPI is site+range scoped** so its total always equals the sum of the panel's chip badges. The **"Human detections" KPI** counts CRITICAL + HIGH only (`isHighPrioritySeverity` — these are the AI-side human-detection events).
+
+**Header chips expanded (2026-05-27):** the env telemetry strip on `SecureOpsHeader` row 2 now shows **temp · humidity · signal (dBm) · battery (%)** — temp/humidity from the active tower's `HeatSensorAsset` child, signal/battery from the TowerAsset itself; each chip hides individually when its attribute isn't declared (§6.3).
+
+**AlarmClipModal (2026-05-27):** the URL-only `ClipModal` is gone — every alert surface (Overview, `/alarms`, `/audit`) opens the new rich `AlarmClipModal` (§5.1b). It carries: severity pill + alarm title + **Prev/Next tower-scoped queue navigation with `N / M` counter** (← / → keys also work); meta strip with Site › Tower breadcrumb, time, camera name, best-effort detection chip (human/animal/vehicle); compact **Quick controls** (Door / Siren / Lights) targeting the camera's tower; **Push-to-talk button** per the tower's `PttAsset.socketIP`; segmented **Snapshot / Clip / Live** tabs in the footer; native `<video controls>` on the Clip tab with a primary-accent **Download** button (blob fetch + `createObjectURL` for cross-origin reliability); **Ack + Resolve** action buttons that **auto-advance to the next queued alarm** on success (or close if at end). PTZ pad renders on Live view only when the asset is a `PtzCameraAsset`. Modal is `h-95vh` × `w-1280px` so the video viewport is generous. Internal state resets per-alarm via `key={alarm.id}` on the modal (project-standard "reset on prop change" pattern — sidesteps the `react-hooks/set-state-in-effect` lint rule). See §5.1b for the modal anatomy, §11 for the helper additions (`getAlarmEventId`, `getAlarmSnapshotUrl`, `getAlarmDetectionLabel`).
+
+**Loader UX + action toasts (2026-05-27):** `useUpdateAlarmStatus` accepts optional `successMessage` / `errorMessage` variables — every Ack/Resolve callsite passes action-specific copy (`"Alarm acknowledged — <title>"`). Alert row dims while its mutation is pending. Background React-Query polls no longer flash the loader (cause: previously included `isFetching` in the loader signal).
+
+Earlier wins still in place: in-app `AlarmNotificationStack` replacing `react-hot-toast` for alarm cards (§6.4); brand swap to the SMS Sentinel AI logo (§14); shared `CameraCard` + `CameraHistoryModal` on every camera surface (§5.1a); `PtzCameraAsset` recognised alongside `CameraAsset` (§5.1, §5.1e); `eventId`-datapoints history sidebar on the Video modal (§5.2b); snapshot-preview-then-play (§5.2c); `auditLog` attribute on towers feeding the full audit page (§9.1).
 
 ---
 
@@ -20,12 +30,16 @@
 3. [Decisions you should NOT reverse](#3-decisions-you-should-not-reverse)
 4. [The hierarchy: Site → Tower → IoT](#4-the-hierarchy-site--tower--iot)
 5. [Required OpenRemote attribute schema](#5-required-openremote-attribute-schema)
+   - 5.1b [Alarm clip modal — AlarmClipModal](#51b-alarm-clip-modal--alarmclipmodal)
 6. [Routing + the SecureOps shell](#6-routing--the-secureops-shell)
+   - 6.4 [Alarm notification stack](#64-alarm-notification-stack)
 7. [State management (`secureOpsStore`)](#7-state-management-secureopsstore)
-8. [The Overview page, panel by panel](#8-the-overview-page-panel-by-panel)
+8. [The Overview page](#8-the-overview-page)
+   - 8.1 [Time-range filter](#81-time-range-filter) · 8.2 [KPI strip](#82-kpi-strip) · 8.3 [Recent Alerts panel](#83-recent-alerts-panel) · 8.4 [Modal queue handoff](#84-modal-queue-handoff) · 8.5 [Loader UX](#85-loader-ux)
 9. [The Audit Log page](#9-the-audit-log-page)
 9a. [The Control page, panel by panel](#9a-the-control-page-panel-by-panel)
 10. [Token refresh fix](#10-token-refresh-fix)
+10b. [Alarm status mutation — per-call toast copy](#10b-alarm-status-mutation--per-call-toast-copy)
 11. [Case-insensitive type matching](#11-case-insensitive-type-matching)
 12. [Audit events shared util](#12-audit-events-shared-util)
 13. [File map: what's new vs. what changed](#13-file-map-whats-new-vs-what-changed)
@@ -51,8 +65,14 @@
 - **Camera attributes added:** `liveStreamUrl` (string),
   `history` (array of `{id, url, date, detection}`), `cameraVariant`
   (`fixed | 360`). The legacy `pttUrl` attribute is no longer read —
-  push-to-talk routes to a single PC speaker via `PTT_WS_URL`
-  (§5.5), not per-camera.
+  push-to-talk routes to a PC speaker via a tower-scoped `PttAsset.socketIP`
+  attribute (§5.5), not per-camera.
+- **Per-tower `PttAsset`** (optional) carries `socketIP` (host/port/path,
+  no scheme). When absent the Push-to-talk card on Overview renders
+  disabled — no global fallback (§5.5).
+- **Alarm notifications** surface in the in-app `AlarmNotificationStack`
+  (Mac-style, top-right below header) — replaces the previous `react-hot-toast`
+  flow that blocked the site dropdown. See §6.4.
 - **Tower attributes used:** `temperature`, `humidity`, `signalStrength`,
   `batteryLevel`, `connected`, `aiHeartbeatAt`, `aiUptime30d`, and an
   **optional `auditLog`** array attribute populated by backend rules.
@@ -95,10 +115,17 @@ It **is not**:
 | **No placeholder data** | Pre-existing project rule. If OR has no source for a metric, drop the widget — never render `—` standing in for "this metric exists, value missing". |
 | **No session-only audit events** | User wants audit persistence across reloads. Audit log is now sourced from alarms + the optional tower `auditLog` attribute. The old in-memory `activityStore` is no longer used by the audit panel or page. |
 | **Top tab strip replaces the left sidebar** | The sketch shows tabs along the top, not a sidebar. The `DashboardLayout` now mounts `SecureOpsHeader` only — no `Sidebar` import. Legacy pages (`SitesPage`, `QuickAccessPage`, etc.) are still reachable by URL but not in the chrome. |
-| **Site dropdown is the only global scope** | The site dropdown in the header is the single source of truth for "which towers do I care about". The per-panel tower selector (Live Camera Feeds, Remote control, Environmental telemetry) is a **local** selection inside that scope. The Audit Log filters by site scope only, never by selected tower. |
+| **Site dropdown is the only global scope** | The site dropdown in the header is the single source of truth for "which towers do I care about". Per-panel tower selectors on `/control` and inside Recent Alerts filters are **local** selections inside that scope. The Audit Log filters by site scope only, never by selected tower. |
 | **Severity colors:** High = red, Medium = yellow, Low = grey | User-specified 2026-05-16. CRITICAL maps to the same red as HIGH. |
-| **PTT is a single PC-speaker endpoint, not per-camera** | User decided 2026-05-23. Don't bring back `pttUrl`, don't gate the PTT card on a 360 / PTZ camera under the active tower. The URL is `PTT_WS_URL` in `src/constants/ptt.js` and the card is always present in Remote Control. |
-| **PTT is a card, not a modal** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT — the hold-to-talk button + meter live inline inside the Remote Control panel. |
+| **PTT is per-tower, not per-camera** | User decided 2026-05-23. Each tower may carry a `PttAsset` child with a `socketIP` attribute. Don't bring back `pttUrl` on cameras, don't gate the button on a 360 / PTZ camera. |
+| **PTT has no global fallback URL** | User decided 2026-05-23. When the active tower has no `PttAsset` (or its `socketIP` is blank) the button renders **disabled** — do not fall back to `PTT_WS_URL`. The constant lives on for documentation / future toggle, but no consumer reads it. |
+| **`wss://` is hard-coded on the client** | User decided 2026-05-23. The `socketIP` attribute holds host/port/path only; the scheme is enforced in `buildPttWsUrl` so a mistyped attribute can't downgrade to plain text. |
+| **PTT is inline UI, not a popup** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT. As of 2026-05-27 the inline surface is the AlarmClipModal's quick-controls cluster (§5.1b), not the Overview Remote Control panel (which no longer exists). |
+| **Alarm notifications are an in-app stack, not toasts** | User decided 2026-05-23. The `react-hot-toast` flow stacked 3 un-dismissible cards in the top-right corner and covered the site dropdown. The replacement (`AlarmNotificationStack` — §6.4) is positioned below the header, has per-card close + "Close all", and a Mac-style collapsed peek when 2+ items are active. Don't route alarms back through `react-hot-toast`. |
+| **Overview is viewport-fit, no page scroll** | User decided 2026-05-27. `h-[calc(100dvh-112px)]` + `overflow:hidden` on the shell; only the Recent Alerts list scrolls internally. Don't reintroduce vertical panel stacks that would push the page taller. |
+| **Active alerts KPI === sum of Recent Alerts chip counts** | User decided 2026-05-27. Apply site+range scope at the page level so KPI and panel share the same source. Don't go back to a KPI that's "realm-wide but the panel below is site-scoped" — operators read the discrepancy as a bug. |
+| **All alert surfaces use AlarmClipModal** | User decided 2026-05-27. Don't reintroduce `ClipModal` or a "just play the URL" variant. The rich modal carries the operator's whole triage workflow (preview / clip / live / controls / PTT / Ack / Resolve / Prev / Next / Download) — the old single-purpose modal forced operators to close and reopen for every action. |
+| **Loader signal is user-action only, NOT React-Query `isFetching`** | User decided 2026-05-27. The 15s background poll would flash the loader every cycle for no operator-meaningful reason. Drive the soft loader overlay from `useTransition` pending states only. |
 
 ---
 
@@ -295,11 +322,101 @@ extensionless paths.
 | `cameraVariant` | string | optional | `fixed` or `360`. Historical hint only — no longer routes any UI (PTT is now a single PC-speaker endpoint, see §5.5). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 
-### 5.1b. Alarm clip URLs
+### 5.1b. Alarm clip modal — `AlarmClipModal`
 
-Every actionable alert row (Overview's Recent Alerts, the Alerts page, the
-Audit Log) carries a **View clip** button when the alarm references a
-recorded clip. The dashboard resolves the URL via
+> **2026-05-27:** the URL-only `ClipModal` was deleted. Every alert
+> surface (Overview, `/alarms`, `/audit`) now opens
+> `src/components/cameras/AlarmClipModal.jsx` instead. The previous
+> 5-line clip modal grew into a triage cockpit — operators can review,
+> act on, and navigate between sibling alarms without closing it.
+
+**Anatomy (top → bottom):**
+
+| Region | Contents |
+|---|---|
+| **Header** | Severity pill · alarm title · **Prev / Next chevrons + `N / M` counter** (only when queue length > 1) · Close button. Esc closes. ←/→ keys navigate (ignored when focus is inside `<video>` or a form field so they don't fight the video scrubber). |
+| **Meta strip** | Row 1: `Site › Tower` breadcrumb · `🕐 HH:mm:ss · dd MMM yyyy (X min ago)`. Row 2: `📷 Camera name` · detection chip (`Human / Animal / Vehicle` detected — best-effort from `getAlarmDetectionLabel`) · **Quick controls cluster** (Door / Siren / Lights icon-only toggles + Push-to-talk button) anchored right-edge. |
+| **Stage** | Black canvas, flex-fills remaining height. One of: snapshot `<img>` with centred play overlay (default when a snapshot URL resolves), native `<video controls autoPlay>` playing the clip mp4, or `CameraStream` on the live feed with red `● LIVE` pill top-left and (for `PtzCameraAsset`) the PTZ pad bottom-right. |
+| **Footer** | Left: segmented `[Snapshot] [Clip] [Live]` tabs — only renders the tabs whose URL is available (no greyed stubs). Right: `[Ack] [Resolve]` (status-aware visibility, same as alert row) + `[Download clip]` (Clip tab only). |
+
+**Sizing.** Modal is `w-[min(1280px,96vw)] h-[95vh]` — **fixed** height
+(not max-height) so the stage flexes into the same generous area
+regardless of whether the current view is an `<img>` (intrinsic size)
+or `<video>` (300 px placeholder during load). Without the fixed
+height the panel would shrink to natural content size and Live looked
+smaller than Snapshot.
+
+**Queue navigation (Prev / Next).** The queue is built from the
+parent's `alarms` list filtered to:
+1. Open alarms (already filtered upstream — parent passes
+   `openAlarmsInScope`)
+2. Same tower as the current alarm (`alarmBelongsToGateway`)
+3. Has a resolvable clip URL (`getAlarmClipUrl`)
+
+Sorted newest-first to match the row list. Parent stores only the
+**alarm id** (`clipAlarmId`) — current / prev / next / position are
+all recomputed from the live `alarms` array each render, so when an
+alarm is acked/resolved the queue shrinks automatically.
+
+The modal is keyed on `alarm.id` so a navigation step **remounts** —
+fresh `view` (snapshot-first), fresh download state, fresh mutation
+hook. This is the project's "reset state when a prop changes" idiom
+(per §11 and the React-hooks lint rule).
+
+**Auto-advance on Ack / Resolve.** Each action button captures
+`next` at click time and uses per-call `onSuccess` to either
+`onSelect(next.alarm.id)` or `onClose()` if at end. Toast fires from
+the hook's onSuccess (action-specific copy via `successMessage`
+variable) before the modal advances. There is **no auto-close
+`useEffect`** — that pattern got replaced because it didn't have
+access to the captured `next`.
+
+**Snapshot URL.** `getAlarmSnapshotUrl(alarm)` →
+`getAlarmEventId(alarm)` → `getEventSnapshotUrl(id)` — resolution
+mirrors `getAlarmClipUrl` (structured `eventId` field → bare event id
+in description / content). When no id is available the modal opens
+straight on the Clip tab.
+
+**PTZ pad.** Rendered only inside the Live view, only when
+`isPtzCamera(asset)` is true. Uses the existing `PtzControls`
+component + `usePtzMove(asset)` hook — same as the Video modal, so a
+PTZ change ships to both surfaces.
+
+**Quick controls cluster.** Compact icon-only buttons for Door /
+Siren / Lights (28 × 28 px each, accent-tinted when active). Hides
+the slot entirely when no matching child asset exists under the tower
+(no greyed stubs). The siren resolver preserves
+**BuzzerAsset-over-AlarmAsset preference** — same selection logic as
+the (now-removed) Overview `RemoteControlPanel`. Writes go through
+the same optimistic `useWriteAttribute` path.
+
+**Push-to-talk button.** Sits next to the quick controls. Same
+per-tower `PttAsset.socketIP` resolution as the (now-removed)
+Overview PTT card, same `usePushToTalk` hook + protocol (16-bit PCM
+mono 48 kHz over `wss://`), same hold-to-talk semantics
+(`onMouseDown/Up`, `onMouseLeave` while talking, `onTouchStart/End`,
+`onContextMenu` prevent). Compressed to a single 28 × 28 icon button:
+status communicated via background tint (amber connecting · green
+ready · red pulse transmitting · red error) + `title` tooltip.
+Disabled branch (no `PttAsset` under tower) renders neutral with
+`title="No PTT device configured for this tower"` — no socket opened,
+no mic permission requested. Errors surface as toast.
+
+**Download.** Native `<video>` carries `controlsList="nodownload"` so
+the browser's built-in menu doesn't compete with our button. The
+button fetches the clip as a blob (`fetch({mode:'cors'})`), creates a
+`URL.createObjectURL` blob URL, triggers a temporary `<a download>`
+click, then revokes after 1 s (Safari needs the delay). Filename via
+`buildClipFilename`: prefers event id (matches media server path),
+falls back to alarm id, then `yyyyMMdd-HHmmss` slug. Always `.mp4`.
+CORS / network failure → opens in a new tab + toast `"Couldn't
+auto-download (...). Opened in new tab."` so the operator can still
+right-click → Save As.
+
+### 5.1b.i. Alarm clip URL resolution
+
+Every actionable alert row carries a **View clip** button when the
+alarm references a recorded clip. The dashboard resolves the URL via
 `getAlarmClipUrl(alarm)` in `src/utils/alarms.js`, in this order:
 
 1. **Structured field** on the alarm — `clipUrl`, `videoUrl`, or
@@ -663,13 +780,50 @@ The original SMS IoT contract is unchanged:
 
 ### 5.5. Push-to-talk endpoint
 
-PTT is **not a per-camera attribute** — it's a single global WebSocket
-endpoint pointed at a Windows PC running `server.js` near the site
-speaker. The URL is centralised in `src/constants/ptt.js`:
+PTT is **per-tower, not per-camera**. Each tower may carry a single
+`PttAsset` child whose `socketIP` attribute holds host/port/path (no
+scheme). The dashboard hard-codes `wss://` on the client side and
+prepends it to the attribute value — `wss://` is a single edit point
+in `buildPttWsUrl` (`src/constants/ptt.js`), and the `socketIP`
+attribute must NOT include a `ws://` / `wss://` prefix (any accidental
+one is stripped before re-prepending `wss://`, so a mistyped attribute
+can't downgrade to plain text).
+
+**Asset contract.** The PTT asset is matched **case-insensitively** by
+either:
+
+| Match | What it accepts |
+|---|---|
+| `customAssetType` lowercased equals `pttasset` | `PttAsset`, `pttAsset`, `PTTASSET`, … |
+| display `name` lowercased equals `ptt asset` or `ptt assest` | `PTT Asset`, `ptt asset`, `Ptt Asset`, also the common `PTT Assest` typo |
+
+Resolution lives in `findPttAssetForTower(tower, allAssets)` in
+`src/utils/gateways.js`. It walks `isDescendantOfGateway` rather than
+`pickGatewayChildren` because `PttAsset` is **not** in `DEVICE_TYPES`
+(it's a configuration asset, not a controllable device).
+
+**URL builder.** `buildPttWsUrl(socketIP)` in `src/constants/ptt.js`:
 
 ```js
-export const PTT_WS_URL = 'ws://203.99.61.86:3000';
+// strips any leading ws:// / wss://, returns `wss://${rest}`.
+// returns null when socketIP is missing or blank.
 ```
+
+**No global fallback.** If the active tower has no `PttAsset` (or its
+`socketIP` is blank) the Push-to-talk card on Overview renders in a
+**disabled** state — mic button HTML-disabled, status pill shows
+**Unavailable**, hint reads "No PTT device configured for this tower",
+**no socket is opened, no mic permission is requested**, and
+`usePushToTalk` is never called. The `PTT_WS_URL` constant lives on
+in `src/constants/ptt.js` for documentation but `RemoteControlPanel`
+no longer reads it.
+
+**Tower swap behaviour.** The `PushToTalkCard` is keyed on the
+resolved URL (`key={pttUrl || 'ptt-disabled'}`) inside
+`RemoteControlPanel`. Picking a different tower changes the key,
+which unmounts the previous card — `usePushToTalk`'s cleanup effect
+closes the old WebSocket and tears down the audio graph, so the
+dashboard never silently reuses a socket with the wrong host.
 
 **Wire protocol** (must match the PC-side `server.js`):
 
@@ -748,12 +902,90 @@ components still exist on disk (not deleted), but nothing imports them.
 
 `src/components/layout/SecureOpsHeader.jsx` is the sticky shell. Two rows:
 
-1. **Brand row:** SMS shield logo · "SecureOps Platform" / "Digital Security Management Console" · `● Live` pill · **`All Sites (N) ▼`** dropdown.
-2. **Tab row:** the six tab links (NavLink, active state cyan underline) · live temp / humidity chips read from the **active tower's** attributes.
+1. **Brand row:** SMS Sentinel AI logo (clickable → `/`) · `● Live` pill · **`All Sites (N) ▼`** dropdown.
+2. **Tab row:** the six tab links (NavLink, active state cyan underline) · **4 env-telemetry chips** for the active tower (each hides individually when its attribute isn't declared, per the no-placeholder rule):
+   - `🌡 N°C` — `HeatSensorAsset.temperature`
+   - `💧 N%` — `HeatSensorAsset.humidity`
+   - `📶 N dBm` — `TowerAsset.signalStrength`
+   - `🔋 N%` — `TowerAsset.batteryLevel`
+
+   Temp + humidity come from the active tower's `HeatSensorAsset` child
+   (packaged weather sensor inside the IP67 box). Signal + battery live on
+   the TowerAsset itself. The active tower is `selectedTowerId` from the
+   store (set by the Control page's tower picker) with auto-fallback to
+   the first tower in scope when nothing is picked.
 
 The dropdown's options are: "All Sites (N)" plus every SiteAsset by display
 name. When no SiteAssets are configured, the count falls back to the total
 tower count (via `pickAllTowerCount`).
+
+### 6.4. Alarm notification stack
+
+`src/components/notifications/AlarmNotificationStack.jsx` — mounted in
+`DashboardLayout` alongside the `Toaster`, but ONLY this stack carries
+alarm notifications. The previous `react-hot-toast`-based flow stacked
+3 un-dismissible cards in the same top-right region as the site
+dropdown, blocking it until they auto-expired — the new stack lives
+**below** the sticky header so the dropdown stays clickable, every
+card has its own close button, and "Close all" empties the list in
+one click.
+
+**Layout:**
+
+- Fixed position: `top: 124px; right: 16px; width: 360px; z-index: 20`.
+  The header sits at z-30, the site dropdown menu at z-40 — both
+  overlay the stack when their geometry intersects (e.g. an open
+  site dropdown extends down past the header).
+- Container is `pointer-events: none`; only the visible cards opt
+  back in via `.alarm-stack > *`. Empty gaps in the stack column
+  click through to the page beneath.
+- **1 alarm** → single card.
+- **2+ alarms** → Mac-style collapsed peek: top card fully visible,
+  two more shifted down (`top: 8px`, `top: 16px`) with scale-down
+  (1.0 → 0.92) and opacity fade (1.0 → 0.56). Click anywhere on the
+  stack (or Enter/Space when focused) to expand into a vertical
+  list. The Expand/Collapse button in the header bar toggles
+  programmatically.
+- Always-visible header bar: count (`3 alarms`), Expand/Collapse
+  (hidden when only 1 item), red **Close all** button.
+- Per-card X dismisses one item; the collapsed view exposes X on
+  the top card only.
+- Clicking a card body (when expanded) navigates to `/alarms`.
+
+**Data flow.**
+
+```
+useLiveEvents (alarm watcher diff)
+  ↓ for each fresh alarm
+useAlarmNotificationsStore.getState().push(alarm)
+  ↓ stored as { id, alarm, ts }
+AlarmNotificationStack (subscribed to store)
+```
+
+The store (`src/store/alarmNotificationsStore.js`) is a tiny Zustand
+slice: `items[]`, `push(alarm)` (de-dupes by alarm id, caps at
+`MAX_ITEMS = 25`), `dismiss(id)`, `dismissAll()`. No persistence —
+this is purely a transient UI overlay, not a mutation against
+OpenRemote. Dismissing a card here doesn't acknowledge the alarm;
+the alarm itself stays in OR's history and on the `/alarms` page
+until the operator Acks or Resolves it.
+
+**Why a custom stack over `react-hot-toast`.** `react-hot-toast`
+doesn't expose collapsed/expanded states, doesn't natively support a
+"close all" action across its toasts, and its positioning options
+conflict with the site dropdown's location. Building our own is
+~250 lines including CSS and lets every interaction match the
+operator's expectations (close, close all, expand, click-to-jump).
+
+**Suppressed on the Alerts page.** `useLiveEvents` skips the push
+when `location.pathname.startsWith('/alarms')` — when the operator
+is already looking at the alerts inbox, surfacing the same alarms
+as floating cards is redundant.
+
+**OS notifications unchanged.** `fireAlarmNotification` still runs
+per fresh alarm (when the tab is hidden, permission is granted, and
+the user has enabled them in Settings). Only the in-app surface
+moved.
 
 ---
 
@@ -782,147 +1014,172 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 
 ---
 
-## 8. The Overview page, panel by panel
+## 8. The Overview page
 
-`src/pages/SecureOpsOverviewPage.jsx` — mounted at `/`. Layout:
+`src/pages/SecureOpsOverviewPage.jsx` — mounted at `/`. **Viewport-fit** —
+the page is sized `h-[calc(100dvh-112px)]` and `overflow:hidden`; only the
+Recent Alerts list scrolls (internally) when it overflows. The page itself
+never scrolls.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ KPI strip (4 cards)                                              │
-├──────────────────────────────┬───────────────────────────────────┤
-│ Live camera feeds            │ Recent alerts                     │
-│   tower selector  + 2×2 grid │   severity chips + scrollable list│
-│ Site status                  │ Environmental telemetry           │
-│   button rows                │   temp/humidity/signal/battery    │
-│ Remote control               │   + 8h detections bar chart       │
-│   3 buttons + PTT card       │ Audit log                         │
-│                              │   scrollable, last N events       │
-└──────────────────────────────┴───────────────────────────────────┘
+│ ⏱ Time range  [Today] [24h*] [7d] [30d] [All]                    │   chip strip
+├──────────────────────────────────────────────────────────────────┤
+│ Sites online · Active alerts·24h · Human detections·24h · AI up  │   KPI strip
+├──────────────────────────────────────────────────────────────────┤
+│ Recent alerts · Last 24h                  N active  [Reset]      │
+│   Severity   [High N] [Med N] [Low N]                            │   filter rows
+│   Tower      [Tower 1] [Tower 2] [Tower 3] …                     │
+│   ─────────────────────────────────────────────                  │
+│   ┌────────────────────────────────────────────────────────┐     │
+│   │ alert row · breadcrumb · time · severity · actions     │     │   scrollable
+│   │ alert row · …                                          │     │   list
+│   └────────────────────────────────────────────────────────┘     │
+│   All alerts ›                                                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.1. KPI strip
+The five panels that used to live here are gone — none deleted in spirit,
+just relocated:
+
+| Old panel | Where it lives now |
+|---|---|
+| Live Camera Feeds | `/video` page (full grid) and inside `AlarmClipModal` (per-alarm Live tab) |
+| Site Status | (dropped) — the `Sites online` KPI carries the realm-wide signal |
+| Remote Control (Door/Siren/Lights) | `AlarmClipModal` compact Quick controls (§5.1b) and `/control` page (full tiles) |
+| Push-to-talk card | `AlarmClipModal` compact PTT button (§5.1b) |
+| Environmental telemetry | `SecureOpsHeader` chips (§6.3) — temp/humidity/signal/battery |
+| Audit log preview | `/audit` page (link in the alert panel footer) |
+
+### 8.1. Time-range filter
+
+`TimeRangeBar` (a `useState('24h')` + `useTransition`) sits above the
+KPI strip. Options: `Today | 24h | 7d | 30d | All` (default 24h —
+matches a typical operator shift). The setter is wrapped in
+`startRangeTransition` so React keeps the previous KPI / alert list
+visible during the re-derive instead of flashing an empty intermediate
+frame; `isRangePending` is surfaced to the Recent Alerts panel as a
+soft loader overlay (§8.4).
+
+The range drives:
+- The **Active alerts** KPI count + critical/warning split
+- The **Human detections** KPI count + delta vs the immediately-preceding
+  equal window
+- The Recent Alerts list (alarms filtered to `createdOn ≥ rangeStart`)
+
+The **Sites online** and **AI uptime** KPIs **ignore** the range —
+they're "now" snapshots (current state of the realm), not time-bound
+counts. Filtering them by `createdOn` would be misleading.
+
+Window computation lives in `getRangeWindow(range)`, which returns
+`{start, prevStart, label, shortLabel}`. `today` snaps to local
+midnight (so the count doesn't drift second-by-second); rolling
+windows use `new Date().getTime()` as the anchor (`Date.now()` would
+trip the `react-hooks/purity` lint rule inside the consuming
+`useMemo`). For `all`, both timestamps are `null` — the delta line
+collapses to `All time`.
+
+### 8.2. KPI strip
+
+All four KPIs derive from the parent-level scope filter
+`scopeAlarmsToTowers(filterAlarmsByCreatedOn(...))` so they're
+consistent with the Recent Alerts panel (specifically: **`Active
+alerts` total === sum of the panel's High + Medium + Low chip
+counts**). Picking a site or changing the range shrinks both the KPI
+and the panel chips in lockstep.
 
 | Card | Derivation |
 |---|---|
-| **Sites online** | `online/total` of **SiteAssets across the entire realm** (not scoped by the global site dropdown — it's a realm-wide health indicator). A site is *online* unless (a) the SiteAsset itself has `connected === false`, OR (b) it has one or more towers and every one of them is offline. A tower is *online* unless its `connected` attribute is explicitly `false` (undefined attr ⇒ online, to avoid phantom-offline on freshly-added assets). Subline names the first offline site + a `+more` indicator if multiple are down. When the realm has no SiteAssets, a synthetic "Towers" entry derived from every gateway/towerAsset is shown so the card still renders. |
-| **Active alerts** | `useAlarms({status:'OPEN'})` count + `"N critical, M warning"`. **Clickable** — the card is a `<Link to="/alarms">`, takes the operator straight to the Alerts tab. `KpiCard` accepts an optional `to` prop; pass it to make any other KPI navigable too (hover state via `a.so-kpi.so-kpi-clickable`). |
-| **Detections today** | Count of alarms whose `createdOn` falls in today (vs yesterday for the delta). Every detection — human, animal, ANPR, anything else the AI side reports — raises an alarm via the backend rule, so the alarm history is the canonical persistent count. Status transitions (Ack / Resolve) are not deletions, so the daily total stays stable across operator actions. |
-| **AI uptime** | Average of `TowerAsset.aiUptime30d` across scope, or 100% if any tower reports a recent `aiHeartbeatAt`. Drops to `—` when neither exists (no-placeholder rule). |
+| **Sites online** | `online/total` of **SiteAssets across the entire realm** (not scoped — realm-wide health indicator). Online unless (a) SiteAsset has `connected === false`, OR (b) it has towers and every one is offline. A tower is online unless `connected` is explicitly `false` (undefined ⇒ online — avoids phantom-offline on freshly-added assets). Subline names the first offline site + `+more`. No SiteAssets in realm → synthetic "Towers" entry from every gateway/towerAsset. |
+| **Active alerts · `<range>`** | `openAlarmsInScope.length` — open alarms in current site + range scope. Subline: `"N critical, M warning"` where critical = CRITICAL + HIGH (`isHighPrioritySeverity`). **Clickable** — Link to `/alarms`. Label changes per range (e.g. `Active alerts · 24h`). |
+| **Human detections · `<range>`** | CRITICAL + HIGH alarms in scope+range (`isHighPrioritySeverity`). On this deployment the AI side raises human-detection events at HIGH severity, so this is the KPI that maps to "people seen on cameras". Subline: `+N vs prev <range>` (delta vs the immediately-preceding equal window — both windows pass through the same severity + scope filter). For `All` the delta is meaningless, subline shows `All time`. Lower-severity alarms (animal / vehicle / "other") still appear in the Recent Alerts list — they're just not inflating the KPI. |
+| **AI uptime** | Average of `TowerAsset.aiUptime30d` across scope, or 100% if any tower reports a recent `aiHeartbeatAt`. Drops to `—` when neither exists (no-placeholder rule). Ignores range filter. |
 
-### 8.2. Live camera feeds
+`KpiCard` accepts an optional `to` prop to render the card as a `<Link>`
+with a subtle hover lift — currently used only by Active alerts.
 
-- Tower dropdown — first tower in scope auto-selected; `setTower` updates the
-  store so the Remote Control + Environmental Telemetry panels follow.
-- 2×2 grid of the active tower's `CameraAsset` children. Each tile:
-  - Plays `liveStreamUrl` via the smart `CameraStream` renderer
-    (`<video>` / `<img>` / `<iframe>` auto-detected from URL extension).
-  - REC pill (always, when streaming) or ALERT pill (recent `human` detection within last 5 min).
-  - Label = name-derived short code (`CAM-02`), bottom strip = full name.
-  - Click → opens the shared `CameraFullView` modal (see §5.1a). No
-    "Full stream / Playback / Detail" footer row — the tile + modal are
-    the entire UX, History lives only in the asset detail page reached
-    from alarm/audit breadcrumbs.
-- Overflow tile `+N more cameras` links to `/video` when there are more than 4.
+### 8.3. Recent Alerts panel
 
-### 8.3. Site status
+Full-width inside the viewport-fit shell. Flexes to fill remaining height
+after the time-range bar + KPI strip — `.so-panel-fit` + `.so-alert-list`
+flex chain (see §14 *Styling conventions* for the pattern).
 
-Compact list of every tower in scope (this is the same `towers` array
-populating the dropdown). Each row: name · connection type · `cams · sensors`
-· status badge (Online / Alert / Offline / Intrusion). Clicking a row picks
-the tower as the active tower for the other panels.
+**Header:** title `Recent alerts · Last 24h` (range label) · `N active`
+counter (or `X of Y active` when filters are on) · `Reset` button (only
+when filters are on) · small `Loader2` spinner during transitions
+(§8.5).
 
-**Sort:** rows are ordered by alert priority — `offline` first, then
-`alarming`, then `online`. Within the same bucket: highest open-alarm
-count first, then alphabetical. So the operator's eye lands on the row
-that needs attention first.
+**Filter rows** (inline below the header, mirroring the `/alarms` page —
+same `.audit-chip` styling, same `ToggleChip` primitive, same
+`SEVERITY_GROUPS` config with `expandSeverity` helper):
 
-**Header controls:**
-- 🔄 Refresh icon → `useQueryClient().invalidateQueries({queryKey:['assets']})`
-  forces an immediate refetch (spins for ~600 ms for visual feedback,
-  ignores back-to-back clicks).
-- "All sites" → opens an in-page modal (NOT a route change) listing
-  every SiteAsset in the realm, sorted by the same priority rule. Click
-  a row to set the global site filter; click "All Sites" at the top of
-  the modal to clear the filter. Closes on Esc or backdrop click.
+- **Severity** — multi-select chips `High` / `Medium` / `Low` with counts.
+  CRITICAL folds into HIGH (three buckets map cleanly to three colour rails).
+- **Tower** — multi-select chips for every tower in scope. Hides when scope
+  has no towers.
 
-### 8.4. Remote control
+Both setters wrap in `useTransition` so the list stays visible during the
+re-derive — clicking a chip with thousands of alarms doesn't blank the panel.
 
-Three toggle buttons for the active tower, plus an inline **Push-to-talk
-card** below the grid:
+**Rows.** Same `AlertRow` component as before: severity-colored left rail,
+`Site › Tower › Asset` breadcrumb (display-only `.so-crumb-static` chips),
+`HH:mm · X min ago` time, severity pill, action cluster (`Clip` /
+`Ack` / `Resolve`). Row dims while its own mutation is pending (`data-pending`).
 
-- **Door lock** — first `DoorLockAsset` child. Toggles `onOff`. Labels:
-  "Locked" / "Unlocked".
-- **Siren** — first `BuzzerAsset` or `AlarmAsset`. Toggles `onOff`.
-- **Lights** — first `LightAsset`. Toggles `onOff`.
+**Severity colors:** **CRITICAL/HIGH = red, MEDIUM = yellow, LOW = grey**.
 
-Toggle writes go through the existing optimistic `useWriteAttribute`
-(cache patches instantly, rolls back + toast on error, 15 s poll
-reconciles).
+**Action buttons (Ack / Resolve)**
+- Status-aware visibility: `OPEN` → both, `ACKNOWLEDGED`/`IN_PROGRESS` → only Resolve, `RESOLVED`/`CLOSED` → none.
+- Pending state: clicked button shows `Loader2` + label flips to "Acking…" / "Resolving…"; other actions on the row disable.
+- Action-specific toasts: `"Alarm acknowledged — <title>"` / `"Alarm resolved — <title>"` (via the `successMessage` variable on `useUpdateAlarmStatus` — see §10b).
 
-**Push-to-talk card** (`PushToTalkCard`, inline — no modal):
-- Hold the circular mic button (mouse-down / touch-start) to transmit;
-  release to stop. `onMouseLeave` while talking also releases so the
-  mic can't get stuck open if the operator drags off.
-- Backed by `usePushToTalk` (see §5.5). Connection is lazy — the
-  WebSocket opens on first press, stays warm between holds, and tears
-  down on unmount.
-- Status pill cycles `Idle / Connecting / Ready / Transmitting / Error
-  / Offline`. The red `Transmitting` dot blinks at 0.7 s while live.
-- Live mic level meter (accent → danger gradient) and an inline error
-  line for connect / mic-permission failures.
-- **Not gated on any tower / camera attribute.** The endpoint is global,
-  so the card is always present — there's no "No 360 cam" disabled
-  state anymore.
+**Clip button.** Opens `AlarmClipModal` (§5.1b) for the row's alarm,
+seeding the modal's tower-scoped queue (§8.4).
 
-### 8.5. Recent alerts
+**Footer:** `All alerts ›` link to `/alarms` (the full inbox with search
++ all the same filters in a richer layout).
 
-- Sourced from `useAlarms({status:'OPEN'})`, **scoped by site** (selected
-  site → its towers' alarms; All Sites → every alarm).
-- **No top-N slice** — every open alarm in scope is shown in a
-  `max-height: 440px` scrollable container.
-- Severity colors: **CRITICAL/HIGH = red, MEDIUM = yellow, LOW = grey**.
-  Header severity chips count `High N · Med N · Low N`.
-- Each row renders **Site › Tower › Camera** breadcrumb as
-  display-only `.so-crumb.so-crumb-static` chips (no click — see §5.1c).
-  Segments omit gracefully when the data isn't there.
-- 🎬 **Clip** icon button appears next to Ack / Resolve when the alarm
-  carries a clip URL (resolved via `getAlarmClipUrl` — see §5.1b).
-  Click → opens the shared `ClipModal`.
-- Time row: `09:42 · 4 min ago` (HH:mm + `formatDistanceToNowStrict`).
-- **Ack** (cyan) and **Resolve** (green) buttons on every actionable row.
-  Status-aware visibility:
-  - `OPEN`: both shown.
-  - `ACKNOWLEDGED` / `IN_PROGRESS`: only Resolve.
-  - `RESOLVED` / `CLOSED`: no buttons.
+### 8.4. Modal queue handoff
 
-  Pending state shows `Loader2` (spinning) on the clicked button only; the
-  other action and siblings disable. Uses `useUpdateAlarmStatus` —
-  invalidates `['alarms']` so the row drops out on success.
+The clip modal is state-managed by `RecentAlertsPanel` — but instead of
+storing the full payload (`{alarm, asset, tower, site}`), it stores only
+the **alarm id** (`clipAlarmId`). Each render the panel rebuilds the
+queue context from the live `alarms` array:
 
-### 8.6. Environmental telemetry
+```
+clipAlarmId          → alarms.find(a => a.id === clipAlarmId)
+                     → resolveAlarmContext({alarm, asset, tower, site})
+                     → queue = openAlarmsInSameTowerWithClipUrl
+                     → {current, prev, next, position}
+                     → passed to <AlarmClipModal key={alarm.id} ... />
+```
 
-**Header has the same 🔄 Refresh icon** as Site Status — invalidates
-`['assets']` and the temp/humidity/signal/battery rows + the detections
-chart pick up the fresh values on the next render.
+This is what makes auto-advance work cleanly. When the operator Acks/
+Resolves inside the modal, the mutation invalidates `['alarms']`, the
+panel re-renders with the shrunk list, and the modal (still mounted at
+`clipAlarmId = <originally-next>.alarm.id`) finds the new "current" is
+the alarm we wanted to advance to. The `key={alarm.id}` on the modal
+forces a fresh mount for the new alarm — view resets to snapshot-first,
+download state clears, mutation hook starts fresh. This is the
+project's "reset state when a prop changes" idiom (per §11 + the
+React-hooks `set-state-in-effect` lint rule).
 
-Reads the **active tower's** attributes:
-- `temperature` / `humidity` / `signalStrength` / `batteryLevel` rows, each
-  with a bar showing the value's position in its sensible range
-  (`temp/60`, `humidity/100`, `(signal+110)/60` so -110 dBm ≈ 0% and
-  -50 dBm ≈ 100%, `battery/100`).
-- "Updated Ns ago" header using the most recent attribute timestamp.
-- "Detections — past 8 hours" — hourly buckets from **alarm `createdOn`
-  timestamps** for alarms belonging to the active tower (same source
-  as the "Detections today" KPI). Totals are shown next to the section
-  title so the numbers can be cross-checked against the KPI. The newest
-  bucket gets a brighter colour.
+Severity/tower chip filters in the panel are deliberately **NOT** applied
+to the queue — the operator triaging clip-by-clip wants every alarm in
+the tower in the queue regardless of which chips happen to be active.
 
-### 8.7. Audit log (preview)
+### 8.5. Loader UX
 
-Mini version of the full `/audit` page (§9). Sources from
-`useAlarms({})` (everything, not just open) + the optional
-`TowerAsset.auditLog` attribute. Scope = site only (NOT selected tower).
-Scrollable, `max-height: 360px`. Footer link to `/audit`.
+The Recent Alerts panel renders a soft loader overlay (semi-transparent
+scrim + spinner) when `externalLoading || isFilterPending`:
+
+- `externalLoading` = parent's time-range `useTransition` `isPending`
+- `isFilterPending` = panel's own severity/tower `useTransition` `isPending`
+
+React-Query's `isFetching` is **deliberately NOT** in this signal —
+background polls would otherwise blink the loader every 15s for no
+operator-meaningful reason. The initial fetch still uses the full-page
+`LoadingSpinner` via the parent's `isLoading` check.
 
 ---
 
@@ -1137,6 +1394,32 @@ the place to investigate first.
 
 ---
 
+## 10b. Alarm status mutation — per-call toast copy
+
+`useUpdateAlarmStatus()` (`src/hooks/useAssets.js`) accepts two
+**optional** variables alongside the usual `{alarm, status}` payload:
+
+```js
+update.mutate({
+  alarm,
+  status: 'ACKNOWLEDGED',
+  successMessage: 'Alarm acknowledged — Person at gate',
+  errorMessage:   'Failed to acknowledge alarm',
+});
+```
+
+When omitted, the hook falls back to the generic copy `"Alarm status
+updated"` / `"Failed to update alarm"` — so legacy callsites
+(`SecureOpsAlertsPage`, the original `AlarmsPage`, `StorePage`,
+`OverviewPage` etc.) keep their existing toast wording without any
+change.
+
+The Overview's `RecentAlertsPanel` AlertRow and the `AlarmClipModal`
+both pass action-specific copy so the operator sees a clear
+confirmation that names the alarm they just acted on.
+
+---
+
 ## 11. Case-insensitive type matching
 
 `src/utils/assetIcons.js` exports a `normalizeAssetType(t)` helper:
@@ -1176,10 +1459,17 @@ when creating new test data — that's what the user's realm uses.
 
 ## 12. Audit events shared util
 
-`src/utils/auditEvents.js` exports the two event generators used by both
-the Overview's `AuditLogPanel` and the dedicated `AuditLogPage`. Centralising
-keeps event shape, severity tagging, and the "transition only when
-lastModified ≠ createdOn" rule in one place.
+`src/utils/auditEvents.js` exports the two event generators used by the
+`AuditLogPage`. (The Overview's audit-log preview panel was removed
+2026-05-27 — see §8 — but the util stays single-source so any future
+re-introduction lands a consistent event shape.) Centralising keeps
+event shape, severity tagging, and the "transition only when
+`lastModified ≠ createdOn`" rule in one place.
+
+**As of 2026-05-27** each event also carries the raw `alarm` ref on
+the common payload so the `AlarmClipModal` (opened from audit row clip
+buttons) can derive snapshot URL + detection label from the same source
+the row already shows.
 
 Event shape:
 
@@ -1231,6 +1521,18 @@ src/components/cameras/CameraHistoryModal.jsx Unified history modal — live str
 src/components/cameras/PtzControls.jsx        Up/down/left/right pad overlaid on
                                               PtzCameraAsset live frames inside the
                                               history modal. onMove stub for now.
+src/components/cameras/AlarmClipModal.jsx     Rich alarm clip modal (§5.1b). Replaces
+                                              the deleted ClipModal. Header severity +
+                                              title + Prev/Next queue nav + Close;
+                                              meta strip w/ breadcrumb + time + camera +
+                                              detection chip + Quick controls + PTT;
+                                              Snapshot/Clip/Live tabbed stage with
+                                              native <video controls>, snapshot preview
+                                              w/ play overlay, CameraStream for live;
+                                              PtzControls overlay when PtzCameraAsset;
+                                              footer Ack/Resolve (auto-advance) +
+                                              Download (blob fetch). Used by Overview,
+                                              /alarms, /audit clip buttons.
 src/pages/SecureOpsOverviewPage.jsx           The Overview tab (`/`)
 src/pages/SecureOpsVideoPage.jsx              The Video wall (`/video`)
 src/pages/SecureOpsAlertsPage.jsx             Actionable alerts inbox (`/alarms`)
@@ -1245,6 +1547,22 @@ src/pages/SecureOpsStubPage.jsx               Shared placeholder (now unused —
 src/pages/AuditLogPage.jsx                    Full `/audit` page
 src/pages/secureops.css                       All SecureOps-scoped styling
 src/store/secureOpsStore.js                   Zustand: selectedSiteId / selectedTowerId
+src/store/alarmNotificationsStore.js          Zustand: in-app alarm notification stack.
+                                              items[], push(alarm) (de-dupes by id,
+                                              capped at 25), dismiss(id), dismissAll().
+                                              Fed by useLiveEvents on each fresh alarm.
+src/components/notifications/AlarmNotificationStack.jsx
+                                              Mac-style notification stack mounted in
+                                              DashboardLayout. Collapses 2+ alarms into
+                                              a peek stack; click to expand. Header bar:
+                                              count, Expand/Collapse, Close all. Per-
+                                              card X. Card click → /alarms.
+src/components/notifications/alarmNotifications.css
+                                              Scoped styles for the stack. Fixed
+                                              top:124px / right:16px / z:20 so the
+                                              site dropdown (z-40) overlays it when
+                                              open. Container pointer-events:none so
+                                              empty space click-throughs work.
 src/utils/auditEvents.js                      Shared alarm/tower event generators
 src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
                                               getEventClipUrl / getEventSnapshotUrl,
@@ -1252,10 +1570,13 @@ src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTR
 src/constants/ptz.js                          PTZ_BASE_URL + getPtzMoveUrl(id, dir).
                                               Single source of truth for the AI-side
                                               PTZ controller endpoint shape.
-src/constants/ptt.js                          PTT_WS_URL. Single source of truth for
-                                              the PC-speaker WebSocket endpoint
-                                              (`ws://host:port`) consumed by
-                                              usePushToTalk.
+src/constants/ptt.js                          PTT_WS_URL (legacy doc-only) +
+                                              buildPttWsUrl(socketIP). The builder
+                                              hard-codes the `wss://` scheme, strips
+                                              any accidental ws:// / wss:// prefix
+                                              from the attribute value, and returns
+                                              null for blank input. RemoteControlPanel
+                                              no longer reads PTT_WS_URL.
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
 src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
@@ -1295,11 +1616,62 @@ public/telco-logo.jpeg                        SMS Sentinel AI brand logo. Served
 ```
 src/App.jsx                                   Routes for new pages + stubs
 src/components/layout/DashboardLayout.jsx     Renders SecureOpsHeader (was Sidebar+Header)
+                                              + mounts AlarmNotificationStack alongside
+                                              the existing Toaster
 src/utils/assetIcons.js                       Asset types (incl. PtzCameraAsset) + normalizeAssetType
                                               + icon/accent maps + isAssetActive / getStateLabel
 src/utils/gateways.js                         isSiteAsset / pickSites / isTowerAsset / pickTowersForSite
                                               / findSiteForAsset / isCameraAsset / isPtzCamera
+                                              / findPttAssetForTower (case-insensitive
+                                              PttAsset / "PTT Asset" matcher; walks
+                                              isDescendantOfGateway because PttAsset
+                                              is not in DEVICE_TYPES)
+src/hooks/useLiveEvents.js                    Alarm watcher now pushes to
+                                              alarmNotificationsStore instead of
+                                              firing react-hot-toast cards. Skips the
+                                              push when the user is already on /alarms.
+                                              OS notifications via fireAlarmNotification
+                                              unchanged.
+src/pages/SecureOpsOverviewPage.jsx           RemoteControlPanel derives pttUrl per-
+                                              tower via findPttAssetForTower +
+                                              buildPttWsUrl. PushToTalkCard split into
+                                              live / disabled branches; re-keyed on
+                                              pttUrl so a tower swap tears down the
+                                              old socket.
 src/api/client.js                             Refresh-token dedup (concurrent 401 handling)
+src/utils/alarms.js                           getAlarmClipUrl unchanged + new
+                                              getAlarmEventId / getAlarmSnapshotUrl /
+                                              getAlarmDetectionLabel helpers feeding
+                                              AlarmClipModal (§5.1b).
+src/utils/auditEvents.js                      Each event payload now carries the raw
+                                              `alarm` ref so /audit's clip click can
+                                              open AlarmClipModal with full context.
+src/hooks/useAssets.js                        useUpdateAlarmStatus reads optional
+                                              successMessage / errorMessage from mutate
+                                              variables — backwards-compatible toast
+                                              copy override (§10b).
+src/pages/SecureOpsOverviewPage.jsx           2026-05-27: full rewrite to KPI strip +
+                                              full-width Recent Alerts only (§8).
+                                              Live Camera Feeds / Site Status / Remote
+                                              Control / Env Telemetry / Audit log panels
+                                              all removed (relocated — see §8 table).
+                                              Adds TimeRangeBar (§8.1), Severity + Tower
+                                              filter chips inside the panel (§8.3),
+                                              clipAlarmId state + queue derivation for
+                                              the AlarmClipModal handoff (§8.4), loader
+                                              UX via useTransition (§8.5).
+src/pages/SecureOpsAlertsPage.jsx             Clip button → AlarmClipModal (was ClipModal)
+src/pages/AuditLogPage.jsx                    Clip button → AlarmClipModal (was ClipModal)
+src/components/layout/SecureOpsHeader.jsx     Env chip strip extended to 4 chips —
+                                              signal (dBm) and battery (%) added next
+                                              to temp + humidity (§6.3).
+```
+
+### Deleted files
+
+```
+src/components/cameras/ClipModal.jsx          Replaced by AlarmClipModal (2026-05-27).
+                                              No remaining importers.
 ```
 
 ### Memory files (operator-side, persist across conversations)
@@ -1431,27 +1803,59 @@ In rough priority order:
    an Asset history panel** that charts any tower child's numeric or
    boolean attribute over 1h/6h/24h/7d/30d. See §9a for the full
    layout. Bulk operations (lock-all-doors, lights-off, etc.) still TODO.
-4. **Push-to-talk — ✅ shipped 2026-05-23** as `PushToTalkCard` inline
-   in Remote Control on the Overview page. Routes 16-bit PCM (mono,
-   48 kHz) over a WebSocket (`PTT_WS_URL`) to a PC speaker via
-   `usePushToTalk` (§5.5). Hold-to-talk button + live mic level meter
-   + status pill. **Open polish:** TLS for the PTT server so an HTTPS
-   portal stops being blocked by mixed-content (currently swap
-   `PTT_WS_URL` to `wss://…` once cert lands); optional Space hotkey
-   while the Overview is focused; per-operator transmit lock if more
-   than one operator can hold a tower.
-5. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
+4. **Push-to-talk — ✅ shipped 2026-05-23, relocated to AlarmClipModal 2026-05-27**
+   (per-tower from the start). Originally `PushToTalkCard` inside the
+   Overview's Remote Control panel; both panels were removed when the
+   Overview slimmed to KPI + Recent Alerts (§8). The PTT button now
+   lives inline in the alarm clip modal's meta strip (§5.1b),
+   compressed to a single 28×28 icon button (status via background
+   tint + tooltip, no meter, no inline hint). Still routes 16-bit PCM
+   (mono, 48 kHz) over a WebSocket via `usePushToTalk` (§5.5); still
+   resolves URL per-tower from `PttAsset.socketIP` with no global
+   fallback; still hard-codes `wss://` via `buildPttWsUrl`.
+   **Open polish:** Space hotkey when modal is focused; per-operator
+   transmit lock; Settings surface for which towers lack a PttAsset.
+5. **In-app alarm notification stack — ✅ shipped 2026-05-23** as
+   `AlarmNotificationStack` mounted in `DashboardLayout`. Replaces the
+   prior `react-hot-toast` flow that blocked the site dropdown. See
+   §6.4. **Open polish:** optional auto-dismiss after N minutes
+   (currently explicit-close only — items pile up to MAX_ITEMS=25
+   then drop the oldest); a "Snooze" affordance per card for
+   triage-in-progress alarms; persist `items` to sessionStorage so a
+   page refresh during triage doesn't lose the stack.
+6. **Settings tab** — extend the existing `SettingsPage` with a "SecureOps"
    section: default site, live-camera autoplay, alert sound for new
-   Critical alerts, camera-history retention display, **PTT server URL
-   override** (so the constant doesn't have to be edited per-deployment).
-6. **Device-state-change history from datapoints** — for towers that don't
+   Critical alerts, camera-history retention display. The per-deployment
+   PTT URL override is no longer needed — it's now an OR attribute on
+   the tower's `PttAsset` child (§5.5).
+7. **Device-state-change history from datapoints** — for towers that don't
    carry an `auditLog` attribute, optionally fetch datapoints for each
    controllable asset's `onOff` over the last 24 h and surface them in
    the audit log. Cap to ~5 towers at a time; use `useQueries` with a
    stable id list to avoid query churn.
-7. **Detect when `aiHeartbeatAt` is stale** — if no tower has reported a
+8. **Detect when `aiHeartbeatAt` is stale** — if no tower has reported a
    heartbeat in > 5 min, drop the AI uptime KPI to `—` (currently it stays
    at 100% as long as any heartbeat exists, regardless of recency).
+9. **AlarmClipModal — ✅ shipped 2026-05-27** as
+   `src/components/cameras/AlarmClipModal.jsx`, fully replacing the
+   URL-only `ClipModal` on every alert surface (Overview / `/alarms` /
+   `/audit`). Header severity + title + Prev/Next tower-scoped queue
+   navigation; meta strip with breadcrumb + time + camera + detection
+   chip + compact Quick controls (Door / Siren / Lights) + PTT button
+   targeting the camera's tower; Snapshot / Clip / Live segmented tabs
+   with native `<video controls autoPlay>` on Clip + blob-fetch
+   Download + LIVE pill on Live + PTZ pad on Live when
+   `PtzCameraAsset`; footer Ack / Resolve with auto-advance to the
+   next queued alarm. Modal sized `w-1280 × h-95vh` for a generous
+   video viewport. **Open polish:** prefetch the next snapshot URL on
+   render so navigation feels instant; "Snooze for 5 min" action that
+   pushes the alarm to the back of the queue instead of Ack/Resolve;
+   queue ordering option (by severity vs time).
+10. **Overview redesign — ✅ shipped 2026-05-27** — see §8. Slimmed to
+    KPI strip + Recent Alerts. Open polish: persist the time-range
+    selection to localStorage so reload lands on the operator's last
+    chosen window (currently session-only, defaults to 24h on every
+    fresh load).
 
 ---
 

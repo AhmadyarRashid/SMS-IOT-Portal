@@ -3,6 +3,156 @@
    Component-scoped styling for the panels that match the prototype sketch.
    ========================================================================== */
 
+/* ---------- Overview viewport-fit shell ----------
+ * The Overview page sizes itself to the remaining viewport (under the
+ * 112px SecureOpsHeader) and never scrolls the page itself. The KPI strip
+ * sits at the top; the Recent Alerts panel flexes into the remaining
+ * height with internal scroll via `.so-alert-list`.
+ */
+.so-overview-shell {
+  height: calc(100dvh - 112px);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+@media (min-width: 768px) {
+  .so-overview-shell { padding: 16px 24px; gap: 14px; }
+}
+.so-overview-shell > .so-panel-fit { flex: 1; min-height: 0; }
+
+.so-panel-fit {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.so-panel-fit .so-panel-head { flex-shrink: 0; }
+
+/* ---------- Time-range filter bar ---------- */
+
+.so-range-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.so-range-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-3);
+}
+.so-range-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+}
+.so-range-chip {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  white-space: nowrap;
+}
+.so-range-chip:hover { color: var(--color-ink-0); }
+.so-range-chip[data-active="true"] {
+  background: color-mix(in srgb, var(--color-accent-500) 18%, transparent);
+  color: var(--color-accent-300);
+}
+
+/* ---------- Recent-Alerts inline filter chips (severity + tower) ---------- */
+
+.so-alert-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  flex-shrink: 0;
+}
+.so-alert-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.so-alert-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-3);
+  min-width: 56px;
+}
+
+/* ---------- Loader overlays + pending dimming ----------
+ * `.so-alert-list-wrap` is the relatively-positioned host for the alert
+ * list AND its loader overlay. While loading we drop list opacity, kill
+ * pointer events, and fade in a soft surface-colour scrim with a spinner —
+ * this is the "no blink" feedback when a filter or refetch is in flight.
+ */
+.so-alert-list-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.so-alert-list-wrap[data-loading="true"] .so-alert-list,
+.so-alert-list-wrap[data-loading="true"] > p {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.so-alert-list,
+.so-alert-list-wrap > p {
+  transition: opacity 0.15s ease;
+}
+.so-alert-loader-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 24px;
+  background: color-mix(in srgb, var(--color-surface-1) 35%, transparent);
+  border-radius: 12px;
+  backdrop-filter: blur(0.5px);
+  z-index: 2;
+  animation: so-fade-in 0.15s ease;
+}
+@keyframes so-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Soften the range chips while the transition is in flight so it's clear
+   the click was registered even before the new list renders. */
+.so-range-chips[data-pending="true"] { opacity: 0.7; }
+
+/* Row being acted on (Ack / Resolve) dims so the operator sees which row
+   they hit while waiting for the server. */
+.so-alert-row[data-pending="true"] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .secureops-chip {
   display: inline-flex;
   align-items: center;
@@ -723,7 +873,8 @@ button.so-cam:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 440px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px; /* room for the scrollbar without crowding rows */
 }
@@ -885,14 +1036,32 @@ button.so-crumb {
   border-color: color-mix(in srgb, var(--color-brand-500) 60%, transparent);
 }
 
-/* ---------- Env telemetry rows ---------- */
-
+/* ---------- Env telemetry rows ----------
+ * The env body is a flex column inside `.so-panel-fit`. Rows flex to fill
+ * the leftover height proportionally; the detections strip sits at the
+ * bottom and stays compact.
+ */
+.so-env-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.so-env-rows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+}
 .so-env-row {
   display: grid;
   grid-template-columns: 1fr 60px 50px;
   align-items: center;
   gap: 12px;
-  padding: 6px 0;
+  padding: 4px 0;
   font-size: 12px;
 }
 .so-env-bar {
@@ -907,6 +1076,9 @@ button.so-crumb {
   background: var(--color-accent-500);
   border-radius: inherit;
 }
+.so-env-detections {
+  flex-shrink: 0;
+}
 
 /* ---------- Detections bar chart ---------- */
 
@@ -916,6 +1088,11 @@ button.so-crumb {
   gap: 6px;
   height: 56px;
   margin-top: 8px;
+}
+.so-bars--compact {
+  height: 36px;
+  margin-top: 6px;
+  gap: 4px;
 }
 .so-bars > span {
   flex: 1;
@@ -1114,3 +1291,395 @@ button.so-crumb {
   background-repeat: no-repeat;
 }
 .so-tower-select:focus { outline: 1px solid color-mix(in srgb, var(--color-accent-500) 60%, transparent); }
+
+/* ==========================================================================
+   AlarmClipModal — rich alarm clip preview
+   ========================================================================== */
+
+.so-clip-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+}
+.so-clip-modal-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.so-clip-modal-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-ink-0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tower-scoped queue navigation. Compact pill with chevron buttons and
+   a "N / M" counter — sits in the header between the title and Close. */
+.so-clip-modal-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  flex-shrink: 0;
+}
+.so-clip-modal-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-1);
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.so-clip-modal-nav-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  color: var(--color-ink-0);
+}
+.so-clip-modal-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.so-clip-modal-nav-counter {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-ink-1);
+  padding: 0 8px;
+  min-width: 44px;
+  text-align: center;
+}
+
+.so-clip-modal-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--color-ink-0) 3%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+}
+.so-clip-modal-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+}
+.so-clip-modal-meta-divider {
+  color: var(--color-ink-3);
+}
+.so-clip-modal-meta-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink-1);
+}
+.so-clip-modal-camera {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--color-ink-0);
+}
+.so-clip-modal-detection {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- Tools cluster (Quick controls + PTT) ----------
+ * Wraps the icon-only Door/Siren/Lights toggles AND the hold-to-talk PTT
+ * button so they share a right-edge alignment in the meta row. Drop the
+ * margin-auto on the inner `.so-clip-modal-quick` items — this wrapper
+ * owns the right-alignment.
+ */
+.so-clip-modal-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  padding-left: 8px;
+  flex-wrap: wrap;
+}
+.so-clip-modal-tools.is-standalone {
+  margin-left: 0;
+  padding-left: 0;
+}
+
+/* ---------- Quick controls (Door / Siren / Lights) ----------
+ * Icon-only toggle strip. Lives inside `.so-clip-modal-tools` so it
+ * doesn't need its own right-alignment.
+ */
+.so-clip-modal-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.so-clip-modal-quick-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-3);
+  margin-right: 4px;
+}
+.so-clip-modal-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 12%, transparent);
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  color: var(--color-ink-1);
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+}
+.so-clip-modal-quick-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-ink-0) 22%, transparent);
+}
+.so-clip-modal-quick-btn:active:not(:disabled) { transform: scale(0.94); }
+.so-clip-modal-quick-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* PTT button — tints amber while connecting, red + pulsing while
+   transmitting. Tooltip on the button carries the full status word. */
+.so-clip-modal-ptt-btn { user-select: none; }
+.so-clip-modal-quick[data-status="connecting"] .so-clip-modal-ptt-btn {
+  background: color-mix(in srgb, var(--color-warning-500) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning-500) 55%, transparent);
+  color: var(--color-warning-500);
+}
+.so-clip-modal-quick[data-status="connected"] .so-clip-modal-ptt-btn {
+  background: color-mix(in srgb, var(--color-ok-500) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-ok-500) 50%, transparent);
+  color: var(--color-ok-500);
+}
+.so-clip-modal-quick[data-status="error"] .so-clip-modal-ptt-btn {
+  background: color-mix(in srgb, var(--color-danger-500) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger-500) 50%, transparent);
+  color: var(--color-danger-400);
+}
+.so-clip-modal-ptt-btn[data-talking="true"] {
+  background: var(--color-danger-500) !important;
+  border-color: var(--color-danger-500) !important;
+  color: #fff !important;
+  animation: so-clip-modal-ptt-pulse 0.7s ease-in-out infinite;
+}
+@keyframes so-clip-modal-ptt-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger-500) 60%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-danger-500) 0%, transparent); }
+}
+
+.so-clip-modal-stage {
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.so-clip-modal-snapshot {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: #000;
+}
+.so-clip-modal-snapshot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.so-clip-modal-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.so-clip-modal-play > svg {
+  width: 72px;
+  height: 72px;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 999px;
+  padding: 18px;
+  backdrop-filter: blur(8px);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  transition: transform .15s ease, background .15s ease;
+}
+.so-clip-modal-snapshot:hover .so-clip-modal-play > svg {
+  transform: scale(1.06);
+  background: rgba(15, 23, 42, 0.78);
+}
+.so-clip-modal-player {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.so-clip-modal-player > video {
+  /* Fill the stage and let `object-fit: contain` letterbox the source
+     internally — gives the operator the biggest possible viewport while
+     keeping the source aspect ratio intact. Native controls render
+     inside the element's bottom edge so they stay over the dark stage. */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  outline: none;
+}
+
+.so-clip-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--color-ink-0) 8%, transparent);
+  background: var(--color-surface-1);
+}
+/* Segmented view tabs: Snapshot / Clip / Live. Only renders the tabs whose
+   underlying URL is available — no greyed-out disabled stubs. */
+.so-clip-modal-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+}
+.so-clip-modal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-ink-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+  white-space: nowrap;
+}
+.so-clip-modal-tab:hover { color: var(--color-ink-0); }
+.so-clip-modal-tab[data-active="true"] {
+  background: color-mix(in srgb, var(--color-accent-500) 18%, transparent);
+  color: var(--color-accent-300);
+}
+
+/* Right-side action cluster — Ack / Resolve (when status permits) plus
+   Download (only on Clip view). Reuses `.so-alert-btn` so the colour
+   semantics (cyan ack, green resolve) match the alert row exactly. */
+.so-clip-modal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.so-clip-modal-download {
+  /* Promote Download to the primary action — the operator's most likely
+     next move after watching the clip is to keep it for evidence. */
+  background: color-mix(in srgb, var(--color-accent-500) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 50%, transparent);
+  color: var(--color-accent-300);
+}
+.so-clip-modal-download:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent-500) 24%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent-500) 70%, transparent);
+}
+.so-clip-modal-download:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Live view chrome — pill anchored to the top-left of the stage.
+ * IMPORTANT: scope size rules to `video / img / iframe` only. A bare
+ * `> *` selector also stretches the absolutely-positioned LIVE pill to
+ * fill the container, which paints the whole stage solid red.
+ */
+.so-clip-modal-live {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.so-clip-modal-live > video,
+.so-clip-modal-live > img,
+.so-clip-modal-live > iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  border: 0;
+}
+.so-clip-modal-live-pill {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(239, 68, 68, 0.92); /* danger-500 */
+  color: #fff;
+  z-index: 2;
+  pointer-events: none;
+}
+.so-clip-modal-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #fff;
+  animation: so-live-blink 1.4s ease-in-out infinite;
+}
+@keyframes so-live-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}

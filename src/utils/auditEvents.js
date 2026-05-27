@@ -46,7 +46,9 @@ export function alarmAuditEvents(alarm, ctx = {}) {
     : (asset ? findSiteForAsset(asset, ctx.sites || []) : null);
 
   const clipUrl = getAlarmClipUrl(alarm);
-  const common = { severity, status, site, tower, asset, clipUrl };
+  // `alarm` rides along so downstream surfaces (AlarmClipModal) can derive
+  // snapshot URL + detection label from the same source the row already shows.
+  const common = { severity, status, site, tower, asset, clipUrl, alarm };
 
   if (alarm.createdOn) {
     events.push({

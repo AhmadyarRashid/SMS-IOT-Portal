@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Video, Bell, SlidersHorizontal, ScrollText, Settings,
-  ChevronDown, Check, Thermometer, Droplets,
+  ChevronDown, Check, Thermometer, Droplets, Signal, BatteryCharging,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
 import { pickSites, pickTowersForSite, getWeatherAssetForTower } from '../../utils/gateways';
@@ -55,11 +55,16 @@ export default function SecureOpsHeader() {
     return scopeTowers[0] || null;
   }, [scopeTowers, selectedTowerId]);
 
-  // Temp + humidity come from the active tower's HeatSensorAsset child
-  // (a packaged weather sensor inside the tower's IP67 box).
+  // Environmental telemetry chips for the active tower:
+  //   • Temp + humidity come from the tower's HeatSensorAsset child (a
+  //     packaged weather sensor inside the IP67 box).
+  //   • Signal + battery live on the TowerAsset itself.
+  // Each chip hides when its attribute isn't declared (no-placeholder rule).
   const weather = useMemo(() => getWeatherAssetForTower(activeTower, assets), [activeTower, assets]);
   const temp = readNumber(weather?.attributes?.temperature?.value);
   const humidity = readNumber(weather?.attributes?.humidity?.value);
+  const signal = readNumber(activeTower?.attributes?.signalStrength?.value);
+  const battery = readNumber(activeTower?.attributes?.batteryLevel?.value);
 
   return (
     <div
@@ -105,9 +110,21 @@ export default function SecureOpsHeader() {
             </span>
           )}
           {humidity != null && (
-            <span className="secureops-chip">
+            <span className="secureops-chip" title="Humidity">
               <Droplets className="w-3.5 h-3.5" strokeWidth={2} />
               <span className="tabular-nums">{humidity.toFixed(0)}%</span>
+            </span>
+          )}
+          {signal != null && (
+            <span className="secureops-chip" title="Signal strength (4G)">
+              <Signal className="w-3.5 h-3.5" strokeWidth={2} />
+              <span className="tabular-nums">{signal} dBm</span>
+            </span>
+          )}
+          {battery != null && (
+            <span className="secureops-chip" title="Battery backup">
+              <BatteryCharging className="w-3.5 h-3.5" strokeWidth={2} />
+              <span className="tabular-nums">{battery.toFixed(0)}%</span>
             </span>
           )}
         </div>

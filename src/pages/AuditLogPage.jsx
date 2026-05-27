@@ -18,7 +18,7 @@ import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import { downloadCsv } from '../utils/csv';
 import CameraHistoryModal from '../components/cameras/CameraHistoryModal';
-import ClipModal from '../components/cameras/ClipModal';
+import AlarmClipModal from '../components/cameras/AlarmClipModal';
 import { findGatewayForAsset } from '../utils/gateways';
 import './secureops.css';
 
@@ -406,10 +406,11 @@ export default function AuditLogPage() {
         />
       )}
       {clipInView && (
-        <ClipModal
-          title={clipInView.title}
-          subtitle={clipInView.subtitle}
-          url={clipInView.url}
+        <AlarmClipModal
+          alarm={clipInView.alarm}
+          asset={clipInView.asset}
+          tower={clipInView.tower}
+          site={clipInView.site}
           onClose={() => setClipInView(null)}
         />
       )}
@@ -444,9 +445,10 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
                 <button
                   type="button"
                   onClick={() => onClipClick?.({
-                    url: e.clipUrl,
-                    title: e.title,
-                    subtitle: `${format(at, 'HH:mm dd MMM')}${e.asset ? ` · ${getAssetDisplayName(e.asset)}` : ''}`,
+                    alarm: e.alarm,
+                    asset: e.asset,
+                    tower: e.tower,
+                    site: e.site,
                   })}
                   className="so-clip-btn-icon"
                   title="View the clip attached to this alarm"

@@ -7,7 +7,7 @@
  * else is best-effort.
  */
 
-import { getEventClipUrl } from '../constants/events';
+import { getEventClipUrl, getEventSnapshotUrl } from '../constants/events';
 
 // Matches the AI-side event id shape used by the Video page eventId
 // datapoints — e.g. `1779269865.828876-zcx508`: a unix timestamp (optionally
@@ -109,5 +109,66 @@ export function getAlarmClipUrl(alarm) {
     if (id) return getEventClipUrl(id);
   }
 
+  return null;
+}
+
+/**
+ * Extract the AI-side event id associated with an alarm, when one is
+ * available. The id is the same shape the Video page's `eventId` datapoints
+ * stream uses (`1779269865.828876-zcx508`).
+ *
+ * Resolution order mirrors `getAlarmClipUrl` for consistency:
+ *   1. A dedicated structured field — `eventId` (preferred for new
+ *      deployments — backend rule writes the id straight onto the alarm).
+ *   2. A raw event id in the `content` / `description` text, searched only
+ *      in the non-URL portion so an id embedded inside a clip URL path
+ *      doesn't get extracted out and re-routed.
+ *
+ * Returns `null` when no id is available; callers should fall back to the
+ * direct clip URL (which may have been provided as a literal URL).
+ */
+export function getAlarmEventId(alarm) {
+  if (!alarm) return null;
+
+  // 1. Structured field.
+  const direct = alarm.eventId;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  // 2. Bare event id in description / content.
+  for (const text of [alarm.content, alarm.description]) {
+    const id = findEventId(text);
+    if (id) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Snapshot URL for an alarm, derived from its event id when available.
+ * Used by the alarm clip modal to preview a still frame before pulling the
+ * video bytes. Returns `null` when the alarm carries no event id — the
+ * modal then jumps straight to clip playback (no snapshot step).
+ */
+export function getAlarmSnapshotUrl(alarm) {
+  const id = getAlarmEventId(alarm);
+  return id ? getEventSnapshotUrl(id) : null;
+}
+
+/**
+ * Best-effort detection-category label, derived from alarm title + body
+ * text. Returns one of `'human' | 'animal' | 'vehicle'` when a keyword
+ * matches; `null` when no clear category. Used by the alarm clip modal
+ * to render a small detection chip alongside the camera name.
+ *
+ * Intentionally lightweight — the AI side doesn't currently expose a
+ * structured detection field on the alarm. If/when it does, prefer
+ * reading that and only fall back to this heuristic.
+ */
+export function getAlarmDetectionLabel(alarm) {
+  if (!alarm) return null;
+  const hay = `${alarm.title || ''} ${alarm.content || ''} ${alarm.description || ''}`.toLowerCase();
+  if (/\b(person|human|intruder|trespass|people)\b/.test(hay)) return 'human';
+  if (/\b(animal|dog|cat|wildlife|bird)\b/.test(hay)) return 'animal';
+  if (/\b(vehicle|car|truck|bike|motorcycle|van)\b/.test(hay)) return 'vehicle';
   return null;
 }
