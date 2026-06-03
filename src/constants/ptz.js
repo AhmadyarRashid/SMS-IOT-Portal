@@ -19,7 +19,7 @@
    with TLS so this becomes a one-line change here.
    ========================================================================== */
 
-export const PTZ_BASE_URL = 'https://100.84.236.75:5002';
+export const PTZ_BASE_URL = 'http://100.84.236.75:5002';
 
 const ACTION_BY_DIRECTION = {
   up:    'MOVE_UP',
