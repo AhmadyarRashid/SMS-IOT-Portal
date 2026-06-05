@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
 import {
   SlidersHorizontal, Video as VideoIcon, RadioTower,
-  Thermometer, Droplets, LineChart as LineIcon,
+  Thermometer, Droplets, BatteryCharging, LineChart as LineIcon,
 } from 'lucide-react';
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
@@ -94,6 +94,17 @@ export default function SecureOpsControlPage() {
 
   const weather = useMemo(() => getWeatherAssetForTower(activeTower, assets), [activeTower, assets]);
 
+  // Battery asset under the active tower — customAssetType `BatteryAsset`
+  // (matched case-insensitively via normalizeAssetType so the realm's
+  // lowercase-first `batteryAsset` also matches). Carries the
+  // `energyLevelPercentage` attribute consumed by the Environment panel.
+  const battery = useMemo(() => {
+    if (!activeTower) return null;
+    return children.find(
+      (c) => normalizeAssetType(getCustomAssetType(c)) === 'BatteryAsset'
+    ) || null;
+  }, [children, activeTower]);
+
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
   }
@@ -129,7 +140,7 @@ export default function SecureOpsControlPage() {
           {/* ===== Cameras + Environment ===== */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4">
             <CamerasPanel cameras={cameras} tower={activeTower} />
-            <EnvironmentPanel weather={weather} />
+            <EnvironmentPanel weather={weather} battery={battery} />
           </div>
 
           {/* ===== Controllable devices ===== */}
@@ -268,12 +279,17 @@ function CamerasPanel({ cameras, tower }) {
    Environment panel — temp + humidity from the tower's HeatSensorAsset
    ========================================================================== */
 
-function EnvironmentPanel({ weather }) {
+function EnvironmentPanel({ weather, battery }) {
   const temp = readNumber(weather?.attributes?.temperature?.value);
   const humidity = readNumber(weather?.attributes?.humidity?.value);
+  const energyLevel = readNumber(battery?.attributes?.energyLevelPercentage?.value);
   const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
                  || parseDate(weather?.attributes?.humidity?.timestamp)
-                 || parseDate(weather?.lastModified);
+                 || parseDate(battery?.attributes?.energyLevelPercentage?.timestamp)
+                 || parseDate(weather?.lastModified)
+                 || parseDate(battery?.lastModified);
+
+  const hasAny = weather || battery;
 
   return (
     <section className="panel p-4 md:p-5">
@@ -284,28 +300,40 @@ function EnvironmentPanel({ weather }) {
         </div>
       </div>
 
-      {!weather ? (
+      {!hasAny ? (
         <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
-          No HeatSensorAsset under this tower.
+          No environment sensors under this tower.
         </p>
       ) : (
         <>
           <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)]">
-            {getAssetDisplayName(weather)} · updated {updatedAt ? `${formatDistanceToNowStrict(updatedAt)} ago` : '—'}
+            {getAssetDisplayName(weather || battery)} · updated {updatedAt ? `${formatDistanceToNowStrict(updatedAt)} ago` : '—'}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <EnvBigStat
-              icon={Thermometer}
-              label="Temperature"
-              value={temp != null ? `${temp.toFixed(1)}°C` : '—'}
-              tone="warning"
-            />
-            <EnvBigStat
-              icon={Droplets}
-              label="Humidity"
-              value={humidity != null ? `${humidity.toFixed(0)}%` : '—'}
-              tone="accent"
-            />
+            {weather && (
+              <EnvBigStat
+                icon={Thermometer}
+                label="Temperature"
+                value={temp != null ? `${temp.toFixed(1)}°C` : '—'}
+                tone="warning"
+              />
+            )}
+            {weather && (
+              <EnvBigStat
+                icon={Droplets}
+                label="Humidity"
+                value={humidity != null ? `${humidity.toFixed(0)}%` : '—'}
+                tone="accent"
+              />
+            )}
+            {battery && (
+              <EnvBigStat
+                icon={BatteryCharging}
+                label="Battery"
+                value={energyLevel != null ? `${energyLevel.toFixed(0)}%` : '—'}
+                tone={batteryTone(energyLevel)}
+              />
+            )}
           </div>
         </>
       )}
@@ -313,8 +341,26 @@ function EnvironmentPanel({ weather }) {
   );
 }
 
+// Battery threshold colours — drives the tile tint via tone:
+//   ≥50%   → green (ok)
+//   20-49% → yellow (warning)
+//   <20%   → red (danger)
+//   null   → grey accent (no reading)
+function batteryTone(pct) {
+  if (pct == null) return 'accent';
+  if (pct < 20) return 'danger';
+  if (pct < 50) return 'warning';
+  return 'ok';
+}
+
 function EnvBigStat({ icon: Icon, label, value, tone }) {
-  const color = tone === 'warning' ? 'var(--color-warning-400)' : 'var(--color-accent-400)';
+  const color = tone === 'warning'
+    ? 'var(--color-warning-400)'
+    : tone === 'danger'
+      ? 'var(--color-danger-400)'
+      : tone === 'ok'
+        ? 'var(--color-ok-500)'
+        : 'var(--color-accent-400)';
   return (
     <div
       className="tile p-4 flex flex-col gap-1"
