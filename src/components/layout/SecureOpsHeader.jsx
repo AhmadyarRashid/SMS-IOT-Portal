@@ -3,10 +3,10 @@ import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Video, Bell, SlidersHorizontal, ScrollText, Settings,
-  ChevronDown, Check, Thermometer, Droplets, Signal, BatteryCharging,
+  ChevronDown, Check, Signal, BatteryCharging,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
-import { pickSites, pickTowersForSite, getWeatherAssetForTower } from '../../utils/gateways';
+import { pickSites, pickTowersForSite } from '../../utils/gateways';
 import { getAssetDisplayName, getCustomAssetType, normalizeAssetType } from '../../utils/assetIcons';
 import useSecureOpsStore from '../../store/secureOpsStore';
 
@@ -26,12 +26,13 @@ const TABS = [
  *   │  ◐  SecureOps Platform                            ● Live   ▾ All Sites│
  *   │     Digital Security Management Console                              │
  *   ├──────────────────────────────────────────────────────────────────────┤
- *   │  Overview · Video · Alerts · Control · Audit log · Settings · 🌡 31°·💧55%│
+ *   │  Overview · Video · Alerts · Control · Audit log · Settings · 📶·🔋   │
  *   └──────────────────────────────────────────────────────────────────────┘
  *
- * Temp / humidity chips show the **selected tower's** environmental telemetry,
- * pulled from `temperature` and `humidity` attributes. Chips hide when the
- * tower does not declare those attributes (per the no-placeholder rule).
+ * Signal + battery chips show the **selected tower's** network and power
+ * status, pulled from `signalStrength` and `batteryLevel` on the
+ * TowerAsset. Chips hide when the tower does not declare those attributes
+ * (per the no-placeholder rule).
  */
 export default function SecureOpsHeader() {
   const { data: assets = [] } = useAssets({});
@@ -55,14 +56,9 @@ export default function SecureOpsHeader() {
     return scopeTowers[0] || null;
   }, [scopeTowers, selectedTowerId]);
 
-  // Environmental telemetry chips for the active tower:
-  //   • Temp + humidity come from the tower's HeatSensorAsset child (a
-  //     packaged weather sensor inside the IP67 box).
-  //   • Signal + battery live on the TowerAsset itself.
-  // Each chip hides when its attribute isn't declared (no-placeholder rule).
-  const weather = useMemo(() => getWeatherAssetForTower(activeTower, assets), [activeTower, assets]);
-  const temp = readNumber(weather?.attributes?.temperature?.value);
-  const humidity = readNumber(weather?.attributes?.humidity?.value);
+  // Environmental telemetry chips for the active tower — signal + battery
+  // come from the TowerAsset itself. Each chip hides when its attribute
+  // isn't declared (no-placeholder rule).
   const signal = readNumber(activeTower?.attributes?.signalStrength?.value);
   const battery = readNumber(activeTower?.attributes?.batteryLevel?.value);
 
@@ -103,18 +99,6 @@ export default function SecureOpsHeader() {
           ))}
         </nav>
         <div className="flex items-center gap-2 flex-shrink-0 pl-2 py-2">
-          {temp != null && (
-            <span className="secureops-chip" title={`Tower ${getAssetDisplayName(activeTower)} temperature`}>
-              <Thermometer className="w-3.5 h-3.5" strokeWidth={2} />
-              <span className="tabular-nums">{temp.toFixed(0)}°C</span>
-            </span>
-          )}
-          {humidity != null && (
-            <span className="secureops-chip" title="Humidity">
-              <Droplets className="w-3.5 h-3.5" strokeWidth={2} />
-              <span className="tabular-nums">{humidity.toFixed(0)}%</span>
-            </span>
-          )}
           {signal != null && (
             <span className="secureops-chip" title="Signal strength (4G)">
               <Signal className="w-3.5 h-3.5" strokeWidth={2} />

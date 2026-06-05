@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useTransition } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
@@ -9,7 +9,7 @@ import {
 import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
   pickSites, pickTowersForSite,
-  alarmBelongsToGateway, findGatewayForAsset, findSiteForAsset,
+  findGatewayForAsset, findSiteForAsset,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
@@ -30,27 +30,35 @@ import './secureops.css';
    ========================================================================== */
 
 export default function SecureOpsOverviewPage() {
-  const { data: assets = [], isLoading } = useAssets({});
-  const { data: openAlarms = [] } = useAlarms({ status: 'OPEN' });
-  const { data: allAlarms = [] } = useAlarms({});
+  const { data: assets = [], isLoading: assetsLoading } = useAssets({});
+  // One alarms query — we used to fetch `useAlarms({})` AND `useAlarms({status:'OPEN'})`
+  // every 15 s, but the OPEN list is trivially derivable from the full list and
+  // the second network round-trip was pure overhead. Derive `openAlarms`
+  // client-side so this page only depends on one alarm query.
+  const { data: allAlarms = [], isLoading: alarmsLoading } = useAlarms({});
+  const openAlarms = useMemo(
+    () => allAlarms.filter((al) => (al.status || 'OPEN').toUpperCase() === 'OPEN'),
+    [allAlarms]
+  );
   const { selectedSiteId } = useSecureOpsStore();
 
   // Time-range filter — drives the "Active alerts" + "Detections" KPIs and
   // the Recent Alerts list. "Sites online" and "AI uptime" are state-based
-  // snapshots and ignore the range. Default 24h matches a typical operator
-  // shift; `all` removes the filter entirely. The setter is wrapped in
-  // `startTransition` so React keeps the previous list visible during the
-  // re-derive instead of flashing an empty intermediate frame.
-  const [range, setRange] = useState('24h');
+  // snapshots and ignore the range. Default `all` so a fresh load surfaces
+  // every alert in the realm; operators can narrow via the chip strip. The
+  // setter is wrapped in `startTransition` so React keeps the previous list
+  // visible during the re-derive instead of flashing an empty intermediate
+  // frame.
+  const [range, setRange] = useState('all');
   const [isRangePending, startRangeTransition] = useTransition();
   const rangeWindow = useMemo(() => getRangeWindow(range), [range]);
 
   const sites = useMemo(() => pickSites(assets), [assets]);
 
-  // Scope towers: those under the picked site, or every tower (any gateway)
-  // when "All Sites" is selected.
-  const towers = useMemo(() => {
-    if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
+  // All towers in the realm — independent of the selected site. Used as the
+  // domain for the alarm→tower map so an alarm's tower membership is fixed,
+  // not affected by which site filter is active.
+  const allTowers = useMemo(() => {
     if (sites.length === 0) {
       return assets.filter((a) =>
         a.type === 'GatewayAsset'
@@ -58,20 +66,138 @@ export default function SecureOpsOverviewPage() {
       );
     }
     return sites.flatMap((s) => pickTowersForSite(assets, s.id));
-  }, [assets, sites, selectedSiteId]);
+  }, [assets, sites]);
+
+  // Scope towers: those under the picked site, or every tower in the realm
+  // when "All Sites" is selected.
+  const towers = useMemo(() => {
+    if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
+    return allTowers;
+  }, [assets, allTowers, selectedSiteId]);
+
+  /* ----- Shared lookups (built once, reused everywhere) -----
+   * Previously every consumer rebuilt its own assetMap and ran nested
+   * O(alarms × towers) loops via `alarmBelongsToGateway`. We now precompute:
+   *   • `assetMap`        — assetId → asset (also passed down to the panel).
+   *   • `alarmTowerMap`   — alarmId → Set<towerId>. An alarm can carry
+   *                         multiple linked assets (asset / assets /
+   *                         linkedAssets / assetId / sourceId) potentially
+   *                         under different towers, so we collect ALL of
+   *                         them — mirrors the original
+   *                         `alarmBelongsToGateway` "match if ANY linked
+   *                         asset lives under the tower" semantics exactly.
+   *   • `siteTowerIdSets` — siteId → Set<towerId> (powers per-site rollups).
+   *   • `scopeTowerIdSet` — Set<towerId> of currently-scoped towers.
+   * Every downstream count/filter then operates with O(1) lookups.
+   */
+  const assetMap = useMemo(() => {
+    const m = new Map();
+    for (const a of assets) m.set(a.id, a);
+    return m;
+  }, [assets]);
+
+  const alarmTowerMap = useMemo(() => {
+    const towerIds = new Set(allTowers.map((t) => t.id));
+    const m = new Map();
+    const collectTower = (assetLike, out) => {
+      if (!assetLike) return;
+      const id = typeof assetLike === 'string' ? assetLike : assetLike.id;
+      if (!id) return;
+      const asset = assetMap.get(id) || (typeof assetLike === 'object' ? assetLike : null);
+      if (!asset) return;
+      // Mirrors findGatewayForAsset: parentId first, then first path hit.
+      if (asset.parentId && towerIds.has(asset.parentId)) { out.add(asset.parentId); return; }
+      if (Array.isArray(asset.path)) {
+        for (const pid of asset.path) if (towerIds.has(pid)) { out.add(pid); return; }
+      }
+    };
+    for (const al of allAlarms) {
+      const found = new Set();
+      if (Array.isArray(al.asset)) {
+        for (const a of al.asset) collectTower(a, found);
+      } else if (al.asset && typeof al.asset === 'object') {
+        collectTower(al.asset, found);
+      }
+      if (Array.isArray(al.assets)) for (const a of al.assets) collectTower(a, found);
+      if (Array.isArray(al.linkedAssets)) for (const a of al.linkedAssets) collectTower(a, found);
+      if (al.assetId) collectTower(al.assetId, found);
+      if ((al.source === 'INTERNAL' || al.source === 'CLIENT') && al.sourceId) {
+        collectTower(al.sourceId, found);
+      }
+      if (found.size > 0) m.set(al.id, found);
+    }
+    return m;
+  }, [allAlarms, allTowers, assetMap]);
+
+  const siteTowerIdSets = useMemo(() => {
+    const m = new Map();
+    for (const s of sites) {
+      m.set(s.id, new Set(pickTowersForSite(assets, s.id).map((t) => t.id)));
+    }
+    return m;
+  }, [sites, assets]);
+
+  const scopeTowerIdSet = useMemo(() => new Set(towers.map((t) => t.id)), [towers]);
+
+  // Per-alarm context — built once over allAlarms so the panel's AlertRow
+  // doesn't re-run findGatewayForAsset / findSiteForAsset (each of which
+  // allocates a fresh Map<id, asset> on every call) for every row on every
+  // render. Storing `clipUrl` here also avoids re-parsing the alarm body
+  // per row. Indexed by alarm id; consumers look up via `.get(al.id)`.
+  const towerByIdAll = useMemo(() => {
+    const m = new Map();
+    for (const t of allTowers) m.set(t.id, t);
+    return m;
+  }, [allTowers]);
+  const siteById = useMemo(() => {
+    const m = new Map();
+    for (const s of sites) m.set(s.id, s);
+    return m;
+  }, [sites]);
+
+  const alarmContextMap = useMemo(() => {
+    const m = new Map();
+    for (const al of allAlarms) {
+      const linked = Array.isArray(al.asset) && al.asset[0];
+      const linkedId = linked?.id || al.assetId || null;
+      const asset = linkedId
+        ? (assetMap.get(linkedId) || (typeof linked === 'object' ? linked : null))
+        : null;
+      // Resolve tower from the precomputed alarm→tower set (first entry wins
+      // for the breadcrumb — same single-tower display the original used).
+      let tower = null;
+      const tset = alarmTowerMap.get(al.id);
+      if (tset) {
+        for (const tid of tset) {
+          const t = towerByIdAll.get(tid);
+          if (t) { tower = t; break; }
+        }
+      }
+      // Fallback: walk the asset's path when the alarm didn't resolve a
+      // tower (rare — e.g. an alarm linked to a site-level asset directly).
+      if (!tower && asset) tower = findGatewayForAsset(asset, allTowers);
+      let site = null;
+      if (tower) {
+        if (tower.parentId && siteById.has(tower.parentId)) site = siteById.get(tower.parentId);
+        else if (Array.isArray(tower.path)) {
+          for (const pid of tower.path) if (siteById.has(pid)) { site = siteById.get(pid); break; }
+        }
+      } else if (asset) {
+        site = findSiteForAsset(asset, sites);
+      }
+      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al) });
+    }
+    return m;
+  }, [allAlarms, alarmTowerMap, towerByIdAll, siteById, assetMap, allTowers, sites]);
 
   /* ----- Per-site summary (drives the "Sites online" KPI) ----- */
   const siteSummaries = useMemo(() => {
-    const assetMap = new Map(assets.map((a) => [a.id, a]));
     if (sites.length === 0) {
-      const allTowers = assets.filter((a) =>
-        a.type === 'GatewayAsset'
-        || normalizeAssetType(getCustomAssetType(a)) === 'TowerAsset'
-      );
-      const onlineCount = allTowers.filter((t) => t.attributes?.connected?.value !== false).length;
-      const alarmCount = openAlarms.filter((al) =>
-        allTowers.some((t) => alarmBelongsToGateway(al, t.id, assetMap, allTowers))
+      const onlineCount = allTowers.filter(
+        (t) => t.attributes?.connected?.value !== false
       ).length;
+      let alarmCount = 0;
+      for (const al of openAlarms) if (alarmTowerMap.has(al.id)) alarmCount += 1;
       return [{
         id: '__all-towers__',
         name: 'Towers',
@@ -82,15 +208,21 @@ export default function SecureOpsOverviewPage() {
       }];
     }
     return sites.map((s) => {
-      const childTowers = pickTowersForSite(assets, s.id);
-      const onlineTowerCount = childTowers.filter((t) =>
-        t.attributes?.connected?.value !== false
+      const childIds = siteTowerIdSets.get(s.id) || new Set();
+      const childTowers = allTowers.filter((t) => childIds.has(t.id));
+      const onlineTowerCount = childTowers.filter(
+        (t) => t.attributes?.connected?.value !== false
       ).length;
       const explicitlyOffline = s.attributes?.connected?.value === false;
       const allTowersOffline = childTowers.length > 0 && onlineTowerCount === 0;
-      const openAlarmsHere = openAlarms.filter((al) =>
-        childTowers.some((t) => alarmBelongsToGateway(al, t.id, assetMap, childTowers))
-      ).length;
+      let openAlarmsHere = 0;
+      for (const al of openAlarms) {
+        const tset = alarmTowerMap.get(al.id);
+        if (!tset) continue;
+        for (const tid of tset) {
+          if (childIds.has(tid)) { openAlarmsHere += 1; break; }
+        }
+      }
       return {
         id: s.id,
         name: getAssetDisplayName(s),
@@ -100,7 +232,7 @@ export default function SecureOpsOverviewPage() {
         openAlarms: openAlarmsHere,
       };
     });
-  }, [sites, assets, openAlarms]);
+  }, [sites, allTowers, siteTowerIdSets, openAlarms, alarmTowerMap]);
 
   /* ----- Range + scope filtered alarm lists (single source of truth for
    *       both the KPI strip AND the Recent Alerts panel).
@@ -110,35 +242,45 @@ export default function SecureOpsOverviewPage() {
    * site shrinks both surfaces in lockstep instead of leaving the KPI at
    * the realm-wide total.
    */
-  const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const scopeTowerIds = useMemo(() => towers.map((t) => t.id), [towers]);
-  const scopeAlarmsToTowers = useMemo(() => {
-    return (list) => {
-      if (!scopeTowerIds.length) return list;
-      return list.filter((al) =>
-        scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers))
-      );
-    };
-  }, [scopeTowerIds, assetMap, towers]);
+  const scopeAlarms = useCallback((list) => {
+    if (scopeTowerIdSet.size === 0) return list;
+    return list.filter((al) => {
+      const tset = alarmTowerMap.get(al.id);
+      if (!tset) return false;
+      for (const tid of tset) if (scopeTowerIdSet.has(tid)) return true;
+      return false;
+    });
+  }, [alarmTowerMap, scopeTowerIdSet]);
 
   const openAlarmsInScope = useMemo(
-    () => scopeAlarmsToTowers(filterAlarmsByCreatedOn(openAlarms, rangeWindow.start)),
-    [openAlarms, rangeWindow.start, scopeAlarmsToTowers]
+    () => scopeAlarms(filterAlarmsByCreatedOn(openAlarms, rangeWindow.start)),
+    [openAlarms, rangeWindow.start, scopeAlarms]
   );
   const allAlarmsInScope = useMemo(
-    () => scopeAlarmsToTowers(filterAlarmsByCreatedOn(allAlarms, rangeWindow.start)),
-    [allAlarms, rangeWindow.start, scopeAlarmsToTowers]
+    () => scopeAlarms(filterAlarmsByCreatedOn(allAlarms, rangeWindow.start)),
+    [allAlarms, rangeWindow.start, scopeAlarms]
   );
   // Previous-window scope-filtered alarms — used only for the Detections
   // KPI delta line. We don't memo the full list, only the count it produces.
   const prevWindowHighPriorityCount = useMemo(() => {
     if (rangeWindow.prevStart == null || rangeWindow.start == null) return null;
-    const inPrev = allAlarms.filter((al) => {
+    const scoped = scopeTowerIdSet.size > 0;
+    let count = 0;
+    for (const al of allAlarms) {
       const ts = parseDate(al.createdOn);
-      return ts != null && ts >= rangeWindow.prevStart && ts < rangeWindow.start;
-    });
-    return scopeAlarmsToTowers(inPrev).filter((al) => isHighPrioritySeverity(al.severity)).length;
-  }, [allAlarms, rangeWindow, scopeAlarmsToTowers]);
+      if (ts == null || ts < rangeWindow.prevStart || ts >= rangeWindow.start) continue;
+      if (!isHighPrioritySeverity(al.severity)) continue;
+      if (scoped) {
+        const tset = alarmTowerMap.get(al.id);
+        if (!tset) continue;
+        let inScope = false;
+        for (const tid of tset) if (scopeTowerIdSet.has(tid)) { inScope = true; break; }
+        if (!inScope) continue;
+      }
+      count += 1;
+    }
+    return count;
+  }, [allAlarms, rangeWindow, alarmTowerMap, scopeTowerIdSet]);
 
   /* ----- KPI numbers ----- */
 
@@ -190,7 +332,11 @@ export default function SecureOpsOverviewPage() {
     };
   }, [siteSummaries, openAlarmsInScope, allAlarmsInScope, prevWindowHighPriorityCount, towers]);
 
-  if (isLoading) {
+  // Gate on BOTH assets and alarms — otherwise assets land first, alarms are
+  // briefly empty, and the Recent Alerts panel flashes "No alerts in last 24h"
+  // before the alarms query resolves. The combined gate keeps the spinner up
+  // through the slowest of the two.
+  if (assetsLoading || alarmsLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
   }
 
@@ -248,7 +394,9 @@ export default function SecureOpsOverviewPage() {
       <RecentAlertsPanel
         alarms={openAlarmsInScope}
         rangeLabel={rangeWindow.label}
-        assets={assets}
+        assetMap={assetMap}
+        alarmTowerMap={alarmTowerMap}
+        alarmContextMap={alarmContextMap}
         sites={sites}
         towers={towers}
         externalLoading={isRangePending}
@@ -337,8 +485,10 @@ function KpiCard({ icon: Icon, label, value, subline, subTone, to }) {
    Recent Alerts (full width)
    ========================================================================== */
 
-function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, externalLoading }) {
-  const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+const PAGE_SIZE = 30;
+const VISIBLE_BUMP = 30;
+
+function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmContextMap, sites, towers, externalLoading }) {
   const update = useUpdateAlarmStatus();
   // The clip modal stores just the alarm id — `alarms` is the source of
   // truth, so when the underlying alarm changes (acked / resolved / vanishes)
@@ -372,19 +522,21 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
     return out;
   }, [alarms]);
 
+  // Per-tower count. Mirrors the original `break;` behaviour — when an
+  // alarm's linked assets span multiple panel towers, it's counted only
+  // against the FIRST tower (in `towers` iteration order) that matches.
   const towerCounts = useMemo(() => {
     const out = new Map();
     for (const t of towers) out.set(t.id, 0);
     for (const al of alarms) {
+      const tset = alarmTowerMap.get(al.id);
+      if (!tset) continue;
       for (const t of towers) {
-        if (alarmBelongsToGateway(al, t.id, assetMap, towers)) {
-          out.set(t.id, (out.get(t.id) || 0) + 1);
-          break;
-        }
+        if (tset.has(t.id)) { out.set(t.id, out.get(t.id) + 1); break; }
       }
     }
     return out;
-  }, [alarms, towers, assetMap]);
+  }, [alarms, towers, alarmTowerMap]);
 
   // Apply severity + tower filters.
   const filtered = useMemo(() => {
@@ -395,14 +547,15 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
         if (!sevSet.has(sev)) return false;
       }
       if (towerFilter.size > 0) {
-        const hit = [...towerFilter].some((tid) =>
-          alarmBelongsToGateway(al, tid, assetMap, towers)
-        );
+        const tset = alarmTowerMap.get(al.id);
+        if (!tset) return false;
+        let hit = false;
+        for (const tid of towerFilter) if (tset.has(tid)) { hit = true; break; }
         if (!hit) return false;
       }
       return true;
     });
-  }, [alarms, severityFilter, towerFilter, assetMap, towers]);
+  }, [alarms, severityFilter, towerFilter, alarmTowerMap]);
 
   const sorted = useMemo(
     () => filtered.slice().sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0)),
@@ -423,6 +576,83 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
     setSeverityFilter(new Set());
     setTowerFilter(new Set());
   });
+
+  /* ----- Infinite scroll -----
+   * Render the first PAGE_SIZE rows; an IntersectionObserver on a sentinel
+   * at the bottom bumps `visibleCount` as the operator scrolls. Resets to
+   * PAGE_SIZE only when the operator changes a panel filter (severity /
+   * tower) — uses the project's "reset state when a value changes"
+   * pattern (compare to a stored signature in state, NOT setState in
+   * useEffect, per the react-hooks/set-state-in-effect lint rule).
+   *
+   * Mutations (Ack / Resolve) shrink `alarms` but don't change the
+   * filter signature, so visibleCount is preserved — the operator's
+   * scroll position survives an ack.
+   */
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const filterSig = useMemo(
+    () => `sev:${[...severityFilter].sort().join(',')}|tow:${[...towerFilter].sort().join(',')}`,
+    [severityFilter, towerFilter]
+  );
+  const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
+  if (prevFilterSig !== filterSig) {
+    setPrevFilterSig(filterSig);
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  const visibleAlarms = useMemo(
+    () => sorted.slice(0, visibleCount),
+    [sorted, visibleCount]
+  );
+  const hasMore = visibleCount < sorted.length;
+
+  const scrollRootRef = useRef(null);
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore) return undefined;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        setVisibleCount((c) => c + VISIBLE_BUMP);
+      }
+    }, {
+      root: scrollRootRef.current,
+      rootMargin: '200px 0px',
+      threshold: 0,
+    });
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [hasMore]);
+
+  /* ----- Stable handlers — keep AlertRow memoized -----
+   * Inline closures (`onClick={() => setX(y)}`) create a new function on
+   * every render, which would defeat React.memo on AlertRow. Lift them
+   * here once with useCallback so prop identity is stable across renders.
+   */
+  const handleClipClick = useCallback((alarmId) => setClipAlarmId(alarmId), []);
+  const handleClipClose = useCallback(() => setClipAlarmId(null), []);
+  const handleAck = useCallback((alarm) => {
+    update.mutate({
+      alarm,
+      status: 'ACKNOWLEDGED',
+      successMessage: `Alarm acknowledged — ${alarm.title || 'alarm'}`,
+      errorMessage: 'Failed to acknowledge alarm',
+    });
+  }, [update]);
+  const handleResolve = useCallback((alarm) => {
+    update.mutate({
+      alarm,
+      status: 'RESOLVED',
+      successMessage: `Alarm resolved — ${alarm.title || 'alarm'}`,
+      errorMessage: 'Failed to resolve alarm',
+    });
+  }, [update]);
+
+  // Single id + status pair so each AlertRow can derive its own pending
+  // state without us passing the whole React-Query mutation object (which
+  // changes identity on every fetch tick and would bust memoization).
+  const pendingAlarmId = update.isPending ? update.variables?.alarm?.id : null;
+  const pendingStatus = update.isPending ? update.variables?.status : null;
 
   // Combined loader signal — true while either:
   //   • parent React-Query fetches data, OR
@@ -445,8 +675,15 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
    * operator triaging clip-by-clip wants every alarm in the tower in the
    * queue, regardless of what chips happen to be active in the list view.
    */
+  // Use the page-level alarmContextMap as the primary source — it already
+  // resolved asset / tower / site once over allAlarms, so the modal queue
+  // reuses that work instead of re-running findGatewayForAsset per item.
   const resolveAlarmContext = useCallback((al) => {
     if (!al) return null;
+    const ctx = alarmContextMap.get(al.id);
+    if (ctx) return { alarm: al, asset: ctx.asset, tower: ctx.tower, site: ctx.site };
+    // Fallback for an alarm that wasn't in the map (shouldn't happen for
+    // anything from the parent's scoped list, but guard anyway).
     const linked = Array.isArray(al.asset) && al.asset[0];
     const asset = linked?.id
       ? (assetMap.get(linked.id) || linked)
@@ -456,7 +693,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
       ? findSiteForAsset(tower, sites)
       : (asset ? findSiteForAsset(asset, sites) : null);
     return { alarm: al, asset, tower, site };
-  }, [assetMap, towers, sites]);
+  }, [alarmContextMap, assetMap, towers, sites]);
 
   const clipModal = useMemo(() => {
     if (!clipAlarmId) return null;
@@ -468,13 +705,13 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
     // modal alone (no Prev/Next siblings).
     if (!tower) return { current, queue: [current], index: 0 };
     const queue = alarms
-      .filter((al) => alarmBelongsToGateway(al, tower.id, assetMap, towers))
-      .filter((al) => getAlarmClipUrl(al))
+      .filter((al) => alarmTowerMap.get(al.id)?.has(tower.id))
+      .filter((al) => alarmContextMap.get(al.id)?.clipUrl)
       .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
       .map(resolveAlarmContext);
     const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
     return { current, queue, index };
-  }, [clipAlarmId, alarms, resolveAlarmContext, assetMap, towers]);
+  }, [clipAlarmId, alarms, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
 
   const clipPrev = (clipModal && clipModal.index > 0)
     ? clipModal.queue[clipModal.index - 1]
@@ -502,8 +739,10 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
           )}
           <span className="so-panel-meta tabular-nums">
             {activeFilterCount > 0
-              ? `${sorted.length} of ${alarms.length} active`
-              : `${sorted.length} active`}
+              ? `${visibleAlarms.length}/${sorted.length} of ${alarms.length} active`
+              : (hasMore
+                ? `${visibleAlarms.length} of ${sorted.length} active`
+                : `${sorted.length} active`)}
           </span>
           {activeFilterCount > 0 && (
             <button
@@ -553,7 +792,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
         )}
       </div>
 
-      <div className="so-alert-list-wrap" data-loading={loading}>
+      <div ref={scrollRootRef} className="so-alert-list-wrap" data-loading={loading}>
         {sorted.length === 0 ? (
           <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
             {activeFilterCount > 0
@@ -562,17 +801,39 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
           </p>
         ) : (
           <div className="so-alert-list">
-            {sorted.map((al) => (
-              <AlertRow
-                key={al.id}
-                alarm={al}
-                assetMap={assetMap}
-                towers={towers}
-                sites={sites}
-                update={update}
-                onClipClick={(alarmId) => setClipAlarmId(alarmId)}
-              />
-            ))}
+            {visibleAlarms.map((al) => {
+              // Destructure at the call site so AlertRow receives stable
+              // individual refs (asset/tower/site come from cached Maps —
+              // assetMap, towerByIdAll, siteById — and only change when
+              // the underlying asset list does, not on each alarm poll).
+              // Passing the whole `context` object would create a fresh
+              // reference each poll and bust React.memo on every row.
+              const ctx = alarmContextMap.get(al.id);
+              return (
+                <AlertRow
+                  key={al.id}
+                  alarm={al}
+                  asset={ctx?.asset || null}
+                  tower={ctx?.tower || null}
+                  site={ctx?.site || null}
+                  clipUrl={ctx?.clipUrl || null}
+                  pendingStatus={pendingAlarmId === al.id ? pendingStatus : null}
+                  onClipClick={handleClipClick}
+                  onAck={handleAck}
+                  onResolve={handleResolve}
+                />
+              );
+            })}
+            {hasMore && (
+              <div
+                ref={sentinelRef}
+                className="flex items-center justify-center gap-2 py-3 text-[11px] text-[var(--color-ink-2)]"
+                aria-hidden="true"
+              >
+                <Loader2 className="w-3.5 h-3.5 spin-slow" strokeWidth={2} />
+                <span>Loading more… ({sorted.length - visibleAlarms.length} remaining)</span>
+              </div>
+            )}
           </div>
         )}
         {loading && (
@@ -603,7 +864,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assets, sites, towers, external
           next={clipNext}
           position={{ current: clipModal.index + 1, total: clipModal.queue.length }}
           onSelect={setClipAlarmId}
-          onClose={() => setClipAlarmId(null)}
+          onClose={handleClipClose}
         />
       )}
     </section>
@@ -650,28 +911,35 @@ function ToggleChip({ active, onClick, color, count, icon: Icon, children }) {
   );
 }
 
-function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
+/**
+ * Row in the Recent Alerts list. Pure render — every input it needs is
+ * precomputed at the parent (asset/tower/site/clipUrl, pendingStatus) so
+ * it can stay memoized and skip re-render when its alarm hasn't changed.
+ *
+ * IMPORTANT: props are individual primitives / stable refs, NOT a wrapping
+ * `context` object — `React.memo` does a shallow compare, and a fresh
+ * `{...}` per render would always look "changed" even when the underlying
+ * data is identical. Each prop here is either:
+ *   • a primitive (clipUrl string, pendingStatus string)
+ *   • a stable ref from a cached Map at the parent (asset/tower/site)
+ *   • a stable useCallback handler (onClipClick / onAck / onResolve)
+ *   • the alarm itself — React Query preserves object identity across
+ *     polls when the alarm payload hasn't changed (structural sharing).
+ */
+const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pendingStatus, onClipClick, onAck, onResolve }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
-  const linked = Array.isArray(alarm.asset) && alarm.asset[0];
-  const asset = linked?.id ? (assetMap.get(linked.id) || linked) : (alarm.assetId ? assetMap.get(alarm.assetId) : null);
-  const tower = asset ? findGatewayForAsset(asset, towers) : null;
-  const site = tower
-    ? findSiteForAsset(tower, sites)
-    : (asset ? findSiteForAsset(asset, sites) : null);
 
   const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
-  const clipUrl = getAlarmClipUrl(alarm);
 
   const status = (alarm.status || 'OPEN').toUpperCase();
   const canAck = status === 'OPEN';
   const canResolve = status === 'OPEN' || status === 'ACKNOWLEDGED' || status === 'IN_PROGRESS';
 
-  const mutatingThis = update?.isPending && update.variables?.alarm?.id === alarm.id;
-  const ackPending = mutatingThis && update.variables?.status === 'ACKNOWLEDGED';
-  const resolvePending = mutatingThis && update.variables?.status === 'RESOLVED';
+  const ackPending = pendingStatus === 'ACKNOWLEDGED';
+  const resolvePending = pendingStatus === 'RESOLVED';
   const anyPending = ackPending || resolvePending;
 
   return (
@@ -741,15 +1009,10 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
                 <span>Clip</span>
               </button>
             )}
-            {canAck && update && (
+            {canAck && (
               <button
                 type="button"
-                onClick={() => update.mutate({
-                  alarm,
-                  status: 'ACKNOWLEDGED',
-                  successMessage: `Alarm acknowledged — ${alarm.title || 'alarm'}`,
-                  errorMessage: 'Failed to acknowledge alarm',
-                })}
+                onClick={() => onAck?.(alarm)}
                 disabled={anyPending}
                 className="so-alert-btn so-alert-btn-ack"
                 title="Acknowledge"
@@ -760,15 +1023,10 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
                 <span>{ackPending ? 'Acking…' : 'Ack'}</span>
               </button>
             )}
-            {canResolve && update && (
+            {canResolve && (
               <button
                 type="button"
-                onClick={() => update.mutate({
-                  alarm,
-                  status: 'RESOLVED',
-                  successMessage: `Alarm resolved — ${alarm.title || 'alarm'}`,
-                  errorMessage: 'Failed to resolve alarm',
-                })}
+                onClick={() => onResolve?.(alarm)}
                 disabled={anyPending}
                 className="so-alert-btn so-alert-btn-resolve"
                 title="Resolve"
@@ -784,7 +1042,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
       </div>
     </div>
   );
-}
+});
 
 function Video2() {
   return (
