@@ -5,14 +5,16 @@ import {
   ServerCog, AlertOctagon, Activity, Cpu,
   RadioTower, ChevronRight,
   Building2, Check, CheckCheck, Loader2, Clock, RotateCcw,
+  Lock, Lightbulb, Volume2, X,
 } from 'lucide-react';
-import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
+import { useAssets, useAlarms, useUpdateAlarmStatus, useWriteAttribute } from '../hooks/useAssets';
 import {
-  pickSites, pickTowersForSite,
+  pickSites, pickTowersForSite, pickGatewayChildren,
   findGatewayForAsset, findSiteForAsset,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
+  isAssetActive, getPrimaryControlAttr, nextToggleValue,
 } from '../utils/assetIcons';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
@@ -52,6 +54,9 @@ export default function SecureOpsOverviewPage() {
   const [range, setRange] = useState('all');
   const [isRangePending, startRangeTransition] = useTransition();
   const rangeWindow = useMemo(() => getRangeWindow(range), [range]);
+
+  // Device-summary modal — null when closed; otherwise 'doors' | 'lights' | 'sirens'.
+  const [summaryCategory, setSummaryCategory] = useState(null);
 
   const sites = useMemo(() => pickSites(assets), [assets]);
 
@@ -234,6 +239,43 @@ export default function SecureOpsOverviewPage() {
     });
   }, [sites, allTowers, siteTowerIdSets, openAlarms, alarmTowerMap]);
 
+  /* ----- Device summary across scoped towers -----
+   * Iterates every tower in scope, collects its children, and partitions
+   * them into three categories the sidebar surfaces. Each entry carries
+   * the asset, its owning tower, and whether it's currently "active" in
+   * the category's sense:
+   *   • Doors  — DoorLockAsset / ToggleableDoorLockAsset → active = unlocked
+   *   • Lights — LightAsset                              → active = on
+   *   • Sirens — AlarmAsset / BuzzerAsset                → active = sounding
+   * The "all" array is everything that could appear in the modal (so the
+   * operator can lock something that's already locked, etc.); the
+   * `activeCount` is what the sidebar badge shows.
+   */
+  const deviceSummary = useMemo(() => {
+    const doors = [];
+    const lights = [];
+    const sirens = [];
+    for (const t of towers) {
+      const kids = pickGatewayChildren(assets, t.id);
+      for (const a of kids) {
+        const ct = normalizeAssetType(getCustomAssetType(a));
+        if (ct === 'DoorLockAsset' || ct === 'ToggleableDoorLockAsset') {
+          // For doors `isAssetActive` returns "locked"; unlocked = NOT active.
+          doors.push({ asset: a, tower: t, active: !isAssetActive(a, ct) });
+        } else if (ct === 'LightAsset') {
+          lights.push({ asset: a, tower: t, active: isAssetActive(a, ct) });
+        } else if (ct === 'AlarmAsset' || ct === 'BuzzerAsset') {
+          sirens.push({ asset: a, tower: t, active: isAssetActive(a, ct) });
+        }
+      }
+    }
+    return {
+      doors:  { all: doors,  activeCount: doors.filter((d) => d.active).length },
+      lights: { all: lights, activeCount: lights.filter((d) => d.active).length },
+      sirens: { all: sirens, activeCount: sirens.filter((d) => d.active).length },
+    };
+  }, [towers, assets]);
+
   /* ----- Range + scope filtered alarm lists (single source of truth for
    *       both the KPI strip AND the Recent Alerts panel).
    *
@@ -390,17 +432,35 @@ export default function SecureOpsOverviewPage() {
         />
       </section>
 
-      {/* ===== Full-width Recent Alerts — same scoped list the KPI uses ===== */}
-      <RecentAlertsPanel
-        alarms={openAlarmsInScope}
-        rangeLabel={rangeWindow.label}
-        assetMap={assetMap}
-        alarmTowerMap={alarmTowerMap}
-        alarmContextMap={alarmContextMap}
-        sites={sites}
-        towers={towers}
-        externalLoading={isRangePending}
-      />
+      {/* ===== Recent Alerts (left ~70%) + Device Summary (right ~30%) =====
+          Viewport-fit row — the grid takes whatever vertical space is left
+          under the time-range bar + KPI strip (`flex-1 min-h-0`) and each
+          panel inside it scrolls its own list internally. Stacks
+          vertically on small screens (`grid-cols-1`). */}
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] gap-4 flex-1 min-h-0">
+        <RecentAlertsPanel
+          alarms={openAlarmsInScope}
+          rangeLabel={rangeWindow.label}
+          assetMap={assetMap}
+          alarmTowerMap={alarmTowerMap}
+          alarmContextMap={alarmContextMap}
+          sites={sites}
+          towers={towers}
+          externalLoading={isRangePending}
+        />
+        <DeviceSummaryPanel
+          summary={deviceSummary}
+          onOpenCategory={setSummaryCategory}
+        />
+      </section>
+
+      {summaryCategory && (
+        <DeviceListModal
+          category={summaryCategory}
+          summary={deviceSummary}
+          onClose={() => setSummaryCategory(null)}
+        />
+      )}
     </div>
   );
 }
@@ -606,6 +666,10 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
   );
   const hasMore = visibleCount < sorted.length;
 
+  // Sentinel observer — root is the alert list wrapper (`.so-alert-list-wrap`),
+  // which is the actual scrolling container now that the Overview is
+  // viewport-fit again. Setting `root: null` (viewport) would never fire
+  // because the page itself doesn't scroll.
   const scrollRootRef = useRef(null);
   const sentinelRef = useRef(null);
   useEffect(() => {
@@ -615,11 +679,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
       if (entries[0]?.isIntersecting) {
         setVisibleCount((c) => c + VISIBLE_BUMP);
       }
-    }, {
-      root: scrollRootRef.current,
-      rootMargin: '200px 0px',
-      threshold: 0,
-    });
+    }, { root: scrollRootRef.current, rootMargin: '200px 0px', threshold: 0 });
     obs.observe(node);
     return () => obs.disconnect();
   }, [hasMore]);
@@ -1125,4 +1185,236 @@ function filterAlarmsByCreatedOn(alarms, start) {
     const ts = parseDate(a.createdOn);
     return ts != null && ts >= start;
   });
+}
+
+/* ==========================================================================
+   Device summary sidebar
+   ========================================================================== */
+
+const SUMMARY_CATEGORIES = [
+  {
+    key: 'doors',
+    label: 'Doors unlocked',
+    icon: Lock,
+    color: 'var(--color-warning-400)',
+    activeVerb: 'unlocked',
+    idleVerb: 'locked',
+  },
+  {
+    key: 'lights',
+    label: 'Lights on',
+    icon: Lightbulb,
+    color: 'var(--color-accent-400)',
+    activeVerb: 'on',
+    idleVerb: 'off',
+  },
+  {
+    key: 'sirens',
+    label: 'Sirens active',
+    icon: Volume2,
+    color: 'var(--color-danger-400)',
+    activeVerb: 'sounding',
+    idleVerb: 'idle',
+  },
+];
+
+function DeviceSummaryPanel({ summary, onOpenCategory }) {
+  return (
+    <section className="panel p-4 md:p-5 so-panel-fit">
+      <div className="so-panel-head">
+        <div className="so-panel-title">
+          <Activity className="so-panel-icon" strokeWidth={2} />
+          Device summary
+        </div>
+        <span className="so-panel-meta">Click a row to manage</span>
+      </div>
+      <div className="mt-2 flex flex-col gap-2 overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
+        {SUMMARY_CATEGORIES.map((c) => {
+          const bucket = summary[c.key];
+          const total = bucket.all.length;
+          return (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => total > 0 && onOpenCategory(c.key)}
+              disabled={total === 0}
+              className="text-left rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors"
+              style={{
+                background: 'color-mix(in srgb, var(--color-ink-0) 4%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent)',
+                cursor: total === 0 ? 'not-allowed' : 'pointer',
+                opacity: total === 0 ? 0.55 : 1,
+              }}
+              title={total === 0 ? `No ${c.label.toLowerCase()} in this scope` : `Manage ${c.label.toLowerCase()}`}
+            >
+              <span
+                className="inline-flex items-center justify-center rounded-lg w-9 h-9 flex-shrink-0"
+                style={{
+                  background: `color-mix(in srgb, ${c.color} 14%, transparent)`,
+                  color: c.color,
+                }}
+              >
+                <c.icon className="w-4.5 h-4.5" strokeWidth={2} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold text-[var(--color-ink-0)] truncate">
+                  {c.label}
+                </p>
+                <p className="text-[11px] text-[var(--color-ink-2)] tabular-nums">
+                  {bucket.activeCount} {c.activeVerb} · {total - bucket.activeCount} {c.idleVerb} · {total} total
+                </p>
+              </div>
+              <span
+                className="text-2xl font-bold tabular-nums"
+                style={{ color: bucket.activeCount > 0 ? c.color : 'var(--color-ink-3)' }}
+              >
+                {bucket.activeCount}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ==========================================================================
+   Device list modal — click a summary row → manage every device in that
+   category, grouped by tower, with inline toggles wired through
+   `useWriteAttribute`.
+   ========================================================================== */
+
+function DeviceListModal({ category, summary, onClose }) {
+  const meta = SUMMARY_CATEGORIES.find((c) => c.key === category) || SUMMARY_CATEGORIES[0];
+  const bucket = summary[category];
+
+  // Group items by their tower id, preserving order.
+  const groups = useMemo(() => {
+    const m = new Map();
+    for (const item of bucket.all) {
+      if (!m.has(item.tower.id)) m.set(item.tower.id, { tower: item.tower, items: [] });
+      m.get(item.tower.id).items.push(item);
+    }
+    return [...m.values()];
+  }, [bucket]);
+
+  // Esc-to-close.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'color-mix(in srgb, black 60%, transparent)' }}
+      onClick={onClose}
+    >
+      <div
+        className="panel w-[min(720px,96vw)] max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b" style={{ borderColor: 'color-mix(in srgb, var(--color-ink-0) 10%, transparent)' }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className="inline-flex items-center justify-center rounded-lg w-8 h-8"
+              style={{ background: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
+            >
+              <meta.icon className="w-4 h-4" strokeWidth={2} />
+            </span>
+            <h2 className="text-lg font-bold text-[var(--color-ink-0)]">{meta.label}</h2>
+            <span className="text-[12px] text-[var(--color-ink-2)] tabular-nums ml-1">
+              {bucket.activeCount}/{bucket.all.length}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="p-1.5 rounded-lg text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]"
+            style={{ background: 'color-mix(in srgb, var(--color-ink-0) 6%, transparent)' }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-5 space-y-4">
+          {groups.length === 0 ? (
+            <p className="text-sm text-[var(--color-ink-2)] text-center py-6">
+              No matching devices in this scope.
+            </p>
+          ) : (
+            groups.map((g) => (
+              <div key={g.tower.id}>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-ink-3)] mb-1.5">
+                  <RadioTower className="w-3 h-3" strokeWidth={2} />
+                  {getAssetDisplayName(g.tower)}
+                </p>
+                <div className="flex flex-col gap-2">
+                  {g.items.map((item) => (
+                    <DeviceToggleRow key={item.asset.id} asset={item.asset} active={item.active} color={meta.color} />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeviceToggleRow({ asset, active, color }) {
+  const customType = getCustomAssetType(asset);
+  const write = useWriteAttribute();
+  const pending = write.isPending && write.variables?.assetId === asset.id;
+  const name = getAssetDisplayName(asset);
+  const typeLabel = getAssetTypeLabel(customType);
+
+  const toggle = () => {
+    const attr = getPrimaryControlAttr(asset, customType);
+    write.mutate({
+      assetId: asset.id,
+      attributeName: attr,
+      value: nextToggleValue(asset, attr),
+    });
+  };
+
+  return (
+    <div
+      className="rounded-xl px-3 py-2.5 flex items-center gap-3"
+      style={{
+        background: 'color-mix(in srgb, var(--color-ink-0) 4%, transparent)',
+        border: `1px solid color-mix(in srgb, ${active ? color : 'var(--color-ink-0)'} ${active ? 35 : 10}%, transparent)`,
+      }}
+    >
+      <span
+        className="inline-block w-2 h-2 rounded-full"
+        style={{ background: active ? color : 'var(--color-ink-3)' }}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-[var(--color-ink-0)] truncate">{name}</p>
+        <p className="text-[11px] text-[var(--color-ink-2)]">{typeLabel}</p>
+      </div>
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={pending}
+        className="px-3 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5"
+        style={{
+          background: active
+            ? `color-mix(in srgb, ${color} 18%, transparent)`
+            : 'color-mix(in srgb, var(--color-ink-0) 8%, transparent)',
+          color: active ? color : 'var(--color-ink-1)',
+          border: `1px solid color-mix(in srgb, ${active ? color : 'var(--color-ink-0)'} ${active ? 40 : 15}%, transparent)`,
+          opacity: pending ? 0.65 : 1,
+        }}
+      >
+        {pending && <Loader2 className="w-3 h-3 spin-slow" />}
+        {active ? 'Turn off' : 'Turn on'}
+      </button>
+    </div>
+  );
 }
