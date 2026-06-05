@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import {
   AlertOctagon, Search, X, RotateCcw, Filter,
@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAssets, useAlarms, useUpdateAlarmStatus } from '../hooks/useAssets';
 import {
-  pickSites, pickTowersForSite, alarmBelongsToGateway,
+  pickSites, pickTowersForSite,
   findGatewayForAsset, findSiteForAsset,
 } from '../utils/gateways';
 import {
@@ -35,6 +35,9 @@ import './secureops.css';
    Plus a free-text search across title / site / tower / device.
    ========================================================================== */
 
+const PAGE_SIZE = 30;
+const VISIBLE_BUMP = 30;
+
 const SEVERITY_GROUPS = [
   { id: 'HIGH',   label: 'High',   color: 'var(--color-danger-400)',  matches: ['CRITICAL', 'HIGH'] },
   { id: 'MEDIUM', label: 'Medium', color: 'var(--color-warning-400)', matches: ['MEDIUM'] },
@@ -50,7 +53,16 @@ const SEVERITY_META = {
 
 export default function SecureOpsAlertsPage() {
   const { data: assets = [], isLoading: assetsLoading } = useAssets({});
-  const { data: openAlarms = [], isLoading: alarmsLoading } = useAlarms({ status: 'OPEN' });
+  // Share the cache key with Overview (`useAlarms({})`) so navigating from
+  // Overview → Alerts is instant — same React Query slot, no extra fetch.
+  // Derive the OPEN subset client-side; the defensive status filter in the
+  // `scoped` memo below keeps the page honest if a non-OPEN alarm slips
+  // through.
+  const { data: allAlarms = [], isLoading: alarmsLoading } = useAlarms({});
+  const openAlarms = useMemo(
+    () => allAlarms.filter((al) => (al.status || 'OPEN').toUpperCase() === 'OPEN'),
+    [allAlarms]
+  );
   const { selectedSiteId } = useSecureOpsStore();
   const update = useUpdateAlarmStatus();
   const [clipInView, setClipInView] = useState(null);
@@ -67,7 +79,94 @@ export default function SecureOpsAlertsPage() {
     }
     return sites.flatMap((s) => pickTowersForSite(assets, s.id));
   }, [assets, sites, selectedSiteId]);
-  const assetMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
+  /* ---- Shared lookups (built once, reused everywhere) ----
+   * Same pattern as Overview: precompute assetMap + alarmTowerMap +
+   * alarmContextMap so each AlertRow can stay memoized and skip the
+   * expensive findGatewayForAsset / findSiteForAsset Map allocations
+   * it used to do per-row, per-render.
+   *
+   *   • alarmTowerMap   — alarmId → Set<towerId> (mirrors original
+   *                       "match if ANY linked asset lives under the
+   *                       tower" semantics; safe with multi-asset alarms).
+   *   • alarmContextMap — alarmId → { asset, tower, site, clipUrl } for
+   *                       row breadcrumb + search + clip modal seed.
+   */
+  const assetMap = useMemo(() => {
+    const m = new Map();
+    for (const a of assets) m.set(a.id, a);
+    return m;
+  }, [assets]);
+
+  const towerById = useMemo(() => {
+    const m = new Map();
+    for (const t of towers) m.set(t.id, t);
+    return m;
+  }, [towers]);
+  const siteById = useMemo(() => {
+    const m = new Map();
+    for (const s of sites) m.set(s.id, s);
+    return m;
+  }, [sites]);
+
+  const alarmTowerMap = useMemo(() => {
+    const towerIds = new Set(towers.map((t) => t.id));
+    const m = new Map();
+    const collectTower = (assetLike, out) => {
+      if (!assetLike) return;
+      const id = typeof assetLike === 'string' ? assetLike : assetLike.id;
+      if (!id) return;
+      const asset = assetMap.get(id) || (typeof assetLike === 'object' ? assetLike : null);
+      if (!asset) return;
+      if (asset.parentId && towerIds.has(asset.parentId)) { out.add(asset.parentId); return; }
+      if (Array.isArray(asset.path)) {
+        for (const pid of asset.path) if (towerIds.has(pid)) { out.add(pid); return; }
+      }
+    };
+    for (const al of openAlarms) {
+      const found = new Set();
+      if (Array.isArray(al.asset)) {
+        for (const a of al.asset) collectTower(a, found);
+      } else if (al.asset && typeof al.asset === 'object') {
+        collectTower(al.asset, found);
+      }
+      if (Array.isArray(al.assets)) for (const a of al.assets) collectTower(a, found);
+      if (Array.isArray(al.linkedAssets)) for (const a of al.linkedAssets) collectTower(a, found);
+      if (al.assetId) collectTower(al.assetId, found);
+      if ((al.source === 'INTERNAL' || al.source === 'CLIENT') && al.sourceId) {
+        collectTower(al.sourceId, found);
+      }
+      if (found.size > 0) m.set(al.id, found);
+    }
+    return m;
+  }, [openAlarms, towers, assetMap]);
+
+  const alarmContextMap = useMemo(() => {
+    const m = new Map();
+    for (const al of openAlarms) {
+      const linked = Array.isArray(al.asset) && al.asset[0];
+      const linkedId = linked?.id || al.assetId || null;
+      const asset = linkedId
+        ? (assetMap.get(linkedId) || (typeof linked === 'object' ? linked : null))
+        : null;
+      let tower = null;
+      const tset = alarmTowerMap.get(al.id);
+      if (tset) {
+        for (const tid of tset) { const t = towerById.get(tid); if (t) { tower = t; break; } }
+      }
+      if (!tower && asset) tower = findGatewayForAsset(asset, towers);
+      let site = null;
+      if (tower) {
+        if (tower.parentId && siteById.has(tower.parentId)) site = siteById.get(tower.parentId);
+        else if (Array.isArray(tower.path)) {
+          for (const pid of tower.path) if (siteById.has(pid)) { site = siteById.get(pid); break; }
+        }
+      } else if (asset) {
+        site = findSiteForAsset(asset, sites);
+      }
+      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al) });
+    }
+    return m;
+  }, [openAlarms, alarmTowerMap, assetMap, towerById, siteById, towers, sites]);
 
   /* ---- Filter state ---- */
   const [query, setQuery] = useState('');
@@ -76,16 +175,17 @@ export default function SecureOpsAlertsPage() {
 
   /* ---- Strict OPEN-only alarms in site scope ---- */
   const scoped = useMemo(() => {
-    const scopeTowerIds = towers.map((t) => t.id);
+    const scopeTowerIds = new Set(towers.map((t) => t.id));
     return (openAlarms || []).filter((al) => {
-      // Defensive: also strip anything that somehow isn't OPEN — the alarm
-      // hook already filters by status:'OPEN', but the second-guess keeps the
-      // panel honest if OR ever returns ACKNOWLEDGED entries in the same call.
+      // Defensive: also strip anything that somehow isn't OPEN.
       if ((al.status || 'OPEN').toUpperCase() !== 'OPEN') return false;
-      if (!scopeTowerIds.length) return true;
-      return scopeTowerIds.some((gid) => alarmBelongsToGateway(al, gid, assetMap, towers));
+      if (scopeTowerIds.size === 0) return true;
+      const tset = alarmTowerMap.get(al.id);
+      if (!tset) return false;
+      for (const tid of tset) if (scopeTowerIds.has(tid)) return true;
+      return false;
     });
-  }, [openAlarms, towers, assetMap]);
+  }, [openAlarms, towers, alarmTowerMap]);
 
   /* ---- Filter chips counts ---- */
   const severityCounts = useMemo(() => {
@@ -103,15 +203,14 @@ export default function SecureOpsAlertsPage() {
     const out = new Map();
     for (const t of towers) out.set(t.id, 0);
     for (const al of scoped) {
+      const tset = alarmTowerMap.get(al.id);
+      if (!tset) continue;
       for (const t of towers) {
-        if (alarmBelongsToGateway(al, t.id, assetMap, towers)) {
-          out.set(t.id, (out.get(t.id) || 0) + 1);
-          break;
-        }
+        if (tset.has(t.id)) { out.set(t.id, out.get(t.id) + 1); break; }
       }
     }
     return out;
-  }, [scoped, towers, assetMap]);
+  }, [scoped, towers, alarmTowerMap]);
 
   /* ---- Apply user filters ---- */
   const filtered = useMemo(() => {
@@ -125,32 +224,26 @@ export default function SecureOpsAlertsPage() {
           if (!sevSet.has(sev)) return false;
         }
         if (towerFilter.size > 0) {
-          const hit = [...towerFilter].some((tid) =>
-            alarmBelongsToGateway(al, tid, assetMap, towers)
-          );
+          const tset = alarmTowerMap.get(al.id);
+          if (!tset) return false;
+          let hit = false;
+          for (const tid of towerFilter) if (tset.has(tid)) { hit = true; break; }
           if (!hit) return false;
         }
         if (q) {
-          const linked = Array.isArray(al.asset) && al.asset[0];
-          const asset = linked?.id
-            ? (assetMap.get(linked.id) || linked)
-            : (al.assetId ? assetMap.get(al.assetId) : null);
-          const tower = asset ? findGatewayForAsset(asset, towers) : null;
-          const site = tower
-            ? findSiteForAsset(tower, sites)
-            : (asset ? findSiteForAsset(asset, sites) : null);
+          const ctx = alarmContextMap.get(al.id);
           const hay = [
             al.title, al.content,
-            site && getAssetDisplayName(site),
-            tower && getAssetDisplayName(tower),
-            asset && getAssetDisplayName(asset),
+            ctx?.site && getAssetDisplayName(ctx.site),
+            ctx?.tower && getAssetDisplayName(ctx.tower),
+            ctx?.asset && getAssetDisplayName(ctx.asset),
           ].filter(Boolean).join(' ').toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
       })
       .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0));
-  }, [scoped, severityFilter, towerFilter, query, assetMap, towers, sites]);
+  }, [scoped, severityFilter, towerFilter, query, alarmTowerMap, alarmContextMap]);
 
   /* ---- Helpers ---- */
   const toggleInSet = (setter) => (id) => setter((prev) => {
@@ -167,6 +260,64 @@ export default function SecureOpsAlertsPage() {
     setTowerFilter(new Set());
   };
   const activeFilterCount = (query ? 1 : 0) + severityFilter.size + towerFilter.size;
+
+  /* ---- Infinite scroll — render the first PAGE_SIZE rows; IntersectionObserver
+   *      bumps the visible count as the operator scrolls. Resets to PAGE_SIZE
+   *      only when filters change; mutation-driven shrinkage preserves the
+   *      operator's scroll position. Uses the project's "reset state when a
+   *      value changes" pattern (no setState in useEffect). */
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const filterSig = useMemo(
+    () => `q:${query.trim()}|sev:${[...severityFilter].sort().join(',')}|tow:${[...towerFilter].sort().join(',')}`,
+    [query, severityFilter, towerFilter]
+  );
+  const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
+  if (prevFilterSig !== filterSig) {
+    setPrevFilterSig(filterSig);
+    setVisibleCount(PAGE_SIZE);
+  }
+
+  const visibleAlarms = useMemo(
+    () => filtered.slice(0, visibleCount),
+    [filtered, visibleCount]
+  );
+  const hasMore = visibleCount < filtered.length;
+
+  // Sentinel observer — root is the VIEWPORT (root: null), not the list
+  // section, because the Alerts page itself scrolls (no internal
+  // overflow:auto container). Setting `root: <element>` here would make
+  // the observer wait for the sentinel to enter the bounds of a non-
+  // scrolling element — it would never fire.
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore) return undefined;
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) setVisibleCount((c) => c + VISIBLE_BUMP);
+    }, { root: null, rootMargin: '200px 0px', threshold: 0 });
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [hasMore]);
+
+  /* ---- Stable handlers — keep AlertRow memoized ---- */
+  const handleClipClick = useCallback((alarmId) => {
+    const ctx = alarmContextMap.get(alarmId);
+    const alarm = openAlarms.find((a) => a.id === alarmId);
+    if (alarm) setClipInView({ alarm, asset: ctx?.asset, tower: ctx?.tower, site: ctx?.site });
+  }, [alarmContextMap, openAlarms]);
+  const handleClipClose = useCallback(() => setClipInView(null), []);
+  const handleAck = useCallback((alarm) => {
+    update.mutate({ alarm, status: 'ACKNOWLEDGED' });
+  }, [update]);
+  const handleResolve = useCallback((alarm) => {
+    update.mutate({ alarm, status: 'RESOLVED' });
+  }, [update]);
+
+  // Surface mutation pending state as primitives so AlertRow stays memoized
+  // (passing the React-Query `update` object would bust the memo on every
+  // background fetch tick — its identity changes).
+  const pendingAlarmId = update.isPending ? update.variables?.alarm?.id : null;
+  const pendingStatus = update.isPending ? update.variables?.status : null;
 
   if (assetsLoading || alarmsLoading) {
     return <div className="flex items-center justify-center min-h-[60vh]"><LoadingSpinner size="lg" /></div>;
@@ -272,17 +423,33 @@ export default function SecureOpsAlertsPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map((al) => (
-              <AlertRow
-                key={al.id}
-                alarm={al}
-                assetMap={assetMap}
-                towers={towers}
-                sites={sites}
-                update={update}
-                onClipClick={(p) => setClipInView(p)}
-              />
-            ))}
+            {visibleAlarms.map((al) => {
+              const ctx = alarmContextMap.get(al.id);
+              return (
+                <AlertRow
+                  key={al.id}
+                  alarm={al}
+                  asset={ctx?.asset || null}
+                  tower={ctx?.tower || null}
+                  site={ctx?.site || null}
+                  clipUrl={ctx?.clipUrl || null}
+                  pendingStatus={pendingAlarmId === al.id ? pendingStatus : null}
+                  onClipClick={handleClipClick}
+                  onAck={handleAck}
+                  onResolve={handleResolve}
+                />
+              );
+            })}
+            {hasMore && (
+              <div
+                ref={sentinelRef}
+                className="flex items-center justify-center gap-2 py-3 text-[11px] text-[var(--color-ink-2)]"
+                aria-hidden="true"
+              >
+                <Loader2 className="w-3.5 h-3.5 spin-slow" strokeWidth={2} />
+                <span>Loading more… ({filtered.length - visibleAlarms.length} remaining)</span>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -293,7 +460,7 @@ export default function SecureOpsAlertsPage() {
           asset={clipInView.asset}
           tower={clipInView.tower}
           site={clipInView.site}
-          onClose={() => setClipInView(null)}
+          onClose={handleClipClose}
         />
       )}
     </div>
@@ -304,27 +471,23 @@ export default function SecureOpsAlertsPage() {
    Row
    ========================================================================== */
 
-function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
+/**
+ * Row in the Alerts list. Pure render — every input is precomputed at the
+ * parent (asset/tower/site/clipUrl, pendingStatus) so the row can stay
+ * memoized and skip re-render when its alarm hasn't changed. Props are
+ * individual primitives / stable refs (NOT a wrapping context object)
+ * so React.memo's shallow compare actually skips work on background polls.
+ */
+const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pendingStatus, onClipClick, onAck, onResolve }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
-
-  const linked = Array.isArray(alarm.asset) && alarm.asset[0];
-  const asset = linked?.id
-    ? (assetMap.get(linked.id) || linked)
-    : (alarm.assetId ? assetMap.get(alarm.assetId) : null);
-  const tower = asset ? findGatewayForAsset(asset, towers) : null;
-  const site = tower
-    ? findSiteForAsset(tower, sites)
-    : (asset ? findSiteForAsset(asset, sites) : null);
 
   const typeLabel = asset ? getAssetTypeLabel(getCustomAssetType(asset)) : null;
   const assetName = asset ? getAssetDisplayName(asset) : null;
   const createdAt = alarm.createdOn ? new Date(alarm.createdOn) : null;
-  const clipUrl = getAlarmClipUrl(alarm);
 
-  const mutatingThis = update?.isPending && update.variables?.alarm?.id === alarm.id;
-  const ackPending = mutatingThis && update.variables?.status === 'ACKNOWLEDGED';
-  const resolvePending = mutatingThis && update.variables?.status === 'RESOLVED';
+  const ackPending = pendingStatus === 'ACKNOWLEDGED';
+  const resolvePending = pendingStatus === 'RESOLVED';
   const anyPending = ackPending || resolvePending;
 
   return (
@@ -381,7 +544,7 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
           {clipUrl && (
             <button
               type="button"
-              onClick={() => onClipClick?.({ alarm, asset, tower, site })}
+              onClick={() => onClipClick?.(alarm.id)}
               className="so-clip-btn"
               title="View the clip attached to this alarm"
             >
@@ -389,39 +552,35 @@ function AlertRow({ alarm, assetMap, towers, sites, update, onClipClick }) {
               <span>Clip</span>
             </button>
           )}
-          {update && (
-            <>
-              <button
-                type="button"
-                onClick={() => update.mutate({ alarm, status: 'ACKNOWLEDGED' })}
-                disabled={anyPending}
-                className="so-alert-btn so-alert-btn-ack"
-                title="Acknowledge"
-              >
-                {ackPending
-                  ? <Loader2 className="w-3 h-3 spin-slow" />
-                  : <Check className="w-3 h-3" strokeWidth={2.25} />}
-                <span>Ack</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => update.mutate({ alarm, status: 'RESOLVED' })}
-                disabled={anyPending}
-                className="so-alert-btn so-alert-btn-resolve"
-                title="Resolve"
-              >
-                {resolvePending
-                  ? <Loader2 className="w-3 h-3 spin-slow" />
-                  : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
-                <span>Resolve</span>
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => onAck?.(alarm)}
+            disabled={anyPending}
+            className="so-alert-btn so-alert-btn-ack"
+            title="Acknowledge"
+          >
+            {ackPending
+              ? <Loader2 className="w-3 h-3 spin-slow" />
+              : <Check className="w-3 h-3" strokeWidth={2.25} />}
+            <span>Ack</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onResolve?.(alarm)}
+            disabled={anyPending}
+            className="so-alert-btn so-alert-btn-resolve"
+            title="Resolve"
+          >
+            {resolvePending
+              ? <Loader2 className="w-3 h-3 spin-slow" />
+              : <CheckCheck className="w-3 h-3" strokeWidth={2.25} />}
+            <span>Resolve</span>
+          </button>
         </div>
       </div>
     </div>
   );
-}
+});
 
 /* ==========================================================================
    Filter chip primitives (mirror the Audit page styling for consistency)
