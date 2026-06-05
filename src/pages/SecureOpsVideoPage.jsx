@@ -17,14 +17,23 @@ import './secureops.css';
 /* ==========================================================================
    Video (/video)
 
-   The "operator wall": every CameraAsset / PtzCameraAsset in the current
-   site scope is shown as a small live-stream tile via the shared
-   `CameraCard`. Click a tile to open the unified `CameraHistoryModal` —
-   live stream + scrollable detection-history sidebar — the same modal that
-   opens from Overview's Live Camera Feeds and Control's Cameras panel.
+   The "operator wall": cameras for the **active tower** are shown as live
+   tiles via the shared `CameraCard`. Tower is single-select (chips +
+   `secureOpsStore.selectedTowerId`), default-picks the first tower in
+   scope. Showing only one tower at a time keeps the live-stream load
+   bounded — a wall of every camera in the realm would otherwise mount N
+   concurrent MJPEG/HLS feeds at once.
+   Click a tile to open the unified `CameraHistoryModal`.
 
    Filtering:
-     • Tower  — multi-select chips for towers in the selected site scope.
+     • Tower  — multi-select checkbox-style chips. First tower is checked
+                by default on initial load and on site-scope change (so
+                only one tower's streams mount until the operator opts in
+                to more). Empty Set after the operator unchecks everything
+                = show all towers (original semantics). Tracked in LOCAL
+                page state, NOT the shared `secureOpsStore.selectedTowerId`
+                — the store is persisted to localStorage and shared with
+                Control, which would otherwise override the default.
      • Search — free-text across camera name + tower name.
 
    Sources:
@@ -49,7 +58,7 @@ export default function SecureOpsVideoPage() {
     return sites.flatMap((s) => pickTowersForSite(assets, s.id));
   }, [assets, sites, selectedSiteId]);
 
-  /* ---- All cameras across the scope (CameraAsset + PtzCameraAsset) ---- */
+  /* ---- All cameras across the scope, paired with their tower ---- */
   const allCameras = useMemo(() => {
     const out = [];
     for (const t of towers) {
@@ -59,28 +68,56 @@ export default function SecureOpsVideoPage() {
     return out;
   }, [towers, assets]);
 
-  /* ---- Filter state ---- */
-  const [query, setQuery] = useState('');
-  const [towerFilter, setTowerFilter] = useState(new Set());
+  /* ---- Tower chip badge counts (per-tower camera count) ---- */
+  const towerCounts = useMemo(() => {
+    const out = new Map();
+    for (const t of towers) {
+      const kids = pickGatewayChildren(assets, t.id).filter(isCameraAsset);
+      out.set(t.id, kids.length);
+    }
+    return out;
+  }, [towers, assets]);
 
+  /* ---- Tower filter (multi-select, default = { firstTower }) ----
+   * Local state — fresh mount of /video defaults to the first rendered
+   * chip checked, so only one tower's streams mount up front. Multi-
+   * select toggle: clicking another chip adds it, clicking an active
+   * chip removes it. An empty Set after the operator unchecks everything
+   * means "show all towers" (original semantics).
+   *
+   * Re-seeded when `towers` changes (initial load, site switch) via the
+   * project's "reset state when a value changes" pattern — comparing a
+   * stored signature to current rather than setState-in-useEffect (which
+   * the lint config flags). Only re-seeds when the tower list IDENTITY
+   * changes; mutation-driven asset polls that return the same tower list
+   * preserve the operator's current selection.
+   */
+  const [towerFilter, setTowerFilter] = useState(new Set());
+  const towersSig = useMemo(() => towers.map((t) => t.id).join('|'), [towers]);
+  const [prevTowersSig, setPrevTowersSig] = useState('');
+  if (prevTowersSig !== towersSig) {
+    setPrevTowersSig(towersSig);
+    setTowerFilter(towers[0] ? new Set([towers[0].id]) : new Set());
+  }
   const toggleTower = (id) => setTowerFilter((prev) => {
     const next = new Set(prev);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+
+  /* ---- Filter state (search) ---- */
+  const [query, setQuery] = useState('');
+
+  // "Active filter" excludes the default-first-tower state — the operator
+  // hasn't made a deliberate choice yet, so the Reset button shouldn't
+  // light up.
+  const isDefaultTowerFilter =
+    towerFilter.size === 1 && !!towers[0] && towerFilter.has(towers[0].id);
+  const activeFilterCount = (query ? 1 : 0) + (isDefaultTowerFilter ? 0 : 1);
   const clearFilters = () => {
     setQuery('');
-    setTowerFilter(new Set());
+    setTowerFilter(towers[0] ? new Set([towers[0].id]) : new Set());
   };
-  const activeFilterCount = (query ? 1 : 0) + towerFilter.size;
-
-  /* ---- Tower chip counts ---- */
-  const towerCounts = useMemo(() => {
-    const out = new Map();
-    for (const t of towers) out.set(t.id, 0);
-    for (const { tower } of allCameras) out.set(tower.id, (out.get(tower.id) || 0) + 1);
-    return out;
-  }, [allCameras, towers]);
 
   /* ---- Apply filters ---- */
   const filtered = useMemo(() => {
@@ -109,7 +146,10 @@ export default function SecureOpsVideoPage() {
             Video
           </h1>
           <p className="text-xs text-[var(--color-ink-2)] mt-0.5">
-            Live wall across {towers.length || 'all'} tower{towers.length === 1 ? '' : 's'}
+            Live wall ·{' '}
+            {towerFilter.size === 0
+              ? `all ${towers.length} tower${towers.length === 1 ? '' : 's'}`
+              : `${towerFilter.size} of ${towers.length} tower${towers.length === 1 ? '' : 's'}`}
             {selectedSiteId
               ? ` in ${getAssetDisplayName(sites.find((s) => s.id === selectedSiteId)) || 'this site'}`
               : ' (all sites)'}
@@ -174,7 +214,7 @@ export default function SecureOpsVideoPage() {
         </div>
       </section>
 
-      {/* ===== Camera wall ===== */}
+      {/* ===== Camera wall — cameras for the checked towers ===== */}
       <section>
         {filtered.length === 0 ? (
           <div className="panel p-10 text-center text-sm text-[var(--color-ink-2)]">

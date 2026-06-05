@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ShieldAlert, Maximize2 } from 'lucide-react';
+import { ShieldAlert, Maximize2, PlayCircle } from 'lucide-react';
 import CameraStream from './CameraStream';
 import CameraHistoryModal from './CameraHistoryModal';
 import { getCameraStreamUrl, isPtzCamera } from '../../utils/gateways';
@@ -64,7 +64,30 @@ export default function CameraCard({ camera, tower, showTower = false }) {
         onKeyDown={onKeyDown}
         title={`Open ${name}`}
       >
-        <CameraStream url={url} offline={offline} />
+        {/* Poster — defer the actual stream fetch until the operator
+            clicks. Each tile previously mounted an <img>/<video>/<iframe>
+            against the camera's stream URL on render, so on slow networks
+            opening the Video wall (or Control's Cameras panel) fired N
+            concurrent stream requests. The modal still plays the stream
+            on open via the same CameraStream renderer. */}
+        {(offline || !url) ? (
+          <CameraStream url={url} offline={offline} />
+        ) : (
+          <div
+            aria-hidden="true"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              height: '100%',
+              background: 'color-mix(in srgb, var(--color-ink-0) 92%, black)',
+              color: 'var(--color-ink-1)',
+            }}
+          >
+            <PlayCircle className="w-10 h-10 opacity-80" strokeWidth={1.5} />
+          </div>
+        )}
 
         <div className="so-cam-pills">
           <span className="so-cam-pill is-label">{code}</span>
