@@ -9,11 +9,24 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-05-27):** Overview, Video, Alerts, Control, full Audit, Settings shipped. Recent waves of work concentrated on the **Overview** and the **alarm clip modal**.
+**Status (2026-06-06):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave of work (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**.
+
+**Post-2026-05-27 wave (commits `6828a67` → `f27d12a`):**
+
+- **Header env-chips removed entirely (commit `6828a67` dropped temp+humidity; follow-up dropped signal+battery).** Row 2 of `SecureOpsHeader` is now just the tab strip — **no per-tower telemetry chips at all**. The header no longer reads `signalStrength`, `batteryLevel`, or the `HeatSensorAsset` child; the per-page poll lookup that used to live on every route is gone. Rationale: per-tower telemetry doesn't belong on a global shell that follows the operator everywhere; signal+battery for the active tower (and temp/humidity, and the BatteryAsset reading) all live on `/control`'s Environment panel where they're actually actionable. The KPI strip on `/` carries the realm-wide health signal (Sites online / AI uptime). (§6.3 updated.)
+- **Overview Recent Alerts is now an infinite-scroll list (commit `6828a67`).** First page renders 30 rows; an `IntersectionObserver` on a sentinel bumps the visible count by 30 each time the operator scrolls past it. Filter changes (severity / tower) reset visible count back to 30; mutation-driven list shrinkage (Ack / Resolve) **preserves** the operator's scroll position. (§8.3 updated.)
+- **Overview perf refactor (commit `6828a67`).** Three precomputed Maps replace the per-row, per-render `findGatewayForAsset` + `alarmBelongsToGateway` work: `assetMap` (assetId → asset), `alarmTowerMap` (alarmId → `Set<towerId>`), `alarmContextMap` (alarmId → `{asset, tower, site, clipUrl}`). `AlertRow` is wrapped in `React.memo` and receives **individual primitive/stable-ref props** (NOT a wrapping `{ctx}` object — shallow compare would always look "changed"). Background polls no longer thrash 1k+ alert rows. (§8.3 + §8.7 updated.)
+- **Overview only fires ONE `useAlarms({})` query (commit `6828a67`).** Used to fire both `useAlarms({})` and `useAlarms({status:'OPEN'})` every 15 s. Open list is now derived client-side from the full list. The Alerts page also flipped to `useAlarms({})` so navigating Overview → Alerts reuses the cached query slot (instant, no extra round-trip).
+- **Overview default time range is now `All` (commit `6828a67`).** Was `24h`. Fresh load now shows every alert in the realm; operators narrow via the chip strip. The `Sites online` / `AI uptime` KPIs still ignore the range (they're now-state snapshots).
+- **Video page defaults to the first tower (commit `94da9a4`).** Tower chips are now multi-select **checkboxes**; fresh mount checks only the first tower, so only one tower's MJPEG/HLS streams mount up front. Clicking other chips adds them; an empty Set (after unchecking everything) shows all towers (original semantics). Tracked in **local page state** — NOT `secureOpsStore.selectedTowerId` (which Control persists to localStorage and would override the default). (§16 item 1 updated.)
+- **Camera tiles defer the stream fetch (commit `94da9a4`).** `CameraCard` no longer mounts `<CameraStream>` on render — it renders a `PlayCircle` poster (dim dark tile) until the operator clicks. The modal still plays the stream on open. Previously the Video wall + Control's Cameras panel fired N concurrent stream requests on mount. Offline tiles still render `<CameraStream offline>` so the offline UI is unchanged. (§5.1a updated.)
+- **Alerts page perf refactor + infinite scroll (commit `76ae4cf`).** Same shape as Overview — shared `alarmTowerMap` + `alarmContextMap`, memoized `AlertRow` with primitive props, IntersectionObserver-based infinite scroll. Difference: the Alerts page itself scrolls (no internal `overflow:auto` container), so the observer's `root` is `null` (viewport). (§8.7 NEW.)
+- **Control Environment panel now shows Battery (commit `8b103e9`).** When the active tower has a `BatteryAsset` child, a third tile appears alongside Temperature / Humidity reading `energyLevelPercentage`. Tile tint is threshold-coloured: ≥50% green, 20-49% yellow, <20% red, null → grey. Empty state copy widened from "No HeatSensorAsset" to "No environment sensors". (§9a.2 updated.)
+- **Device Summary sidebar on Overview (commit `f27d12a`).** Right column (lg+) alongside Recent Alerts shows three rows: Doors unlocked · Lights on · Sirens sounding. Each row's active count is the big number, with a `<active verb> · <idle verb> · total` subline. Click a row → full-page modal listing every device in that category across scope, grouped by tower, with inline Turn on/Turn off toggles via `useWriteAttribute`. Sidebar collapses below Recent Alerts on narrow screens (`grid-cols-1`). (§8.6 NEW.)
 
 **Overview redesign (2026-05-27):** the page is now slimmed to **KPI strip + full-width Recent Alerts**, sized to fit the viewport (`h-[calc(100dvh-112px)]`) so the page itself never scrolls — only the alert list does, internally (§8). The Live Camera Feeds, Site Status, Remote Control, Environmental Telemetry, and Audit Log panels were all removed from this surface (Remote Control + Env Telemetry's data moved into the `AlarmClipModal` and the header chips respectively; the Control / Audit tabs still hold the full versions). A **time-range filter** (Today · 24h · 7d · 30d · All, default 24h) drives both KPIs and the Recent Alerts list (§8.1). The Recent Alerts panel now carries the same **Severity + Tower chip filters** as `/alarms` (§8.4) and a loader overlay for filter transitions (`useTransition`, not React-Query `isFetching` — background polls don't blink the loader). The **"Active alerts" KPI is site+range scoped** so its total always equals the sum of the panel's chip badges. The **"Human detections" KPI** counts CRITICAL + HIGH only (`isHighPrioritySeverity` — these are the AI-side human-detection events).
 
-**Header chips expanded (2026-05-27):** the env telemetry strip on `SecureOpsHeader` row 2 now shows **temp · humidity · signal (dBm) · battery (%)** — temp/humidity from the active tower's `HeatSensorAsset` child, signal/battery from the TowerAsset itself; each chip hides individually when its attribute isn't declared (§6.3).
+**Header chips (current state — see post-2026-05-27 wave above):** the env telemetry strip on `SecureOpsHeader` row 2 has been **removed entirely**. Row 2 is now just the tab strip — no temp, humidity, signal, or battery chips. All per-tower readings live on `/control`'s Environment panel (§9a.2) where the operator has the device picker context to act on them. The header no longer reads any tower attributes at all. (§6.3 reflects this.)
 
 **AlarmClipModal (2026-05-27):** the URL-only `ClipModal` is gone — every alert surface (Overview, `/alarms`, `/audit`) opens the new rich `AlarmClipModal` (§5.1b). It carries: severity pill + alarm title + **Prev/Next tower-scoped queue navigation with `N / M` counter** (← / → keys also work); meta strip with Site › Tower breadcrumb, time, camera name, best-effort detection chip (human/animal/vehicle); compact **Quick controls** (Door / Siren / Lights) targeting the camera's tower; **Push-to-talk button** per the tower's `PttAsset.socketIP`; segmented **Snapshot / Clip / Live** tabs in the footer; native `<video controls>` on the Clip tab with a primary-accent **Download** button (blob fetch + `createObjectURL` for cross-origin reliability); **Ack + Resolve** action buttons that **auto-advance to the next queued alarm** on success (or close if at end). PTZ pad renders on Live view only when the asset is a `PtzCameraAsset`. Modal is `h-95vh` × `w-1280px` so the video viewport is generous. Internal state resets per-alarm via `key={alarm.id}` on the modal (project-standard "reset on prop change" pattern — sidesteps the `react-hooks/set-state-in-effect` lint rule). See §5.1b for the modal anatomy, §11 for the helper additions (`getAlarmEventId`, `getAlarmSnapshotUrl`, `getAlarmDetectionLabel`).
 
@@ -35,7 +48,7 @@ Earlier wins still in place: in-app `AlarmNotificationStack` replacing `react-ho
    - 6.4 [Alarm notification stack](#64-alarm-notification-stack)
 7. [State management (`secureOpsStore`)](#7-state-management-secureopsstore)
 8. [The Overview page](#8-the-overview-page)
-   - 8.1 [Time-range filter](#81-time-range-filter) · 8.2 [KPI strip](#82-kpi-strip) · 8.3 [Recent Alerts panel](#83-recent-alerts-panel) · 8.4 [Modal queue handoff](#84-modal-queue-handoff) · 8.5 [Loader UX](#85-loader-ux)
+   - 8.1 [Time-range filter](#81-time-range-filter) · 8.2 [KPI strip](#82-kpi-strip) · 8.3 [Recent Alerts panel](#83-recent-alerts-panel) · 8.4 [Modal queue handoff](#84-modal-queue-handoff) · 8.5 [Loader UX](#85-loader-ux) · 8.6 [Device summary sidebar](#86-device-summary-sidebar) · 8.7 [Perf — shared lookup Maps + memoized rows](#87-perf--shared-lookup-maps--memoized-rows)
 9. [The Audit Log page](#9-the-audit-log-page)
 9a. [The Control page, panel by panel](#9a-the-control-page-panel-by-panel)
 10. [Token refresh fix](#10-token-refresh-fix)
@@ -126,6 +139,13 @@ It **is not**:
 | **Active alerts KPI === sum of Recent Alerts chip counts** | User decided 2026-05-27. Apply site+range scope at the page level so KPI and panel share the same source. Don't go back to a KPI that's "realm-wide but the panel below is site-scoped" — operators read the discrepancy as a bug. |
 | **All alert surfaces use AlarmClipModal** | User decided 2026-05-27. Don't reintroduce `ClipModal` or a "just play the URL" variant. The rich modal carries the operator's whole triage workflow (preview / clip / live / controls / PTT / Ack / Resolve / Prev / Next / Download) — the old single-purpose modal forced operators to close and reopen for every action. |
 | **Loader signal is user-action only, NOT React-Query `isFetching`** | User decided 2026-05-27. The 15s background poll would flash the loader every cycle for no operator-meaningful reason. Drive the soft loader overlay from `useTransition` pending states only. |
+| **`SecureOpsHeader` carries no per-tower telemetry chips at all** | User decided 2026-05-30 → 2026-06-06. First temp+humidity were dropped (commit `6828a67`), then signal+battery — the entire env-chip strip is gone. Per-tower telemetry doesn't belong on the global shell because it follows the operator across every route (and re-reads on every poll); `/control`'s Environment panel is where the operator has device-picker context to act on it. Don't reintroduce any tower-attribute chip on the header. |
+| **Camera tiles render a poster, not a live stream, until clicked** | User decided 2026-05-30 (commit `94da9a4`). Mounting `<img>`/`<video>`/`<iframe>` against the stream URL on every render fired N concurrent MJPEG/HLS requests when the Video wall opened. The poster (PlayCircle on a dim tile) keeps tiles cheap; the modal still plays the stream on open. Offline tiles bypass the poster and render `<CameraStream offline>` as before — the offline UI is part of the operator's status read. |
+| **Video page defaults to FIRST tower checked, not all towers** | User decided 2026-05-30 (commit `94da9a4`). Same load-bounding reason as the poster — a wall of every camera in the realm mounts N concurrent streams at once. Tower chips are local page state, NOT `secureOpsStore.selectedTowerId` — the store is persisted to localStorage and shared with Control, which would override the default. Empty Set after the operator unchecks everything = show all towers (original semantics). |
+| **AlertRow is memoized with primitive props, NOT a context object** | User decided 2026-05-31 (commits `76ae4cf` / `6828a67`). `React.memo`'s shallow compare treats a fresh `{asset, tower, site, clipUrl}` object as "changed" on every poll, defeating the memo entirely. Pass each value as its own prop, derived at the parent from cached Maps. Same rule for handlers — `useCallback` them once so identity is stable. Don't bundle them into an object "for cleanliness". |
+| **Overview's default time range is `All`, not `24h`** | User decided 2026-05-30 (commit `6828a67`). Operators land on the page expecting to see everything; narrowing is a chip click away. The `Sites online` and `AI uptime` KPIs still ignore the range (they're now-state snapshots). |
+| **One `useAlarms({})` query, derive OPEN client-side** | User decided 2026-05-30 (commit `6828a67`). The Overview and Alerts pages used to fire both `useAlarms({})` AND `useAlarms({status:'OPEN'})` every 15 s; the OPEN list is trivially derivable from the full list. Sharing one cache key also makes Overview → Alerts navigation instant. |
+| **Infinite scroll on Recent Alerts + /alarms, not pagination** | User decided 2026-05-31 (commits `76ae4cf` / `6828a67`). Operators triage top-to-bottom and don't want to click a "next" button mid-scroll. PAGE_SIZE = 30, bump = 30, sentinel `IntersectionObserver` with `rootMargin: '200px 0px'` so the next page is fetched a touch before the operator hits the bottom. Filter changes reset to 30; mutation-driven shrinkage preserves scroll position. |
 
 ---
 
@@ -217,6 +237,21 @@ second line (Video wall uses this). The modal closes on Esc or backdrop
 click. **No "Detail" / asset-page affordance** inside the modal — the
 tile is monitoring-only; reach the asset detail page via the audit log
 or alarm row breadcrumbs when you need Controls / History / Alarms tabs.
+
+**Poster, not a live stream, until clicked (commit `94da9a4`).** The
+card body **does not mount `<CameraStream>` on render** for online
+cameras. Instead it renders a dim `PlayCircle` poster (centred icon
+on a near-black tile). The modal still plays the stream on open via
+the same `CameraStream` renderer. Rationale: each `<img>`/`<video>`/
+`<iframe>` against the stream URL fires a network request on mount,
+and the Video wall + Control's Cameras panel were mounting N
+concurrent MJPEG/HLS feeds before the operator had picked a tile.
+
+**Exception: offline cameras.** When `getCameraStreamUrl(camera)` is
+empty OR `getCameraOffline(camera) === true`, the card falls through
+to `<CameraStream url={url} offline={offline}/>` so the offline-state
+UI (the existing "Camera offline" message) is preserved. That branch
+doesn't open a connection — the offline render is local.
 
 **The legacy `CameraFullView` simple-preview modal is no longer used.**
 It still exists on disk for now but is unimported; future cleanup may
@@ -748,8 +783,8 @@ Firefox also block `<img>`). Three fixes, cheapest first:
 | Attribute | Type | Required? | Purpose |
 |---|---|---|---|
 | `connected` | boolean | optional | `false` puts the tower in the "Offline" badge + bumps the Sites-online KPI. |
-| `signalStrength` | number (dBm) | optional | "Signal (4G)" row in Environmental telemetry. |
-| `batteryLevel` | number (%) | optional | "Battery backup" row. |
+| `signalStrength` | number (dBm) | optional | **Currently unread** — the header chips that consumed it were removed (§6.3). Kept in the schema for future panels. |
+| `batteryLevel` | number (%) | optional | **Currently unread** — same as `signalStrength`. The on-screen battery reading now comes from a `BatteryAsset` child via `energyLevelPercentage` (§9a.2), not this tower-level attribute. |
 | `aiHeartbeatAt` | timestamp | optional | Drives the "AI uptime" KPI (falls back to 100% if any tower in scope reports a recent heartbeat). |
 | `aiUptime30d` | number (%) | optional | If present, used directly for the AI uptime KPI. |
 | `connectionType` / `network` | string | optional | Shown next to the tower in Site Status (e.g. "4G"). |
@@ -757,11 +792,19 @@ Firefox also block `<img>`). Three fixes, cheapest first:
 
 **Note on temperature + humidity:** these do NOT live on the TowerAsset
 directly. Each tower carries a **`HeatSensorAsset` child** (the packaged
-temp/humidity sensor inside the IP67 box). The header chips, the
-Overview's Environmental Telemetry, and the Control page's Environment
-card all read `temperature` and `humidity` from this child asset via
-`getWeatherAssetForTower(tower, assets)`. If a tower has no
-HeatSensorAsset child, the corresponding widgets hide themselves.
+temp/humidity sensor inside the IP67 box). The Control page's
+Environment card reads `temperature` and `humidity` from this child
+asset via `getWeatherAssetForTower(tower, assets)`. If a tower has no
+HeatSensorAsset child, the tile hides itself. (The header used to
+mirror these chips but no longer does — see §6.3.)
+
+**Note on battery (on-screen reading):** the `/control` Environment
+panel renders battery percentage from a per-tower **`BatteryAsset`
+child** carrying `energyLevelPercentage` — NOT from the
+TowerAsset-level `batteryLevel` attribute above. Match is
+case-insensitive (`normalizeAssetType(getCustomAssetType) ===
+'BatteryAsset'`). If a tower has no BatteryAsset child, the tile
+hides itself.
 
 ### 5.4. Device control attributes (existing convention)
 
@@ -903,17 +946,17 @@ components still exist on disk (not deleted), but nothing imports them.
 `src/components/layout/SecureOpsHeader.jsx` is the sticky shell. Two rows:
 
 1. **Brand row:** SMS Sentinel AI logo (clickable → `/`) · `● Live` pill · **`All Sites (N) ▼`** dropdown.
-2. **Tab row:** the six tab links (NavLink, active state cyan underline) · **4 env-telemetry chips** for the active tower (each hides individually when its attribute isn't declared, per the no-placeholder rule):
-   - `🌡 N°C` — `HeatSensorAsset.temperature`
-   - `💧 N%` — `HeatSensorAsset.humidity`
-   - `📶 N dBm` — `TowerAsset.signalStrength`
-   - `🔋 N%` — `TowerAsset.batteryLevel`
+2. **Tab row:** the six tab links (NavLink, active state cyan underline). **No telemetry chips.**
 
-   Temp + humidity come from the active tower's `HeatSensorAsset` child
-   (packaged weather sensor inside the IP67 box). Signal + battery live on
-   the TowerAsset itself. The active tower is `selectedTowerId` from the
-   store (set by the Control page's tower picker) with auto-fallback to
-   the first tower in scope when nothing is picked.
+**History — env chips removed entirely.** Row 2 used to carry 4 chips
+(temp · humidity · signal · battery) for the active tower; temp + humidity
+were dropped in commit `6828a67`, then signal + battery in commit `f27d12a`.
+The header no longer reads `selectedTowerId`, `signalStrength`,
+`batteryLevel`, or the `HeatSensorAsset` child of any tower — it's now
+fully scope-agnostic. Per-tower telemetry lives on `/control`'s
+Environment panel (§9a.2). The KPI strip on `/` carries the realm-wide
+health signal (Sites online / AI uptime). The `useEffect` for telemetry
+and the `readNumber` helper are both gone from this file.
 
 The dropdown's options are: "All Sites (N)" plus every SiteAsset by display
 name. When no SiteAssets are configured, the count falls back to the total
@@ -1018,26 +1061,32 @@ Live Camera Feeds, Remote Control, and Environmental Telemetry derive their
 
 `src/pages/SecureOpsOverviewPage.jsx` — mounted at `/`. **Viewport-fit** —
 the page is sized `h-[calc(100dvh-112px)]` and `overflow:hidden`; only the
-Recent Alerts list scrolls (internally) when it overflows. The page itself
-never scrolls.
+Recent Alerts list (and the Device Summary sidebar if it overflows) scrolls
+internally. The page itself never scrolls.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ ⏱ Time range  [Today] [24h*] [7d] [30d] [All]                    │   chip strip
-├──────────────────────────────────────────────────────────────────┤
-│ Sites online · Active alerts·24h · Human detections·24h · AI up  │   KPI strip
-├──────────────────────────────────────────────────────────────────┤
-│ Recent alerts · Last 24h                  N active  [Reset]      │
-│   Severity   [High N] [Med N] [Low N]                            │   filter rows
-│   Tower      [Tower 1] [Tower 2] [Tower 3] …                     │
-│   ─────────────────────────────────────────────                  │
-│   ┌────────────────────────────────────────────────────────┐     │
-│   │ alert row · breadcrumb · time · severity · actions     │     │   scrollable
-│   │ alert row · …                                          │     │   list
-│   └────────────────────────────────────────────────────────┘     │
-│   All alerts ›                                                   │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ⏱ Time range  [Today] [24h] [7d] [30d] [All*]                                │   chip strip
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Sites online · Active alerts·All · Human detections·All · AI uptime          │   KPI strip
+├────────────────────────────────────────────────────┬─────────────────────────┤
+│ Recent alerts · All time      N active   [Reset]   │  Device summary         │
+│   Severity   [High N] [Med N] [Low N]              │   ┌─────────────────┐   │   2-col grid
+│   Tower      [Tower 1] [Tower 2] [Tower 3] …       │   │ Doors unlocked  │   │   (lg+)
+│   ────────────────────────────────────────────     │   │  N unlocked …  N│   │
+│   ┌──────────────────────────────────────────┐    │   ├─────────────────┤   │
+│   │ alert row · breadcrumb · time · actions  │    │   │ Lights on       │   │   stacks vertically
+│   │ alert row · …                            │    │   │  N on …        N│   │   below lg
+│   │  …                                       │    │   ├─────────────────┤   │
+│   │ Loading more… (123 remaining)            │    │   │ Sirens sounding │   │
+│   └──────────────────────────────────────────┘    │   │  N sounding   N │   │
+│   All alerts ›                                     │   └─────────────────┘   │
+└────────────────────────────────────────────────────┴─────────────────────────┘
 ```
+
+Layout: `grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]`,
+`flex-1 min-h-0`, gap-4. Each panel is its own internal-scroll container.
+Default time range is **All** (changed from `24h` in commit `6828a67`).
 
 The five panels that used to live here are gone — none deleted in spirit,
 just relocated:
@@ -1053,13 +1102,14 @@ just relocated:
 
 ### 8.1. Time-range filter
 
-`TimeRangeBar` (a `useState('24h')` + `useTransition`) sits above the
-KPI strip. Options: `Today | 24h | 7d | 30d | All` (default 24h —
-matches a typical operator shift). The setter is wrapped in
-`startRangeTransition` so React keeps the previous KPI / alert list
+`TimeRangeBar` (a `useState('all')` + `useTransition`) sits above the
+KPI strip. Options: `Today | 24h | 7d | 30d | All` — **default `all`**
+as of commit `6828a67` (was `24h`). Fresh load now surfaces every alert
+in the realm; the operator narrows via the chips. The setter is wrapped
+in `startRangeTransition` so React keeps the previous KPI / alert list
 visible during the re-derive instead of flashing an empty intermediate
 frame; `isRangePending` is surfaced to the Recent Alerts panel as a
-soft loader overlay (§8.4).
+soft loader overlay (§8.5).
 
 The range drives:
 - The **Active alerts** KPI count + critical/warning split
@@ -1125,6 +1175,30 @@ re-derive — clicking a chip with thousands of alarms doesn't blank the panel.
 `Site › Tower › Asset` breadcrumb (display-only `.so-crumb-static` chips),
 `HH:mm · X min ago` time, severity pill, action cluster (`Clip` /
 `Ack` / `Resolve`). Row dims while its own mutation is pending (`data-pending`).
+**`AlertRow` is wrapped in `React.memo`** as of commit `6828a67`; see §8.7
+for the prop-shape rules that make the memo effective.
+
+**Infinite scroll** (commit `6828a67`). First render = **30 rows** (`PAGE_SIZE`).
+An `IntersectionObserver` on a sentinel `<div>` at the list bottom bumps
+the visible count by 30 (`VISIBLE_BUMP`) each time it enters view. The
+observer's `root` is **the scrolling element itself** (`.so-alert-list-wrap`)
+via a `scrollRootRef` — the page doesn't scroll, the list does, so a
+viewport-root observer would never fire. `rootMargin: '200px 0px'`
+prefetches the next page just before the operator hits the bottom. While
+more rows exist, a "Loading more… (N remaining)" line is rendered next to
+the sentinel.
+
+- **Filter changes** (severity / tower chips) reset visible count back to
+  `PAGE_SIZE` via the **"reset state when a value changes" pattern**
+  (compare `filterSig` against a stored `prevFilterSig` and call
+  `setVisibleCount(PAGE_SIZE)` directly during render). NOT a setState in
+  `useEffect` (lint flags that as the cascading-renders anti-pattern).
+- **Mutation-driven shrinkage** (Ack / Resolve) does NOT touch the filter
+  signature, so `visibleCount` is preserved — the operator's scroll
+  position survives an ack.
+- Header counter widens to `<visible>/<sorted> of <total> active` while
+  filtering, and to `<visible> of <sorted> active` while more pages exist
+  unfiltered. Plain `<sorted> active` when fully loaded and unfiltered.
 
 **Severity colors:** **CRITICAL/HIGH = red, MEDIUM = yellow, LOW = grey**.
 
@@ -1180,6 +1254,132 @@ React-Query's `isFetching` is **deliberately NOT** in this signal —
 background polls would otherwise blink the loader every 15s for no
 operator-meaningful reason. The initial fetch still uses the full-page
 `LoadingSpinner` via the parent's `isLoading` check.
+
+**Combined assets+alarms gate.** The full-page spinner is now gated on
+**BOTH** `assetsLoading` and `alarmsLoading`. Previously assets landed
+first, alarms briefly empty, and the Recent Alerts panel flashed
+"No alerts in last 24h" before the alarms query resolved. Hold the
+spinner up through the slowest of the two.
+
+### 8.6. Device summary sidebar
+
+Right column of the Overview grid (lg+; stacks below Recent Alerts on
+narrow screens). `DeviceSummaryPanel` lists three rows — one per category
+the operator can act on across the current scope:
+
+| Category | Verb (active) | Verb (idle) | Source asset types | Icon · Color |
+|---|---|---|---|---|
+| Doors unlocked | `unlocked` | `locked` | `DoorLockAsset` · `ToggleableDoorLockAsset` | Lock · warning-400 |
+| Lights on | `on` | `off` | `LightAsset` | Lightbulb · accent-400 |
+| Sirens sounding | `sounding` | `idle` | `AlarmAsset` · `BuzzerAsset` | Volume2 · danger-400 |
+
+**Source data.** `deviceSummary` is a single `useMemo` over the scoped
+`towers` array — walks each tower's children (`pickGatewayChildren`),
+partitions them into the three buckets, and computes each one's
+`{ all: Array<{asset, tower, active}>, activeCount: number }`.
+
+**"Active" semantics differ per category:**
+- **Doors** — `isAssetActive` returns "locked" for DoorLockAsset (project
+  convention from §5.4), so `active = !isAssetActive(asset, ct)` —
+  unlocked = active in *this* panel's sense.
+- **Lights / Sirens** — `active = isAssetActive(asset, ct)` directly.
+
+**Each row's body** shows the active count as a big number on the right
+(coloured if > 0, grey if 0), with an `<active> <activeVerb> · <idle>
+<idleVerb> · <total> total` subline. Rows with `total === 0` render
+disabled (cursor not-allowed, opacity 55%) with a tooltip explaining
+nothing matches the current scope. Otherwise click opens
+`DeviceListModal` for that category (state: `summaryCategory` in the
+page-level `useState`).
+
+**`DeviceListModal`** — full-page overlay (`fixed inset-0 z-50`, max
+720px wide, `max-h-[85vh]`). Header carries the category icon + label
++ `<activeCount>/<total>` chip + close button. Body groups every item
+by its tower (preserving iteration order), with a tower-name banner
+(`RadioTower` icon + tower display name) above each group. Each row
+renders via `DeviceToggleRow` — coloured status dot + name + type label
++ `Turn on` / `Turn off` button. The button colours itself with the
+category's accent when `active`, neutral grey otherwise. Pressing it
+fires `useWriteAttribute` against `getPrimaryControlAttr(asset,
+customType)` with `nextToggleValue` — same path as the Control page's
+`ControllableTile`. Esc closes; backdrop click closes; the inner panel
+click `stopPropagation`s so accidentally clicking the modal body
+doesn't dismiss it.
+
+The modal uses `useEffect` for the Esc listener (window-level keydown).
+The "reset state when a prop changes" idiom doesn't apply here because
+the modal is conditionally mounted by the page (`summaryCategory &&
+<DeviceListModal/>`) — closing destroys it, opening creates a fresh
+instance.
+
+### 8.7. Perf — shared lookup Maps + memoized rows
+
+Commits `76ae4cf` / `6828a67` rewrote the Overview's and Alerts page's
+filter/render pipelines because the old shape ran nested
+`O(alarms × towers)` `findGatewayForAsset` / `alarmBelongsToGateway`
+loops on every React Query poll, and `AlertRow` allocated a fresh `Map<id,
+asset>` per row per render via `findGatewayForAsset`. With ~1,000
+alarms in scope this churned ~1M Map ops every 15 s.
+
+**The four precomputed Maps** (built once at the page level, in this
+order):
+
+1. `assetMap` — `assetId → asset`. Mirrors the old per-render Map but
+   shared with all downstream consumers (including child panels via
+   props).
+2. `alarmTowerMap` — `alarmId → Set<towerId>`. For each alarm, walks
+   every linked-asset field the alarm may carry (`asset` / `assets` /
+   `linkedAssets` / `assetId` / `sourceId`) and collects ALL the towers
+   those assets sit under. Mirrors the original
+   `alarmBelongsToGateway` "match if ANY linked asset lives under the
+   tower" semantics exactly. Multi-asset alarms get multi-entry sets.
+3. `siteTowerIdSets` — `siteId → Set<towerId>`. Powers the per-site
+   summary used by the `Sites online` KPI.
+4. `alarmContextMap` — `alarmId → {asset, tower, site, clipUrl}`.
+   Resolves breadcrumb context once, over the **full** alarm list
+   (not just the scoped subset), so the modal queue handoff can reuse
+   it. Tower resolution prefers the precomputed
+   `alarmTowerMap.get(id)` first entry; falls back to
+   `findGatewayForAsset` only for alarms not in the map (e.g. site-
+   level alarms). Site resolution walks `tower.parentId` → `tower.path`
+   against `siteById`, with a final `findSiteForAsset(asset, sites)`
+   fallback.
+
+**`scopeAlarms` helper** — replaces the old `scopeAlarmsToTowers`
+factory. `useCallback` over `(alarmTowerMap, scopeTowerIdSet)`. Each
+alarm is filtered with a single `Set.has` against its precomputed
+tower set — O(scoped-towers) per alarm, no nested Map allocations.
+
+**`AlertRow` is `React.memo`.** The shallow compare only skips work
+when **every** prop's identity is stable across renders. So props are
+designed for shallow-compare friendliness:
+
+- `alarm` — React Query preserves object identity across polls when
+  the payload hasn't changed (structural sharing).
+- `asset` / `tower` / `site` — destructured at the call site from
+  `alarmContextMap.get(al.id)`. These are references into cached Maps
+  (`assetMap`, `towerByIdAll`, `siteById`) that only rebuild when the
+  asset list changes, NOT on each alarm poll.
+- `clipUrl` — primitive string from the same cached `alarmContextMap`.
+- `pendingStatus` — a primitive string (`'ACKNOWLEDGED'` /
+  `'RESOLVED'` / `null`), derived at the parent from `update.isPending
+  && update.variables?.alarm?.id === al.id`. The whole React-Query
+  `update` object is NOT passed down because its identity changes on
+  every fetch tick.
+- `onClipClick` / `onAck` / `onResolve` — `useCallback`'d at the parent
+  so identity is stable across renders.
+
+**Anti-pattern to avoid: bundling context into a wrapping object.**
+`<AlertRow context={{asset, tower, site, clipUrl}}/>` defeats
+`React.memo` entirely — a fresh `{...}` literal every render always
+shallow-compares as "changed". Pass each value as its own prop. This
+rule is now in §3 as a non-reversible decision.
+
+**One `useAlarms({})` query, OPEN derived client-side.** Both the
+Overview and Alerts pages flipped from `useAlarms({status:'OPEN'})` to
+`useAlarms({})` and a `useMemo` filter on the result. Saves one network
+round-trip every 15 s and shares the React Query cache slot — Overview
+→ Alerts navigation is now instant (no extra fetch).
 
 ---
 
@@ -1293,12 +1493,42 @@ Environmental Telemetry all re-scope). The site scope (from the
 
 ### 9a.2. Cameras + Environment + Controls
 
-Unchanged from the 2026-05-16 ship — `CamerasPanel` shows the first
-two children matching `isCameraAsset` (fixed or PTZ); `EnvironmentPanel`
-reads `temperature` / `humidity` from `getWeatherAssetForTower`;
-`ControlsPanel` filters tower children to `CONTROLLABLE_TYPES` and
-renders a `ControllableTile` per device. Each tile toggles via
-`useWriteAttribute(getPrimaryControlAttr(asset, customType))`.
+`CamerasPanel` shows the first two children matching `isCameraAsset`
+(fixed or PTZ); each tile uses the shared `CameraCard`, which renders
+a **PlayCircle poster** until clicked rather than mounting a live
+stream on render (see §5.1a + commit `94da9a4`).
+
+`EnvironmentPanel` (commit `8b103e9`) now reads **three** tower-scoped
+readings, each rendered as its own `EnvBigStat` tile when the source
+asset is present:
+
+| Tile | Source | Attribute | Tile tone |
+|---|---|---|---|
+| Temperature | `HeatSensorAsset` child of tower (via `getWeatherAssetForTower`) | `temperature` | `warning` (orange) |
+| Humidity | same `HeatSensorAsset` | `humidity` | `accent` (cyan) |
+| Battery | `BatteryAsset` child of tower (matched via `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`) | `energyLevelPercentage` | **threshold-coloured**: ≥50 % → `ok` (green) · 20-49 % → `warning` (yellow) · <20 % → `danger` (red) · null → `accent` (grey) |
+
+The Battery tile uses a `batteryTone(pct)` helper to map the reading
+to a tone, and `EnvBigStat` was extended to accept `tone: 'ok' |
+'danger'` (was only `warning` / `accent`).
+
+**Empty state.** The panel hides itself only when **neither**
+HeatSensorAsset nor BatteryAsset is present (`!hasAny`). Previously
+the empty message said "No HeatSensorAsset under this tower" — it now
+reads "No environment sensors under this tower" so a tower with
+battery-only or sensor-only still surfaces what it has. The "updated
+N ago" line picks the freshest timestamp across all available
+attributes (temperature → humidity → battery → fallback lastModified).
+
+**Why not put battery on the header?** The header is now scope-agnostic
+(§6.3); per-tower battery is operator-actionable on `/control` where
+the device-picker context exists. Putting it on the header would also
+mean re-querying every poll across every route.
+
+`ControlsPanel` is unchanged from the 2026-05-16 ship — filters tower
+children to `CONTROLLABLE_TYPES` and renders a `ControllableTile` per
+device. Each tile toggles via `useWriteAttribute(getPrimaryControlAttr(
+asset, customType))`.
 
 ### 9a.3. Asset history panel (added 2026-05-22)
 
@@ -1660,11 +1890,68 @@ src/pages/SecureOpsOverviewPage.jsx           2026-05-27: full rewrite to KPI st
                                               clipAlarmId state + queue derivation for
                                               the AlarmClipModal handoff (§8.4), loader
                                               UX via useTransition (§8.5).
-src/pages/SecureOpsAlertsPage.jsx             Clip button → AlarmClipModal (was ClipModal)
+src/pages/SecureOpsAlertsPage.jsx             Clip button → AlarmClipModal (was ClipModal).
+                                              2026-05-31 (commit 76ae4cf): perf refactor —
+                                              shared assetMap + alarmTowerMap +
+                                              alarmContextMap, memoized AlertRow with
+                                              primitive props, IntersectionObserver-based
+                                              infinite scroll (PAGE_SIZE=30, bump=30,
+                                              root=viewport because the Alerts page
+                                              itself scrolls — no internal overflow:auto
+                                              container). Flipped to useAlarms({}) to
+                                              share the cache key with Overview.
 src/pages/AuditLogPage.jsx                    Clip button → AlarmClipModal (was ClipModal)
-src/components/layout/SecureOpsHeader.jsx     Env chip strip extended to 4 chips —
-                                              signal (dBm) and battery (%) added next
-                                              to temp + humidity (§6.3).
+src/components/layout/SecureOpsHeader.jsx     2026-05-30 (commit 6828a67): dropped temp +
+                                              humidity chips. 2026-06-06: dropped signal
+                                              + battery chips. Row 2 is now just the tab
+                                              strip — no telemetry chips at all. Header
+                                              no longer reads selectedTowerId or any
+                                              tower attribute. readNumber helper removed.
+src/pages/SecureOpsOverviewPage.jsx           2026-05-30 (commit 6828a67): perf refactor —
+                                              shared lookup Maps (assetMap +
+                                              alarmTowerMap + siteTowerIdSets +
+                                              alarmContextMap), memoized AlertRow with
+                                              primitive props, infinite scroll on
+                                              RecentAlertsPanel (PAGE_SIZE=30, sentinel
+                                              root = .so-alert-list-wrap because the
+                                              page itself doesn't scroll). Default time
+                                              range now 'all' (was '24h'). Single
+                                              useAlarms({}) query (OPEN derived
+                                              client-side). Combined assets+alarms
+                                              loading gate to stop the "no alerts"
+                                              flash. 2026-06-06 (commit f27d12a):
+                                              DeviceSummaryPanel + DeviceListModal +
+                                              deviceSummary memo (doors/lights/sirens
+                                              categorised across scoped towers, with
+                                              "active" semantics flipped for doors —
+                                              unlocked = active in this panel's sense).
+                                              Modal renders Turn on/Turn off toggles
+                                              via useWriteAttribute.
+src/pages/SecureOpsVideoPage.jsx              2026-05-30 (commit 94da9a4): tower chips
+                                              are now multi-select checkboxes; default
+                                              = first tower checked so only one tower's
+                                              streams mount up front. Local state, NOT
+                                              secureOpsStore.selectedTowerId. Re-seeded
+                                              via the towersSig / prevTowersSig
+                                              "reset state when a value changes"
+                                              pattern. clearFilters returns to default-
+                                              first, not empty. towerCounts memo
+                                              rebuilt to count cameras per tower
+                                              directly (was per-camera tower lookup).
+src/components/cameras/CameraCard.jsx         2026-05-30 (commit 94da9a4): live-stream
+                                              fetch deferred — renders PlayCircle
+                                              poster until clicked. Offline cameras
+                                              still render <CameraStream offline> so
+                                              the offline UI is preserved.
+src/pages/SecureOpsControlPage.jsx            2026-05-31 (commit 8b103e9): Environment
+                                              panel now also reads BatteryAsset child
+                                              (matched via normalizeAssetType) and
+                                              renders an energyLevelPercentage tile
+                                              with threshold-coloured tone (batteryTone
+                                              helper). EnvBigStat extended to accept
+                                              'ok' / 'danger' tones. Empty-state copy
+                                              widened to "No environment sensors under
+                                              this tower" (was HeatSensorAsset-only).
 ```
 
 ### Deleted files
@@ -1765,13 +2052,29 @@ The tab order and labels are defined in
 
 In rough priority order:
 
-1. **Video tab — ✅ shipped 2026-05-16, history rewired 2026-05-20** as
-   `SecureOpsVideoPage` at `/video`. Responsive grid of every
-   `CameraAsset` in the current site scope. **Each wall tile plays the
-   live stream inline** via the shared `CameraStream` renderer — same
-   pattern as the Control page's Cameras panel. Page-level filters:
-   tower multi-select chips + free-text search. Click any tile → modal
-   opens.
+1. **Video tab — ✅ shipped 2026-05-16, history rewired 2026-05-20, load-bounded 2026-05-30** as
+   `SecureOpsVideoPage` at `/video`. Responsive grid of cameras for the
+   currently-checked towers. **Each wall tile renders a PlayCircle
+   poster** (see §5.1a + commit `94da9a4`); the modal plays the live
+   stream on open via the shared `CameraStream` renderer. Page-level
+   filters: **tower multi-select checkbox chips** (default = first
+   tower in scope checked, so only one tower's streams mount up front)
+   + free-text search. Click any tile → modal opens.
+
+   The tower filter is tracked in **local page state**, NOT
+   `secureOpsStore.selectedTowerId` — the store is persisted to
+   localStorage and shared with Control, which would otherwise
+   override the default-first behaviour. Re-seeded via the project's
+   "reset state when a value changes" pattern (`towersSig` /
+   `prevTowersSig` compare during render — NOT setState in
+   `useEffect`). Re-seed only fires when the tower list identity
+   actually changes (initial load, site switch); mutation-driven
+   asset polls preserve the operator's current selection. Empty Set
+   (after unchecking everything) means "show all towers" (original
+   semantics). `clearFilters` returns to the default-first state, not
+   empty. `isDefaultTowerFilter` lets the Reset button stay
+   un-highlighted when the operator hasn't made a deliberate choice
+   yet.
 
    **Modal sidebar is now driven by the `eventId` datapoints stream**
    (§5.2b), not the legacy `history` array attribute. Layered

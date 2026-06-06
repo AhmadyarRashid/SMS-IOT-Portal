@@ -3,10 +3,10 @@ import { NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Video, Bell, SlidersHorizontal, ScrollText, Settings,
-  ChevronDown, Check, Signal, BatteryCharging,
+  ChevronDown, Check,
 } from 'lucide-react';
 import { useAssets } from '../../hooks/useAssets';
-import { pickSites, pickTowersForSite } from '../../utils/gateways';
+import { pickSites } from '../../utils/gateways';
 import { getAssetDisplayName, getCustomAssetType, normalizeAssetType } from '../../utils/assetIcons';
 import useSecureOpsStore from '../../store/secureOpsStore';
 
@@ -26,41 +26,20 @@ const TABS = [
  *   │  ◐  SecureOps Platform                            ● Live   ▾ All Sites│
  *   │     Digital Security Management Console                              │
  *   ├──────────────────────────────────────────────────────────────────────┤
- *   │  Overview · Video · Alerts · Control · Audit log · Settings · 📶·🔋   │
+ *   │  Overview · Video · Alerts · Control · Audit log · Settings          │
  *   └──────────────────────────────────────────────────────────────────────┘
  *
- * Signal + battery chips show the **selected tower's** network and power
- * status, pulled from `signalStrength` and `batteryLevel` on the
- * TowerAsset. Chips hide when the tower does not declare those attributes
- * (per the no-placeholder rule).
+ * No per-tower telemetry chips in row 2 — temp/humidity were dropped in
+ * commit `6828a67` and signal/battery were dropped in commit `f27d12a` (the
+ * Overview page already surfaces site/AI health via KPI cards, and `/control`
+ * carries the per-tower Environment panel). Keeping the header tower-agnostic
+ * also removes the per-poll asset lookup that lived here on every page.
  */
 export default function SecureOpsHeader() {
   const { data: assets = [] } = useAssets({});
-  const { selectedSiteId, selectedTowerId, setSite } = useSecureOpsStore();
+  const { selectedSiteId, setSite } = useSecureOpsStore();
 
   const sites = useMemo(() => pickSites(assets), [assets]);
-
-  // "Scope towers" = all towers in the selected site, or every tower across
-  // all sites when no site is picked.
-  const scopeTowers = useMemo(() => {
-    if (selectedSiteId) return pickTowersForSite(assets, selectedSiteId);
-    return sites.flatMap((s) => pickTowersForSite(assets, s.id));
-  }, [assets, sites, selectedSiteId]);
-
-  // Active tower — used to fetch the env telemetry chips.
-  const activeTower = useMemo(() => {
-    if (selectedTowerId) {
-      const t = scopeTowers.find((x) => x.id === selectedTowerId);
-      if (t) return t;
-    }
-    return scopeTowers[0] || null;
-  }, [scopeTowers, selectedTowerId]);
-
-  // Environmental telemetry chips for the active tower — signal + battery
-  // come from the TowerAsset itself. Each chip hides when its attribute
-  // isn't declared (no-placeholder rule).
-  const signal = readNumber(activeTower?.attributes?.signalStrength?.value);
-  const battery = readNumber(activeTower?.attributes?.batteryLevel?.value);
 
   return (
     <div
@@ -91,27 +70,13 @@ export default function SecureOpsHeader() {
         </div>
       </div>
 
-      {/* Row 2: tab strip + telemetry chips */}
-      <div className="flex items-center justify-between gap-2 px-2 md:px-4 overflow-x-auto">
+      {/* Row 2: tab strip */}
+      <div className="flex items-center gap-2 px-2 md:px-4 overflow-x-auto">
         <nav className="flex items-center gap-0.5">
           {TABS.map((t) => (
             <TabLink key={t.to} {...t} />
           ))}
         </nav>
-        <div className="flex items-center gap-2 flex-shrink-0 pl-2 py-2">
-          {signal != null && (
-            <span className="secureops-chip" title="Signal strength (4G)">
-              <Signal className="w-3.5 h-3.5" strokeWidth={2} />
-              <span className="tabular-nums">{signal} dBm</span>
-            </span>
-          )}
-          {battery != null && (
-            <span className="secureops-chip" title="Battery backup">
-              <BatteryCharging className="w-3.5 h-3.5" strokeWidth={2} />
-              <span className="tabular-nums">{battery.toFixed(0)}%</span>
-            </span>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -229,12 +194,6 @@ function SiteOption({ label, active, onClick }) {
       {active && <Check className="w-3.5 h-3.5" />}
     </button>
   );
-}
-
-function readNumber(v) {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 /**
