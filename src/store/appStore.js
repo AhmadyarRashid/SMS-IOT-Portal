@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 
-const savedTheme = localStorage.getItem('sms_theme') || 'light';
-const savedDensity = localStorage.getItem('sms_density') || 'comfortable';
+const isBrowser = typeof window !== 'undefined';
+const safeGet = (key) => (isBrowser ? localStorage.getItem(key) : null);
+const safeSet = (key, value) => {
+  if (isBrowser) localStorage.setItem(key, value);
+};
+
+const savedTheme = safeGet('sms_theme') || 'light';
+const savedDensity = safeGet('sms_density') || 'comfortable';
 
 if (typeof document !== 'undefined') {
   document.documentElement.setAttribute('data-theme', savedTheme);
@@ -18,7 +24,7 @@ const useAppStore = create((set) => ({
   toggleCollapse: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   closeSidebar: () => set({ sidebarOpen: false }),
   setTheme: (theme) => {
-    localStorage.setItem('sms_theme', theme);
+    safeSet('sms_theme', theme);
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-theme', theme);
     }
@@ -26,12 +32,12 @@ const useAppStore = create((set) => ({
   },
   toggleTheme: () => {
     const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-    localStorage.setItem('sms_theme', next);
+    safeSet('sms_theme', next);
     document.documentElement.setAttribute('data-theme', next);
     set({ theme: next });
   },
   setDensity: (density) => {
-    localStorage.setItem('sms_density', density);
+    safeSet('sms_density', density);
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-density', density);
     }
@@ -39,7 +45,7 @@ const useAppStore = create((set) => ({
   },
   toggleCompact: () => {
     const next = document.documentElement.getAttribute('data-density') === 'compact' ? 'comfortable' : 'compact';
-    localStorage.setItem('sms_density', next);
+    safeSet('sms_density', next);
     document.documentElement.setAttribute('data-density', next);
     set({ density: next });
   },

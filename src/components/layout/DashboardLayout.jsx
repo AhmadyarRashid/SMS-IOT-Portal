@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { Outlet, useLocation, useNavigationType } from 'react-router-dom';
+import { useLocation, useNavigationType } from '@/lib/router-shim';
 import { motion } from 'framer-motion';
 import { Toaster } from 'react-hot-toast';
 import SecureOpsHeader from './SecureOpsHeader';
@@ -41,7 +41,7 @@ function useScrollRestoration() {
   }, [location.pathname, navigationType]);
 }
 
-export default function DashboardLayout() {
+export default function DashboardLayout({ children }) {
   const { theme } = useAppStore();
   const location = useLocation();
   useScrollRestoration();
@@ -67,7 +67,7 @@ export default function DashboardLayout() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
         >
-          <Outlet />
+          {children}
         </motion.div>
       </main>
       <CommandPalette />

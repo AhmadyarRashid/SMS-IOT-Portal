@@ -81,7 +81,7 @@ export function useAlarmNotifications() {
  * silently no-ops when the preference is off, permission missing, or the
  * tab is visible (toast is enough in that case).
  */
-const dev = !!import.meta.env?.DEV;
+const dev = process.env.NODE_ENV !== 'production';
 const log = (...args) => { if (dev) console.debug('[notify]', ...args); };
 
 /**

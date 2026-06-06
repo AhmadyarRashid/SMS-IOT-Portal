@@ -34,7 +34,7 @@ export function useCameraEvents(cameraId, { from, to } = {}) {
           toTimestamp: to,
           type: 'ALL',
         });
-        if (import.meta.env.DEV) {
+        if (process.env.NODE_ENV !== 'production') {
           console.log('[useCameraEvents]', {
             assetId: cameraId,
             attribute: CAMERA_EVENT_ATTRIBUTE,

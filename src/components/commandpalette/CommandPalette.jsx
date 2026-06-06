@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from '@/lib/router-shim';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, ArrowRight, LayoutGrid, Building2, Sparkles, Bell, MapPin,

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from '@/lib/router-shim';
 import { useAlarms, useAssets } from './useAssets';
 import useActivityStore from '../store/activityStore';
 import useAlarmNotificationsStore from '../store/alarmNotificationsStore';
@@ -9,7 +9,7 @@ import {
 } from '../utils/assetIcons';
 import { fireAlarmNotification, buildAlarmNotificationPayload } from './useAlarmNotifications';
 
-const dev = !!import.meta.env?.DEV;
+const dev = process.env.NODE_ENV !== 'production';
 
 /**
  * Hook that feeds the activity store from two sources:

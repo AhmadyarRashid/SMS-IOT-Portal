@@ -1,4 +1,4 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from '@/lib/router-shim';
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import {

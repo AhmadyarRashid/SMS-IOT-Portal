@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink } from '@/lib/router-shim';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Video, Bell, SlidersHorizontal, ScrollText, Settings,

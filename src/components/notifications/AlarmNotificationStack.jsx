@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from '@/lib/router-shim';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Bell, AlertOctagon } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';

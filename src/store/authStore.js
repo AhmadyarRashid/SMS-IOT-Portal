@@ -1,10 +1,19 @@
 import { create } from 'zustand';
 import { login as apiLogin, logout as apiLogout, getUserInfo } from '../api/auth';
 
+const isBrowser = typeof window !== 'undefined';
+const readStorage = (key) => (isBrowser ? localStorage.getItem(key) : null);
+
 const useAuthStore = create((set) => ({
-  user: JSON.parse(localStorage.getItem('or_user') || 'null'),
-  token: localStorage.getItem('or_access_token'),
-  isAuthenticated: !!localStorage.getItem('or_access_token'),
+  user: (() => {
+    try {
+      return JSON.parse(readStorage('or_user') || 'null');
+    } catch {
+      return null;
+    }
+  })(),
+  token: readStorage('or_access_token'),
+  isAuthenticated: !!readStorage('or_access_token'),
   isLoading: false,
   error: null,
 
@@ -21,7 +30,7 @@ const useAuthStore = create((set) => ({
       } catch {
         userInfo = { preferred_username: username };
       }
-      localStorage.setItem('or_user', JSON.stringify(userInfo));
+      if (isBrowser) localStorage.setItem('or_user', JSON.stringify(userInfo));
       set({
         user: userInfo,
         token: tokenData.access_token,

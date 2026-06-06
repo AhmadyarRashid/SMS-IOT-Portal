@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from '@/lib/router-shim';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutGrid, Building2, Bell, MapPin, Sparkles, BookOpen, Activity,

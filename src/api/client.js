@@ -2,8 +2,8 @@ import axios from 'axios';
 
 // Support both the new SMS IoT-branded env vars and the legacy OpenRemote names.
 const REALM =
-  import.meta.env.VITE_SMS_IOT_REALM ||
-  import.meta.env.VITE_OPENREMOTE_REALM ||
+  process.env.NEXT_PUBLIC_SMS_IOT_REALM ||
+  process.env.NEXT_PUBLIC_OPENREMOTE_REALM ||
   'master';
 
 const apiClient = axios.create({
