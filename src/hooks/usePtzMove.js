@@ -1,53 +1,123 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { getCameraPtzId } from '../utils/gateways';
-import { getPtzMoveUrl } from '../constants/ptz';
+import { useWriteAttribute } from './useAssets';
+import { writeAttributeValue } from '../api/assets';
 
 /* ==========================================================================
    usePtzMove
 
-   Returns `{ move(direction), available }` for a PtzCameraAsset.
+   Drives a PtzCameraAsset via two OpenRemote attributes on the camera:
+     • `ptzCommand`       — text. We write `move_<dir>` then `stop`.
+     • `movementDuration` — text, ms. How long to hold the move before stop.
+                            Missing / blank / non-numeric ⇒ DEFAULT_DURATION_MS.
 
-   • `move('up' | 'down' | 'left' | 'right')` — fires a fire-and-forget GET
-     to the PTZ controller's nudge endpoint. The response is ignored, so we
-     use `mode: 'no-cors'` to avoid CORS preflight noise — every browser
-     fetch to the PTZ host is one-way (control out, no read back).
-   • `available` — false when the camera has no resolvable AI-side id
-     (neither a `ptzId` / `cameraId` attribute nor an extractable segment
-     in `liveStreamUrl`). The pad still renders so the operator knows
-     PTZ is intended; pressing a button surfaces a toast instead of
-     silently doing nothing.
+   Flow on press:
+     write ptzCommand = "move_<dir>" → setTimeout(duration) → write "stop".
 
-   Soft-throttle: presses closer than 150ms apart are dropped. Stops a
-   double-tap from sending two MOVE commands when the operator meant one,
-   without making rapid intentional taps feel sluggish.
+   Press handling:
+     • While a move is in flight, further presses are ignored — the operator
+       waits for the auto-stop. (Decided 2026-06-07.)
+     • Unmount, modal close, route change: pending timer is cleared and a
+       synchronous `stop` write is fired so the camera doesn't keep panning.
    ========================================================================== */
 
-const THROTTLE_MS = 150;
+const DEFAULT_DURATION_MS = 3000;
+const PTZ_COMMAND_ATTR = 'ptzCommand';
+const MOVEMENT_DURATION_ATTR = 'movementDuration';
+const STOP_COMMAND = 'stop';
+
+const DIRECTION_COMMAND = {
+  up:    'move_up',
+  down:  'move_down',
+  left:  'move_left',
+  right: 'move_right',
+};
+
+function readMovementDuration(camera) {
+  const raw = camera?.attributes?.[MOVEMENT_DURATION_ATTR]?.value;
+  if (raw == null || raw === '') return DEFAULT_DURATION_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_DURATION_MS;
+  return n;
+}
 
 export function usePtzMove(camera) {
-  const lastPressAt = useRef(0);
-  const ptzId = getCameraPtzId(camera);
+  const write = useWriteAttribute();
+  const inFlightRef = useRef(false);
+  const stopTimerRef = useRef(null);
+  const assetIdRef = useRef(null);
+  // Hold the latest mutate so the scheduled stop can never call a stale one
+  // after a parent re-render swaps the hook's returned object.
+  const mutateRef = useRef(write.mutate);
+  useEffect(() => {
+    mutateRef.current = write.mutate;
+  }, [write.mutate]);
+
+  useEffect(() => {
+    assetIdRef.current = camera?.id ?? null;
+  }, [camera?.id]);
 
   const move = useCallback((direction) => {
-    if (!ptzId) {
-      toast.error('PTZ id not configured for this camera.');
+    const assetId = camera?.id;
+    if (!assetId) {
+      toast.error('PTZ camera id is missing.');
       return;
     }
-    const now = new Date().getTime();
-    if (now - lastPressAt.current < THROTTLE_MS) return;
-    lastPressAt.current = now;
+    if (inFlightRef.current) return;
 
-    const url = getPtzMoveUrl(ptzId, direction);
-    if (!url) return;
+    const command = DIRECTION_COMMAND[direction];
+    if (!command) return;
 
-    // Fire-and-forget. `no-cors` suppresses preflight + console noise; we
-    // don't read the response anyway. Network failures (DNS, refused,
-    // mixed-content blocked) still reject and surface as a toast.
-    fetch(url, { method: 'GET', mode: 'no-cors' }).catch(() => {
-      toast.error(`PTZ ${direction} failed — controller unreachable.`);
-    });
-  }, [ptzId]);
+    const duration = readMovementDuration(camera);
+    inFlightRef.current = true;
 
-  return { move, available: !!ptzId };
+    console.log('[PTZ] move', { assetId, command, duration });
+
+    mutateRef.current(
+      { assetId, attributeName: PTZ_COMMAND_ATTR, value: command },
+      {
+        onError: (err) => {
+          console.warn('[PTZ] move write failed', err);
+          inFlightRef.current = false;
+          if (stopTimerRef.current) {
+            clearTimeout(stopTimerRef.current);
+            stopTimerRef.current = null;
+          }
+        },
+      },
+    );
+
+    stopTimerRef.current = setTimeout(() => {
+      stopTimerRef.current = null;
+      console.log('[PTZ] auto-stop firing', { assetId });
+      mutateRef.current(
+        { assetId, attributeName: PTZ_COMMAND_ATTR, value: STOP_COMMAND },
+        {
+          onSettled: () => { inFlightRef.current = false; },
+          onError: (err) => {
+            console.warn('[PTZ] stop write failed', err);
+          },
+        },
+      );
+    }, duration);
+  }, [camera]);
+
+  // Synchronous stop on unmount when a move is still in flight. Direct API
+  // call so the request goes out as React tears the component down.
+  useEffect(() => {
+    return () => {
+      if (stopTimerRef.current) {
+        clearTimeout(stopTimerRef.current);
+        stopTimerRef.current = null;
+      }
+      if (inFlightRef.current && assetIdRef.current) {
+        console.log('[PTZ] cleanup stop', { assetId: assetIdRef.current });
+        writeAttributeValue(assetIdRef.current, PTZ_COMMAND_ATTR, STOP_COMMAND)
+          .catch(() => {});
+        inFlightRef.current = false;
+      }
+    };
+  }, []);
+
+  return { move, available: !!camera?.id };
 }

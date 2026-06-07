@@ -11,7 +11,7 @@
    change is a single-line edit.
    ========================================================================== */
 
-export const EVENTS_BASE_URL = 'https://100.84.236.75:8971';
+export const EVENTS_BASE_URL = 'https://100.84.108.142:8971';
 
 // Attribute name on every CameraAsset that exposes the event datapoints
 // stream. Kept as a constant so the OR-side rename is a one-liner here.

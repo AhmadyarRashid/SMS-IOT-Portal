@@ -9,7 +9,17 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-06-06):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave of work (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**.
+**Status (2026-06-07):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave of work (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrites PTZ movement to drive the camera through OR attributes instead of an external HTTP controller.
+
+**PTZ rewrite (2026-06-07):**
+
+- **PTZ no longer hits an external HTTP controller.** `usePtzMove` now writes two attributes on the `PtzCameraAsset` itself: `ptzCommand` (text — `move_up` / `move_down` / `move_left` / `move_right` / `stop`) and `movementDuration` (text, ms — default **3000 ms** when missing / blank / non-numeric). On press the hook writes `move_<dir>`, schedules a `setTimeout(duration)`, then writes `stop`. Same `useWriteAttribute` path every other control surface uses — so the camera's `ptzCommand` flips instantly in the React Query cache and the PUT goes out optimistically.
+- **In-flight gate.** While a move is in flight, further presses are ignored — the operator waits for the auto-stop. Decided 2026-06-07 to avoid racing writes against the OR backend and keep the camera predictable. (No throttle window anymore — the gate replaces the old 150 ms double-tap suppressor.)
+- **Unmount cleanup.** Closing the modal / navigating away mid-move clears the pending timer **and** fires a synchronous direct `writeAttributeValue(assetId, 'ptzCommand', 'stop')` (bypassing the mutation hook because the component is tearing down), so the camera can't keep panning after the operator loses sight of it.
+- **Stable mutate closure.** The scheduled stop reaches into `mutateRef.current` rather than capturing `write.mutate` at schedule time, so React Query polls / parent re-renders can't drop a stale callback into the setTimeout closure.
+- **Move failure cancels the pending stop.** If the move write errors, `onError` cancels the timer — the camera never received the command, so there's nothing to stop. Trade-off: if the HTTP response is lost but the device did receive the command, the camera could keep panning until the next intentional stop. Acceptable inside the deployment.
+- **Diagnostic logs (temporary).** The hook emits `[PTZ] move`, `[PTZ] auto-stop firing`, `[PTZ] cleanup stop`, and `[PTZ] {move|stop} write failed` to the browser console during the field trial. Strip once stop is confirmed to be reliably reaching OR.
+- **Dead code deleted.** `src/constants/ptz.js` (`PTZ_BASE_URL`, `getPtzMoveUrl`) and `getCameraPtzId` in `src/utils/gateways.js` are gone — the new attribute flow doesn't need an AI-side id resolver, a base URL, or a path builder. The `ptzId` / `cameraId` attributes are no longer read. (§5.1e fully rewritten.)
 
 **Post-2026-05-27 wave (commits `6828a67` → `f27d12a`):**
 
@@ -146,6 +156,9 @@ It **is not**:
 | **Overview's default time range is `All`, not `24h`** | User decided 2026-05-30 (commit `6828a67`). Operators land on the page expecting to see everything; narrowing is a chip click away. The `Sites online` and `AI uptime` KPIs still ignore the range (they're now-state snapshots). |
 | **One `useAlarms({})` query, derive OPEN client-side** | User decided 2026-05-30 (commit `6828a67`). The Overview and Alerts pages used to fire both `useAlarms({})` AND `useAlarms({status:'OPEN'})` every 15 s; the OPEN list is trivially derivable from the full list. Sharing one cache key also makes Overview → Alerts navigation instant. |
 | **Infinite scroll on Recent Alerts + /alarms, not pagination** | User decided 2026-05-31 (commits `76ae4cf` / `6828a67`). Operators triage top-to-bottom and don't want to click a "next" button mid-scroll. PAGE_SIZE = 30, bump = 30, sentinel `IntersectionObserver` with `rootMargin: '200px 0px'` so the next page is fetched a touch before the operator hits the bottom. Filter changes reset to 30; mutation-driven shrinkage preserves scroll position. |
+| **PTZ drives the camera through OR attributes, not an external HTTP controller** | User decided 2026-06-07. `ptzCommand` (`move_<dir>` then `stop`) + `movementDuration` (ms, default 3000 when missing) on the `PtzCameraAsset` itself, written via `useWriteAttribute`. The earlier `PTZ_BASE_URL` / `getPtzMoveUrl` / `getCameraPtzId` flow is gone — don't reintroduce it. The attribute path keeps PTZ inside OR's audit + permission story and avoids the mixed-content + cert headaches of a plain-HTTP AI-side controller. |
+| **PTZ presses during an in-flight move are IGNORED** | User decided 2026-06-07. The hook's `inFlightRef` gate drops presses until the auto-stop completes. Don't replace this with cancel-and-restart or queueing — racing writes against OR makes the camera unpredictable and the operator can't tell which command is "live". The 150 ms double-tap throttle is gone (the gate replaces it). |
+| **PTZ stops on unmount via a direct API call, not the mutation hook** | User decided 2026-06-07. `useEffect` cleanup fires `writeAttributeValue(assetId, 'ptzCommand', 'stop')` synchronously when a move is in flight at teardown. React Query's mutation hook can't be relied on while the component is unmounting; the raw axios call still goes out. Don't replace with a `mutate()` call in cleanup. |
 
 ---
 
@@ -276,44 +289,69 @@ A small **`PTZ` pill** appears in the tile's top-right pill cluster
 modal header, so the operator knows at a glance which feeds are
 controllable.
 
-**Wire-up.** Each button calls `onMove(direction)` where direction is
-one of `'up' | 'down' | 'left' | 'right'`. `CameraHistoryModal` passes
-`usePtzMove(camera).move` as that callback, which fires a
-fire-and-forget GET against the AI-side PTZ controller:
+**Wire-up (2026-06-07).** Each button calls `onMove(direction)` where
+direction is one of `'up' | 'down' | 'left' | 'right'`.
+`CameraHistoryModal` and `AlarmClipModal` both pass
+`usePtzMove(camera).move` as that callback. The hook drives the camera
+entirely through **two OpenRemote attributes on the `PtzCameraAsset`
+itself** — there is no AI-side HTTP controller anymore. The earlier
+external endpoint (`{PTZ_BASE_URL}/{ptzId}/ptz/MOVE_*`),
+`src/constants/ptz.js`, and the `getCameraPtzId` resolver in
+`src/utils/gateways.js` were all removed.
 
-```
-GET {PTZ_BASE_URL}/{ptzId}/ptz/MOVE_{UP|DOWN|LEFT|RIGHT}
-```
+**Required attributes on `PtzCameraAsset`:**
 
-`PTZ_BASE_URL` is centralised in `src/constants/ptz.js` (currently
-`http://203.99.61.86:5002`) — host swap is a one-line edit.
+| Attribute | Type | Required? | Purpose |
+|---|---|---|---|
+| `ptzCommand` | text | **yes** | The hook writes one of `move_up` · `move_down` · `move_left` · `move_right` · `stop` here. Other values OR may accept (`preset_home`, `zoom_in`, `zoom_out`) aren't wired to the d-pad yet — the UI surface only carries four arrows. |
+| `movementDuration` | text | optional | How long, in **milliseconds**, the hook holds the move command before writing `stop`. Missing / blank / non-numeric / `≤ 0` ⇒ default **3000 ms**. Parsed via `Number(raw)`. |
 
-**Resolving `{ptzId}`** is `getCameraPtzId(camera)` in
-`src/utils/gateways.js`. Order:
+**Flow on press.** `usePtzMove` (`src/hooks/usePtzMove.js`):
 
-1. `ptzId` attribute on the CameraAsset / PtzCameraAsset (preferred —
-   add to new deployments).
-2. `cameraId` attribute (accepted as an alias).
-3. Last path segment of `liveStreamUrl`, when it matches `/^cam[…]/i` —
-   Cloudflare-tunnelled MJPEG endpoints already encode the AI-side id
-   there (`https://.../api/cam243` → `cam243`), so existing deployments
-   keep working without adding any new attribute.
+1. Resolves `command = DIRECTION_COMMAND[direction]` (e.g. `move_left`).
+2. Resolves `duration` from the camera's `movementDuration` attribute
+   (3000 ms fallback).
+3. Marks the move **in-flight** (`inFlightRef.current = true`).
+4. Fires `useWriteAttribute().mutate({assetId, attributeName:'ptzCommand', value:command})`.
+   The same optimistic-cache path every other write uses (§9a.2-style),
+   so the camera's `ptzCommand` flips instantly in the cache and the
+   network PUT goes out.
+5. Schedules `setTimeout(autoStop, duration)`. On fire, writes
+   `ptzCommand = "stop"` through the same mutation and clears the
+   in-flight flag on settle.
 
-When no candidate resolves, the pad still renders (so the operator
-knows PTZ is intended), but pressing a button shows
-`"PTZ id not configured for this camera."` as a toast.
+**Press handling.**
 
-**Networking detail.** `fetch` uses `mode: 'no-cors'` because the
-response is ignored and we don't want preflight noise. A network failure
-(DNS, refused, mixed-content blocked) still rejects the promise and
-surfaces as a `"PTZ {direction} failed — controller unreachable."`
-toast. Presses are soft-throttled at 150ms to discard double-taps
-without making rapid intentional taps feel sluggish.
+- **While a move is in flight, further presses are ignored** — the
+  operator waits for the auto-stop to complete (decided 2026-06-07 to
+  avoid racing writes against OR and keep the camera predictable).
+  Compare to the old fire-and-forget GET model, which let multiple
+  nudges queue server-side.
+- **Move write failure cancels the pending stop.** If the move PUT
+  errors, `onError` clears `inFlightRef` and `clearTimeout`s the
+  scheduled stop — there's nothing to stop because the camera never
+  received the command. Trade-off: if the request actually reached the
+  device but the HTTP response was lost, the camera could keep panning
+  until the next intentional stop. Acceptable given OR's reliability
+  inside the deployment.
+- **Stable mutate reference.** The setTimeout's stop write goes through
+  `mutateRef.current` rather than capturing `write.mutate` directly so
+  parent re-renders (React Query polls every 15s, alarm list updates)
+  can't put a stale callback into the closure.
 
-**Mixed-content caveat.** The PTZ controller is plain HTTP. Browsers
-will block `fetch` from an HTTPS-served dashboard — same fix-paths as
-the events host (§5.2c): reverse-proxy through the dashboard origin,
-front the controller with TLS, or serve the portal over HTTP in dev.
+**Cleanup on unmount / modal close.** A `useEffect(() => () => {...}, [])`
+cleanup runs `clearTimeout(stopTimerRef.current)` and, if a move is
+still in flight, fires a **synchronous direct `writeAttributeValue(
+assetIdRef.current, 'ptzCommand', 'stop')`** (bypassing React Query's
+mutation hook because the component is tearing down). This guarantees
+the camera doesn't keep panning when the operator closes the modal mid-
+move. `assetIdRef` and `mutateRef` are kept fresh by per-dep effects so
+they read the latest values at cleanup time.
+
+**Diagnostic logs (temporary).** The hook currently emits
+`[PTZ] move`, `[PTZ] auto-stop firing`, `[PTZ] cleanup stop`, and
+`[PTZ] {move|stop} write failed` to the console. Strip once the field
+trial confirms stop is reliably reaching the device.
 
 PTT (push-to-talk) is no longer routed through any camera attribute —
 it's a global PC-speaker endpoint (`PTT_WS_URL`, see §5.5). The legacy
@@ -356,6 +394,8 @@ extensionless paths.
 | `history` | array | **deprecated** (optional fallback) | Legacy `[{id, url, date, detection}]` array. Still read by the Overview's Live Camera tile + the Video wall tile for the on-tile ALERT pill (`isRecentHumanDetection` checks `history[0]` within the last 5 min). New deployments should populate `eventId` datapoints instead — the Video modal history sidebar **no longer reads `history`**, only `eventId` datapoints. See §5.2a for the legacy JSON shape. |
 | `cameraVariant` | string | optional | `fixed` or `360`. Historical hint only — no longer routes any UI (PTT is now a single PC-speaker endpoint, see §5.5). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
+| `ptzCommand` | text | **yes for `PtzCameraAsset`** | Written by `usePtzMove` to drive PTZ movement. Possible values: `move_up` · `move_down` · `move_left` · `move_right` · `stop` (and per the OR-side enum, also `preset_home` · `zoom_in` · `zoom_out` — not wired to the d-pad yet). The hook always pairs each `move_*` write with a follow-up `stop` write after `movementDuration`. See §5.1e. |
+| `movementDuration` | text (ms) | optional, PtzCameraAsset only | How long, in milliseconds, `usePtzMove` holds a `move_*` command before writing `stop`. Missing / blank / non-numeric / `≤ 0` ⇒ default **3000 ms**. See §5.1e. |
 
 ### 5.1b. Alarm clip modal — `AlarmClipModal`
 
@@ -1797,9 +1837,6 @@ src/utils/auditEvents.js                      Shared alarm/tower event generator
 src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
                                               getEventClipUrl / getEventSnapshotUrl,
                                               normalizeEventLabel (person→human etc.)
-src/constants/ptz.js                          PTZ_BASE_URL + getPtzMoveUrl(id, dir).
-                                              Single source of truth for the AI-side
-                                              PTZ controller endpoint shape.
 src/constants/ptt.js                          PTT_WS_URL (legacy doc-only) +
                                               buildPttWsUrl(socketIP). The builder
                                               hard-codes the `wss://` scheme, strips
@@ -1809,8 +1846,18 @@ src/constants/ptt.js                          PTT_WS_URL (legacy doc-only) +
                                               no longer reads PTT_WS_URL.
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
-src/hooks/usePtzMove.js                       Fire-and-forget PTZ move (no-cors GET)
-                                              with toast on failure + 150ms throttle.
+src/hooks/usePtzMove.js                       Drives a PtzCameraAsset via two OR
+                                              attributes: writes ptzCommand="move_<dir>"
+                                              then sets a setTimeout for movementDuration
+                                              ms (default 3000 when the attribute is
+                                              missing) and writes ptzCommand="stop". In-
+                                              flight gate ignores presses until the auto-
+                                              stop completes. Unmount cleanup clears the
+                                              timer and fires a direct writeAttributeValue
+                                              for stop so the camera doesn't keep panning
+                                              when the modal closes mid-move. Uses a
+                                              mutateRef so a parent re-render can't stale
+                                              out the scheduled stop call. See §5.1e.
 src/hooks/usePushToTalk.js                    Hold-to-talk PCM-over-WebSocket
                                               pipeline. Wraps WebSocket lifecycle,
                                               getUserMedia, and an inline
@@ -1943,6 +1990,17 @@ src/components/cameras/CameraCard.jsx         2026-05-30 (commit 94da9a4): live-
                                               poster until clicked. Offline cameras
                                               still render <CameraStream offline> so
                                               the offline UI is preserved.
+src/hooks/usePtzMove.js                       2026-06-07: rewritten to drive PTZ via
+                                              OR attribute writes on the camera
+                                              (ptzCommand + movementDuration) instead
+                                              of the deleted AI-side HTTP controller.
+                                              In-flight gate, mutateRef-stable closure,
+                                              unmount cleanup with direct stop write.
+                                              See §5.1e.
+src/utils/gateways.js                         2026-06-07: removed getCameraPtzId — the
+                                              new ptzCommand attribute flow doesn't
+                                              need an AI-side id resolver. isPtzCamera
+                                              unchanged.
 src/pages/SecureOpsControlPage.jsx            2026-05-31 (commit 8b103e9): Environment
                                               panel now also reads BatteryAsset child
                                               (matched via normalizeAssetType) and
@@ -1958,6 +2016,11 @@ src/pages/SecureOpsControlPage.jsx            2026-05-31 (commit 8b103e9): Envir
 
 ```
 src/components/cameras/ClipModal.jsx          Replaced by AlarmClipModal (2026-05-27).
+                                              No remaining importers.
+src/constants/ptz.js                          2026-06-07: deleted. PTZ_BASE_URL +
+                                              getPtzMoveUrl(id, dir) targeted the
+                                              external AI-side controller, which the
+                                              new ptzCommand attribute flow replaces.
                                               No remaining importers.
 ```
 
