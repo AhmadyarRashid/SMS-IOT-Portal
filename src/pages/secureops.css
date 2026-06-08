@@ -639,6 +639,7 @@ button.so-cam:focus-visible {
   background: color-mix(in srgb, var(--color-ink-0) 4%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-ink-0) 9%, transparent);
   text-align: left;
+  text-decoration: none;
   transition: transform .12s ease, border-color .15s ease, background .15s ease;
   cursor: pointer;
 }

@@ -10,16 +10,14 @@ import {
 import CameraStream from './CameraStream';
 import PtzControls from './PtzControls';
 import { usePtzMove } from '../../hooks/usePtzMove';
-import usePushToTalk from '../../hooks/usePushToTalk';
 import { useAssets, useUpdateAlarmStatus, useWriteAttribute } from '../../hooks/useAssets';
 import {
   getAlarmClipUrl, getAlarmSnapshotUrl, getAlarmDetectionLabel, getAlarmEventId,
 } from '../../utils/alarms';
 import {
   getCameraStreamUrl, isCameraAsset, isPtzCamera, pickGatewayChildren,
-  findPttAssetForTower,
+  resolvePttForTower,
 } from '../../utils/gateways';
-import { buildPttWsUrl } from '../../constants/ptt';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
   isAssetActive, getPrimaryControlAttr, nextToggleValue, normalizeAssetType,
@@ -584,91 +582,54 @@ function QuickControls({ tower }) {
 }
 
 /* ==========================================================================
-   Push-to-talk button — hold-to-talk to the tower's PC speaker
+   Push-to-talk button — opens the OS Mumble client via a protocol link
 
-   Same protocol + URL resolution as the (now-removed) Overview PTT card:
-     • Resolves the per-tower `PttAsset.socketIP` attribute (no global
-       fallback). When absent the button renders disabled — never opens a
-       socket / requests mic permission for nothing.
-     • Hold the button (mouse / touch) → 16-bit PCM mono 48 kHz over a
-       `wss://` socket via `usePushToTalk`.
-     • `key={pttUrl}` on the live variant so a tower swap tears down the
-       previous socket + audio graph cleanly.
+   `PttAsset.socketIP` holds the link verbatim (typically a
+   `mumble://user:pass@host:port/` URL). Compressed to a single 28×28 icon
+   inside the modal's quick-controls cluster. Three branches via
+   `resolvePttForTower`:
 
-   Compressed to a single 28×28 icon button to fit the modal's compact
-   tools cluster — full status is in the tooltip and via the active-state
-   red pulse; we don't render the meter or hint text here (the operator
-   needs to hold and talk, not study a dashboard).
+   • ok      → `<a href>` that hands off to the OS handler
+   • missing → `<button>` that toasts "not configured" on click
+   • invalid → render nothing (a broken affordance is worse than none)
    ========================================================================== */
 
 function PttButton({ tower }) {
   const { data: assets = [] } = useAssets({});
-  const pttUrl = useMemo(() => {
-    const pttAsset = findPttAssetForTower(tower, assets);
-    return buildPttWsUrl(pttAsset?.attributes?.socketIP?.value);
-  }, [tower, assets]);
-
-  return pttUrl
-    ? <PttButtonLive key={pttUrl} url={pttUrl} />
-    : <PttButtonDisabled />;
-}
-
-function PttButtonDisabled() {
-  return (
-    <span className="so-clip-modal-quick">
-      <span className="so-clip-modal-quick-label">PTT</span>
-      <button
-        type="button"
-        disabled
-        className="so-clip-modal-quick-btn"
-        title="No PTT device configured for this tower"
-        aria-label="Push-to-talk unavailable"
-      >
-        <Mic className="w-3.5 h-3.5" strokeWidth={2} />
-      </button>
-    </span>
+  const { status, href } = useMemo(
+    () => resolvePttForTower(tower, assets),
+    [tower, assets],
   );
-}
 
-function PttButtonLive({ url }) {
-  const { status, error, start, stop, talking } = usePushToTalk(url);
+  if (status === 'invalid') return null;
 
-  // Surface socket / mic errors via toast so the operator notices even
-  // though the button itself is icon-only.
-  useEffect(() => {
-    if (error) toast.error(`PTT — ${error}`);
-  }, [error]);
-
-  const onPress = (e) => { e.preventDefault(); start(); };
-  const onRelease = (e) => { e.preventDefault(); stop(); };
-
-  const tipBy = {
-    idle:         'Hold to talk through PC speaker',
-    connecting:   'Connecting to PC speaker…',
-    connected:    'Hold to talk through PC speaker',
-    talking:      'Release to stop',
-    error:        'Tap and hold to retry',
-    disconnected: 'Hold to talk through PC speaker',
+  const onMissingClick = () => {
+    toast.error('PTT not configured for this tower.');
   };
 
   return (
-    <span className="so-clip-modal-quick" data-status={status}>
+    <span className="so-clip-modal-quick">
       <span className="so-clip-modal-quick-label">PTT</span>
-      <button
-        type="button"
-        onMouseDown={onPress}
-        onMouseUp={onRelease}
-        onMouseLeave={talking ? onRelease : undefined}
-        onTouchStart={onPress}
-        onTouchEnd={onRelease}
-        onContextMenu={(e) => e.preventDefault()}
-        data-talking={talking}
-        className="so-clip-modal-quick-btn so-clip-modal-ptt-btn"
-        aria-pressed={talking}
-        title={tipBy[status] || tipBy.idle}
-      >
-        <Mic className="w-3.5 h-3.5" strokeWidth={2} />
-      </button>
+      {status === 'ok' ? (
+        <a
+          href={href}
+          className="so-clip-modal-quick-btn so-clip-modal-ptt-btn"
+          title="Open PTT in Mumble client"
+          aria-label="Open PTT in Mumble client"
+        >
+          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={onMissingClick}
+          className="so-clip-modal-quick-btn"
+          title="PTT not configured for this tower"
+          aria-label="PTT not configured for this tower"
+        >
+          <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+        </button>
+      )}
     </span>
   );
 }

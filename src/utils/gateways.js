@@ -138,11 +138,11 @@ export function getWeatherAssetForTower(tower, allAssets = []) {
  *
  * Walks `isDescendantOfGateway` directly rather than `pickGatewayChildren`
  * because `PttAsset` is not in `DEVICE_TYPES` — it's a single-purpose
- * configuration asset that carries the `socketIP` attribute used to build
- * the PTT WebSocket URL.
+ * configuration asset that carries the `socketIP` attribute holding the
+ * full `mumble://user:pass@host:port/` link the OS Mumble client opens.
  *
- * Returns the first match or `null` — callers should fall back to the
- * global `PTT_WS_URL` constant when null.
+ * Returns the first match or `null` — callers render the PTT button
+ * disabled when null.
  */
 export function findPttAssetForTower(tower, allAssets = []) {
   if (!tower) return null;
@@ -153,6 +153,37 @@ export function findPttAssetForTower(tower, allAssets = []) {
     const name = String(a?.name || '').replace(/\s+/g, ' ').trim().toLowerCase();
     return name === 'ptt asset' || name === 'ptt assest';
   }) || null;
+}
+
+/**
+ * Resolve the PTT link for a tower. Centralised so every callsite (the
+ * Control grid tile, the AlarmClipModal icon button, the CameraHistoryModal
+ * header) shares one lookup and the same hide/show rules.
+ *
+ *   • `ok`      — `socketIP` is a `mumble://…` URL. Used verbatim as the
+ *                 `<a href>` so the OS hands off to the Mumble client.
+ *   • `missing` — no PttAsset under the tower, or `socketIP` blank.
+ *                 Callsites render a clickable button that toasts a
+ *                 "not configured" hint so the operator can fix OR.
+ *   • `invalid` — `socketIP` is non-empty but doesn't look like a
+ *                 `mumble://…` URL. Callsites **hide the icon entirely** —
+ *                 clicking a malformed link would do nothing useful and
+ *                 the operator shouldn't see a broken affordance.
+ *
+ * Returns `{ status, href }`. `href` is null unless status === 'ok'.
+ */
+export function resolvePttForTower(tower, allAssets = []) {
+  if (!tower) return { status: 'missing', href: null };
+  const pttAsset = findPttAssetForTower(tower, allAssets);
+  const rawValue = pttAsset?.attributes?.socketIP?.value;
+  if (typeof rawValue !== 'string' || !rawValue.trim()) {
+    return { status: 'missing', href: null };
+  }
+  const trimmed = rawValue.trim();
+  if (!/^mumble:\/\//i.test(trimmed)) {
+    return { status: 'invalid', href: null };
+  }
+  return { status: 'ok', href: trimmed };
 }
 
 /**

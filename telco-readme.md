@@ -9,7 +9,18 @@
 **Branch:** `telco-portal` (off `main`)
 **Source repo:** `sms-iot-dashboard` (React 19 + Vite 8 + Tailwind v4 + React Router v7 + TanStack Query)
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
-**Status (2026-06-07):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave of work (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrites PTZ movement to drive the camera through OR attributes instead of an external HTTP controller.
+**Status (2026-06-08):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrote PTZ movement to drive the camera through OR attributes instead of an external HTTP controller. The 2026-06-08 follow-up **rips the entire PTT WebSocket / PCM-streaming pipeline out** — PTT is now a one-line `<a href="mumble://…">` against the OS Mumble client.
+
+**PTT pivot (2026-06-08):**
+
+- **PTT is no longer in-browser audio.** The `usePushToTalk` hook, the inline `AudioWorklet` PCM pipeline, the per-press `getUserMedia` mic capture, and the `wss://` socket to the PC speaker are all gone. `PttAsset.socketIP` now holds a full **`mumble://user:pass@host:port/`** URL and the PTT control is a plain `<a href={socketIP}>` — clicking hands off to the OS Mumble client.
+- **Three surfaces, one resolver.** `resolvePttForTower(tower, allAssets)` in `src/utils/gateways.js` returns `{status, href}`. Used by (1) the new **PTT tile in the Controls grid on `/control`**, (2) the icon button in `AlarmClipModal`, and (3) a new header button in `CameraHistoryModal` (the camera popup opened from `/video`, `/control`, Overview, and the audit log).
+- **Three statuses with consistent UX:**
+  - `ok` → `socketIP` starts with `mumble://` → anchor renders, value used verbatim as `href`.
+  - `missing` → no PttAsset under the tower, or `socketIP` blank → clickable button that toasts `"PTT not configured for this tower."` on click. We don't disable — a clickable hint beats a dead affordance.
+  - `invalid` → `socketIP` is non-empty but doesn't match `^mumble:\/\//i` → **the button is hidden entirely** on every surface. A broken link the operator can't fix from the UI shouldn't be visible.
+- **Dead code deleted.** `src/hooks/usePushToTalk.js` (~230 lines: AudioContext + AudioWorklet + WebSocket lifecycle + level meter RAF loop) and `src/constants/ptt.js` (`PTT_WS_URL`, `buildPttWsUrl`) — gone. The `wss://` scheme hard-coding, the `ptt_start` / `ptt_stop` JSON frames, the 16-bit-LE PCM mono 48 kHz framing — none of it is part of the dashboard anymore. The PC-side `server.js` running near the site speaker is no longer the dashboard's concern; it's replaced by a Mumble server somewhere in the deployment. (§5.5 fully rewritten.)
+- **Mixed-content caveat is also gone.** No socket → no `ws://` vs `wss://` issue → the dashboard can be served HTTP or HTTPS with no PTT-side TLS dependency.
 
 **PTZ rewrite (2026-06-07):**
 
@@ -88,11 +99,15 @@ Earlier wins still in place: in-app `AlarmNotificationStack` replacing `react-ho
 - **Camera attributes added:** `liveStreamUrl` (string),
   `history` (array of `{id, url, date, detection}`), `cameraVariant`
   (`fixed | 360`). The legacy `pttUrl` attribute is no longer read —
-  push-to-talk routes to a PC speaker via a tower-scoped `PttAsset.socketIP`
-  attribute (§5.5), not per-camera.
-- **Per-tower `PttAsset`** (optional) carries `socketIP` (host/port/path,
-  no scheme). When absent the Push-to-talk card on Overview renders
-  disabled — no global fallback (§5.5).
+  push-to-talk lives on a tower-scoped `PttAsset.socketIP` (§5.5), not
+  per-camera.
+- **Per-tower `PttAsset`** (optional) carries `socketIP` — a full
+  `mumble://user:pass@host:port/` URL. The PTT control is just an
+  `<a href={socketIP}>` that hands off to the OS Mumble client. Rendered
+  in three places: a tile in `/control`'s Controls grid, an icon button
+  in `AlarmClipModal`, a header button in `CameraHistoryModal`. Hidden
+  entirely when `socketIP` is set but doesn't start with `mumble://`
+  (§5.5).
 - **Alarm notifications** surface in the in-app `AlarmNotificationStack`
   (Mac-style, top-right below header) — replaces the previous `react-hot-toast`
   flow that blocked the site dropdown. See §6.4.
@@ -118,11 +133,11 @@ It **is not**:
 - A video management system (no Frigate, no recording, no RTSP transcoding).
   Cameras play whatever URL is in their `liveStreamUrl` attribute via
   `<video>` / `<img>` / `<iframe>` auto-detection — the URL is OR's problem.
-- A multi-party intercom. PTT is **half-duplex from operator → site
-  speaker only** — there's no return audio path from the camera into
-  the browser. The portal captures the operator's mic, streams 16-bit
-  PCM over a WebSocket to the PC running `server.js`, which plays it
-  out the site speaker. See §5.5 for the wire protocol.
+- An in-browser intercom. PTT is now a **protocol-handler link** —
+  the dashboard does no audio capture, no streaming, no socket. It
+  just renders an `<a href="mumble://…">` and lets the OS hand off to
+  the Mumble desktop client where the operator's PTT actually happens.
+  See §5.5 for the resolver + the three render surfaces.
 - A general-purpose VMS / AMS / ANPR aggregator. That direction lives on the
   separate `one-box-solution` branch and was **explicitly de-scoped** for
   this branch.
@@ -141,9 +156,11 @@ It **is not**:
 | **Site dropdown is the only global scope** | The site dropdown in the header is the single source of truth for "which towers do I care about". Per-panel tower selectors on `/control` and inside Recent Alerts filters are **local** selections inside that scope. The Audit Log filters by site scope only, never by selected tower. |
 | **Severity colors:** High = red, Medium = yellow, Low = grey | User-specified 2026-05-16. CRITICAL maps to the same red as HIGH. |
 | **PTT is per-tower, not per-camera** | User decided 2026-05-23. Each tower may carry a `PttAsset` child with a `socketIP` attribute. Don't bring back `pttUrl` on cameras, don't gate the button on a 360 / PTZ camera. |
-| **PTT has no global fallback URL** | User decided 2026-05-23. When the active tower has no `PttAsset` (or its `socketIP` is blank) the button renders **disabled** — do not fall back to `PTT_WS_URL`. The constant lives on for documentation / future toggle, but no consumer reads it. |
-| **`wss://` is hard-coded on the client** | User decided 2026-05-23. The `socketIP` attribute holds host/port/path only; the scheme is enforced in `buildPttWsUrl` so a mistyped attribute can't downgrade to plain text. |
-| **PTT is inline UI, not a popup** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT. As of 2026-05-27 the inline surface is the AlarmClipModal's quick-controls cluster (§5.1b), not the Overview Remote Control panel (which no longer exists). |
+| **PTT has no global fallback URL** | User decided 2026-05-23. When the active tower has no `PttAsset` (or its `socketIP` is blank) the button shows a "not configured" state — do not fall back to a deployment-wide URL. |
+| **PTT is a protocol-handler link, not an in-browser audio pipeline** | User decided 2026-06-08. `socketIP` holds a full `mumble://user:pass@host:port/` URL and the PTT control is just `<a href={socketIP}>` — the OS handles the hand-off to the Mumble client. Don't reintroduce `usePushToTalk`, an `AudioWorklet`, `getUserMedia`, or any WebSocket pipeline. The operator already has Mumble installed; the dashboard's job is just to open it with the right credentials and host. |
+| **Hide PTT on invalid URL, toast on missing** | User decided 2026-06-08. Three resolver statuses (`ok` / `missing` / `invalid`) and the same render rule on every surface. `ok` → anchor renders. `missing` → clickable button that toasts a "not configured" hint pointing at the OR attribute (clickable beats disabled so the configurer learns where to look). `invalid` → render `null` entirely; a malformed `socketIP` the operator can't fix from the UI shouldn't show as a broken affordance. Don't disable instead of hiding on `invalid` — the operator was getting "click does nothing" with no recourse. |
+| **PTT lives in the Controls grid on `/control`** | User decided 2026-06-08. On the per-tower control surface, PTT renders as a regular `ControllableTile`-shaped tile alongside Door / Siren / Lights, NOT in the header. Operators triage one tower at a time; PTT sits next to the other "act on this tower" affordances, not next to the tower picker. |
+| **PTT is inline UI, not a popup** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT. As of 2026-06-08 the inline surfaces are: the `AlarmClipModal` quick-controls cluster, the `CameraHistoryModal` header, and the `/control` Controls grid. |
 | **Alarm notifications are an in-app stack, not toasts** | User decided 2026-05-23. The `react-hot-toast` flow stacked 3 un-dismissible cards in the top-right corner and covered the site dropdown. The replacement (`AlarmNotificationStack` — §6.4) is positioned below the header, has per-card close + "Close all", and a Mac-style collapsed peek when 2+ items are active. Don't route alarms back through `react-hot-toast`. |
 | **Overview is viewport-fit, no page scroll** | User decided 2026-05-27. `h-[calc(100dvh-112px)]` + `overflow:hidden` on the shell; only the Recent Alerts list scrolls internally. Don't reintroduce vertical panel stacks that would push the page taller. |
 | **Active alerts KPI === sum of Recent Alerts chip counts** | User decided 2026-05-27. Apply site+range scope at the page level so KPI and panel share the same source. Don't go back to a KPI that's "realm-wide but the panel below is site-scoped" — operators read the discrepancy as a bug. |
@@ -354,9 +371,9 @@ they read the latest values at cleanup time.
 trial confirms stop is reliably reaching the device.
 
 PTT (push-to-talk) is no longer routed through any camera attribute —
-it's a global PC-speaker endpoint (`PTT_WS_URL`, see §5.5). The legacy
-behaviour of opening a `pttUrl` iframe modal under a 360 / PTZ camera
-was removed 2026-05-23.
+it's a per-tower `PttAsset.socketIP` `mumble://…` link (§5.5). The
+legacy behaviour of opening a `pttUrl` iframe modal under a 360 / PTZ
+camera was removed 2026-05-23.
 
 ### 5.1d. CameraStream URL routing
 
@@ -392,7 +409,7 @@ extensionless paths.
 | `liveStreamUrl` **or** `streamUrl` | string | **yes** for live tiles | Rendered by `CameraStream` (see §5.1d for the full URL routing rules). Both attribute names are accepted — `getCameraStreamUrl(camera)` in `utils/gateways.js` tries `liveStreamUrl` first, then falls back to `streamUrl`. Every consumer (Overview tile, Control tile, Video wall card, full-view modal, Video modal history sidebar) reads through this helper. |
 | `eventId` | datapoints (object) | **yes** for the Video modal history sidebar | Per-detection event stream stored as OR datapoints. Each datapoint value is `[{ id, label }]` or `{ id, label }` (id = AI-side event identifier, label = raw category — "person" / "animal" / anything else). The Video modal fetches this attribute via `useCameraEvents(cameraId, {from, to})` (`src/hooks/useCameraEvents.js`) using the OR datapoints endpoint with `type: 'ALL'`, and renders one history row per datapoint. The attribute key is centralised as `CAMERA_EVENT_ATTRIBUTE` in `src/constants/events.js` — rename in one place if the OR-side schema changes. See §5.2b for the full datapoints contract and §5.2c for how clip / snapshot URLs are derived from the event id. |
 | `history` | array | **deprecated** (optional fallback) | Legacy `[{id, url, date, detection}]` array. Still read by the Overview's Live Camera tile + the Video wall tile for the on-tile ALERT pill (`isRecentHumanDetection` checks `history[0]` within the last 5 min). New deployments should populate `eventId` datapoints instead — the Video modal history sidebar **no longer reads `history`**, only `eventId` datapoints. See §5.2a for the legacy JSON shape. |
-| `cameraVariant` | string | optional | `fixed` or `360`. Historical hint only — no longer routes any UI (PTT is now a single PC-speaker endpoint, see §5.5). |
+| `cameraVariant` | string | optional | `fixed` or `360`. Historical hint only — no longer routes any UI (PTT moved to per-tower, see §5.5). |
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 | `ptzCommand` | text | **yes for `PtzCameraAsset`** | Written by `usePtzMove` to drive PTZ movement. Possible values: `move_up` · `move_down` · `move_left` · `move_right` · `stop` (and per the OR-side enum, also `preset_home` · `zoom_in` · `zoom_out` — not wired to the d-pad yet). The hook always pairs each `move_*` write with a follow-up `stop` write after `movementDuration`. See §5.1e. |
 | `movementDuration` | text (ms) | optional, PtzCameraAsset only | How long, in milliseconds, `usePtzMove` holds a `move_*` command before writing `stop`. Missing / blank / non-numeric / `≤ 0` ⇒ default **3000 ms**. See §5.1e. |
@@ -465,17 +482,16 @@ the slot entirely when no matching child asset exists under the tower
 the (now-removed) Overview `RemoteControlPanel`. Writes go through
 the same optimistic `useWriteAttribute` path.
 
-**Push-to-talk button.** Sits next to the quick controls. Same
-per-tower `PttAsset.socketIP` resolution as the (now-removed)
-Overview PTT card, same `usePushToTalk` hook + protocol (16-bit PCM
-mono 48 kHz over `wss://`), same hold-to-talk semantics
-(`onMouseDown/Up`, `onMouseLeave` while talking, `onTouchStart/End`,
-`onContextMenu` prevent). Compressed to a single 28 × 28 icon button:
-status communicated via background tint (amber connecting · green
-ready · red pulse transmitting · red error) + `title` tooltip.
-Disabled branch (no `PttAsset` under tower) renders neutral with
-`title="No PTT device configured for this tower"` — no socket opened,
-no mic permission requested. Errors surface as toast.
+**Push-to-talk button.** Sits next to the quick controls. As of
+2026-06-08 this is no longer a hold-to-talk audio control — it's a
+single 28 × 28 icon resolved via `resolvePttForTower` (§5.5). Three
+render branches based on the status:
+- `ok` → `<a href={socketIP}>` clicking which hands off to the OS
+  Mumble client. No mic permission, no socket, no audio pipeline.
+- `missing` → `<button>` with `title="PTT not configured for this
+  tower"`. Click fires a toast pointing at the OR attribute.
+- `invalid` → component returns `null` — the button is hidden so a
+  malformed `socketIP` isn't presented as a working affordance.
 
 **Download.** Native `<video>` carries `controlsList="nodownload"` so
 the browser's built-in menu doesn't compete with our button. The
@@ -861,16 +877,20 @@ The original SMS IoT contract is unchanged:
   `src/utils/assetIcons.js` for the canonical rules.
 - DoorLock convention: `onOff=true` ⇒ Locked ⇒ "active" (cyan glow).
 
-### 5.5. Push-to-talk endpoint
+### 5.5. Push-to-talk anchor
+
+> **2026-06-08 rewrite.** The previous `usePushToTalk` hook,
+> `AudioWorklet` PCM pipeline, `wss://` socket, and PC-side
+> `server.js` are all gone (see top-of-file changelog + §3
+> decisions). PTT is now a **protocol-handler link** —
+> `<a href="mumble://…">` — and the dashboard never touches the mic.
 
 PTT is **per-tower, not per-camera**. Each tower may carry a single
-`PttAsset` child whose `socketIP` attribute holds host/port/path (no
-scheme). The dashboard hard-codes `wss://` on the client side and
-prepends it to the attribute value — `wss://` is a single edit point
-in `buildPttWsUrl` (`src/constants/ptt.js`), and the `socketIP`
-attribute must NOT include a `ws://` / `wss://` prefix (any accidental
-one is stripped before re-prepending `wss://`, so a mistyped attribute
-can't downgrade to plain text).
+`PttAsset` child whose `socketIP` attribute holds a full **`mumble://`
+URL** — typically `mumble://user:pass@host:port/`. Clicking the PTT
+control opens the OS Mumble desktop client with the embedded
+credentials; the operator's actual talk session happens entirely in
+Mumble, not in the browser.
 
 **Asset contract.** The PTT asset is matched **case-insensitively** by
 either:
@@ -885,62 +905,53 @@ Resolution lives in `findPttAssetForTower(tower, allAssets)` in
 `pickGatewayChildren` because `PttAsset` is **not** in `DEVICE_TYPES`
 (it's a configuration asset, not a controllable device).
 
-**URL builder.** `buildPttWsUrl(socketIP)` in `src/constants/ptt.js`:
+**Resolver — `resolvePttForTower(tower, allAssets)`** in
+`src/utils/gateways.js` — returns `{ status, href }` with three states:
 
-```js
-// strips any leading ws:// / wss://, returns `wss://${rest}`.
-// returns null when socketIP is missing or blank.
-```
-
-**No global fallback.** If the active tower has no `PttAsset` (or its
-`socketIP` is blank) the Push-to-talk card on Overview renders in a
-**disabled** state — mic button HTML-disabled, status pill shows
-**Unavailable**, hint reads "No PTT device configured for this tower",
-**no socket is opened, no mic permission is requested**, and
-`usePushToTalk` is never called. The `PTT_WS_URL` constant lives on
-in `src/constants/ptt.js` for documentation but `RemoteControlPanel`
-no longer reads it.
-
-**Tower swap behaviour.** The `PushToTalkCard` is keyed on the
-resolved URL (`key={pttUrl || 'ptt-disabled'}`) inside
-`RemoteControlPanel`. Picking a different tower changes the key,
-which unmounts the previous card — `usePushToTalk`'s cleanup effect
-closes the old WebSocket and tears down the audio graph, so the
-dashboard never silently reuses a socket with the wrong host.
-
-**Wire protocol** (must match the PC-side `server.js`):
-
-| Direction | Frame type | Payload |
+| Status | When | What the UI does |
 |---|---|---|
-| → server | JSON | `{"type":"ptt_start"}` — emitted on hold-down |
-| → server | binary (ArrayBuffer) | Int16 little-endian PCM, **mono, 48 kHz**, ~10 ms chunks |
-| → server | JSON | `{"type":"ptt_stop"}` — emitted on release |
-| ← client | JSON | `{"type":"ptt_started"}` / `{"type":"ptt_stopped"}` — acks (currently ignored by the hook) |
-| ← client | JSON | `{"type":"error","message":"…"}` — surfaced as the card's inline error line |
+| `ok` | `socketIP` matches `^mumble:\/\//i` after trim. | `href` is the trimmed value; callsite renders an `<a href={href}>` that opens the OS handler. |
+| `missing` | no PttAsset under the tower OR `socketIP` is blank / non-string. | `href = null`; callsite renders a clickable `<button>` that toasts `"PTT not configured for this tower."` on click. **We don't disable** — a clickable button beats a dead one because it tells the configurer what to fix. |
+| `invalid` | `socketIP` non-empty but doesn't start with `mumble://`. | `href = null`; **callsite returns `null` (hides the control entirely).** A broken affordance the operator can't fix from the UI shouldn't be visible. |
 
-**Hook contract.** `src/hooks/usePushToTalk.js` exposes
-`{ status, error, level, start, stop, talking }`:
+The mumble-scheme check is intentionally lenient (no host / port /
+auth validation). The OS handler is the authority on whether a given
+`mumble://` URL actually opens; we only filter out values that
+clearly aren't protocol links at all.
 
-- `status` — `idle | connecting | connected | talking | error | disconnected`
-- `error`  — last error string (clears on next `start()`)
-- `level`  — 0..100 mic level (drives the card's meter, RAF-paced)
-- `start()` / `stop()` — wired to the card button's hold-down / release.
-  `start()` opens the socket lazily on first press and re-uses it
-  thereafter; mic permission is requested on each press but the
-  browser usually remembers the grant for the origin.
+**Three render surfaces (same resolver, same rules):**
 
-**Audio pipeline.** Mic → `AudioContext({sampleRate:48000})` →
-`MediaStreamSource` → `AnalyserNode` (level meter) → `AudioWorkletNode`
-(inline blob, converts Float32 → Int16 → posts `ArrayBuffer` to the
-main thread) → `ws.send(arrayBuffer)`. The worklet code is shipped as
-a string and loaded via `URL.createObjectURL(blob)` so there's no
-separate `.js` file to bundle.
+| Surface | File | Shape |
+|---|---|---|
+| `/control` Controls grid tile | `src/pages/SecureOpsControlPage.jsx → PttTile` | `.so-control-tile` chrome alongside Door / Siren / Lights. State line shows `Ready` (accent) or `Not configured` (warning). Active tile gets `data-active="true"` for the accent tint. |
+| `AlarmClipModal` quick-controls | `src/components/cameras/AlarmClipModal.jsx → PttButton` | 28×28 icon button in the modal's right-edge quick-controls cluster. Uses the existing `.so-clip-modal-quick-btn` classes. |
+| `CameraHistoryModal` header | `src/components/cameras/CameraHistoryModal.jsx → PttHeaderButton` | `.audit-btn` styled button placed next to the Close button. Mounts on every surface that opens the camera popup — Video wall, `/control`'s Cameras panel, Overview's (legacy) Live Camera Feeds, audit-log breadcrumbs. |
 
-**Mixed-content caveat** — same as PTZ (§5.1e) and events (§5.2c):
-an HTTPS-served portal cannot open a `ws://` socket. Switch to
-`wss://` once the PC has TLS, or reverse-proxy through the dashboard
-origin (Vite dev proxy + nginx/caddy in prod) and point
-`PTT_WS_URL` at a relative `/ptt` path.
+Each component calls `resolvePttForTower(tower, assets)` (the
+`tower` prop is the active tower; `assets` comes from
+`useAssets({})` which is already cached). Each one early-returns
+`null` on `invalid`. Each one renders an anchor on `ok` and a
+toast-button on `missing` — UX is identical across all three so
+operators learn the affordance once.
+
+**Control grid count handling.** `ControlsPanel` resolves the
+status once at the parent level (`useMemo`) and adds 1 to the
+header's `N controls` count only when `status !== 'invalid'`, so the
+header stays in sync with what's actually rendered. The empty-state
+copy (`"No controllable devices under this tower."`) reappears only
+when there are zero device tiles AND PTT is hidden.
+
+**No global fallback, no environment variable.** Each tower's PTT
+target is whatever `socketIP` says — there is no `PTT_WS_URL`,
+no `.env`-level override, no "deployment-wide default" to fall back
+to. A new tower without a `PttAsset` simply shows the `missing`
+state until one is created in OR.
+
+**No mixed-content caveat anymore.** The previous flow needed
+`wss://` (and so HTTPS + TLS on the PC speaker), or a reverse proxy.
+A `mumble://` link doesn't trigger any same-origin / content-policy
+check — the browser hands it straight to the OS handler regardless of
+the dashboard's scheme.
 
 ---
 
@@ -1136,7 +1147,7 @@ just relocated:
 | Live Camera Feeds | `/video` page (full grid) and inside `AlarmClipModal` (per-alarm Live tab) |
 | Site Status | (dropped) — the `Sites online` KPI carries the realm-wide signal |
 | Remote Control (Door/Siren/Lights) | `AlarmClipModal` compact Quick controls (§5.1b) and `/control` page (full tiles) |
-| Push-to-talk card | `AlarmClipModal` compact PTT button (§5.1b) |
+| Push-to-talk card | `AlarmClipModal` compact PTT button (§5.1b), `CameraHistoryModal` header (§5.5), and the `/control` Controls grid tile (§9a.2 + §5.5) |
 | Environmental telemetry | `SecureOpsHeader` chips (§6.3) — temp/humidity/signal/battery |
 | Audit log preview | `/audit` page (link in the alert panel footer) |
 
@@ -1565,10 +1576,21 @@ attributes (temperature → humidity → battery → fallback lastModified).
 the device-picker context exists. Putting it on the header would also
 mean re-querying every poll across every route.
 
-`ControlsPanel` is unchanged from the 2026-05-16 ship — filters tower
-children to `CONTROLLABLE_TYPES` and renders a `ControllableTile` per
-device. Each tile toggles via `useWriteAttribute(getPrimaryControlAttr(
-asset, customType))`.
+`ControlsPanel` filters tower children to `CONTROLLABLE_TYPES` and
+renders a `ControllableTile` per device, each toggling via
+`useWriteAttribute(getPrimaryControlAttr(asset, customType))`. As of
+2026-06-08 the grid also carries a **PTT tile** rendered by `PttTile`
+— same `.so-control-tile` chrome as the device tiles, but the action
+is a hand-off to the OS Mumble client via `PttAsset.socketIP` (see
+§5.5 for the full resolver contract). The panel resolves the PTT
+status once via `resolvePttForTower(activeTower, towerAssets)` and:
+- adds 1 to the header's `N controls` count only when status isn't
+  `invalid`,
+- renders `<PttTile />` only when status isn't `invalid` (so a
+  malformed `socketIP` doesn't take up grid space),
+- shows the legacy `"No controllable devices under this tower."`
+  empty-state copy only when the total tile count is 0 (i.e. no
+  devices AND PTT hidden).
 
 ### 9a.3. Asset history panel (added 2026-05-22)
 
@@ -1837,13 +1859,6 @@ src/utils/auditEvents.js                      Shared alarm/tower event generator
 src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
                                               getEventClipUrl / getEventSnapshotUrl,
                                               normalizeEventLabel (person→human etc.)
-src/constants/ptt.js                          PTT_WS_URL (legacy doc-only) +
-                                              buildPttWsUrl(socketIP). The builder
-                                              hard-codes the `wss://` scheme, strips
-                                              any accidental ws:// / wss:// prefix
-                                              from the attribute value, and returns
-                                              null for blank input. RemoteControlPanel
-                                              no longer reads PTT_WS_URL.
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
 src/hooks/usePtzMove.js                       Drives a PtzCameraAsset via two OR
@@ -1858,13 +1873,6 @@ src/hooks/usePtzMove.js                       Drives a PtzCameraAsset via two OR
                                               when the modal closes mid-move. Uses a
                                               mutateRef so a parent re-render can't stale
                                               out the scheduled stop call. See §5.1e.
-src/hooks/usePushToTalk.js                    Hold-to-talk PCM-over-WebSocket
-                                              pipeline. Wraps WebSocket lifecycle,
-                                              getUserMedia, and an inline
-                                              AudioWorklet that converts Float32→Int16.
-                                              Exposes { status, error, level, start,
-                                              stop, talking }. Socket stays warm
-                                              between presses; full teardown on unmount.
 src/components/charts/AssetHistoryCard.jsx    Reusable history chart for a single asset
                                               (Recharts AreaChart). Picks chartable
                                               attributes automatically, defaults to the
@@ -1902,19 +1910,18 @@ src/utils/gateways.js                         isSiteAsset / pickSites / isTowerA
                                               / findPttAssetForTower (case-insensitive
                                               PttAsset / "PTT Asset" matcher; walks
                                               isDescendantOfGateway because PttAsset
-                                              is not in DEVICE_TYPES)
+                                              is not in DEVICE_TYPES) / resolvePttForTower
+                                              (2026-06-08; returns {status, href} with
+                                              ok/missing/invalid — validates socketIP
+                                              starts with mumble:// and is the single
+                                              source of truth shared by every PTT
+                                              surface — §5.5)
 src/hooks/useLiveEvents.js                    Alarm watcher now pushes to
                                               alarmNotificationsStore instead of
                                               firing react-hot-toast cards. Skips the
                                               push when the user is already on /alarms.
                                               OS notifications via fireAlarmNotification
                                               unchanged.
-src/pages/SecureOpsOverviewPage.jsx           RemoteControlPanel derives pttUrl per-
-                                              tower via findPttAssetForTower +
-                                              buildPttWsUrl. PushToTalkCard split into
-                                              live / disabled branches; re-keyed on
-                                              pttUrl so a tower swap tears down the
-                                              old socket.
 src/api/client.js                             Refresh-token dedup (concurrent 401 handling)
 src/utils/alarms.js                           getAlarmClipUrl unchanged + new
                                               getAlarmEventId / getAlarmSnapshotUrl /
@@ -2010,6 +2017,24 @@ src/pages/SecureOpsControlPage.jsx            2026-05-31 (commit 8b103e9): Envir
                                               'ok' / 'danger' tones. Empty-state copy
                                               widened to "No environment sensors under
                                               this tower" (was HeatSensorAsset-only).
+                                              2026-06-08: added PttTile inside
+                                              ControlsPanel (anchor on ok / toast button
+                                              on missing / null on invalid) and lifted
+                                              the resolvePttForTower call to
+                                              ControlsPanel so the header count
+                                              ("N controls") only includes PTT when
+                                              status isn't invalid. See §9a.2 + §5.5.
+src/components/cameras/AlarmClipModal.jsx     2026-06-08: PttButton rewritten to use
+                                              resolvePttForTower. ok → <a href> opens
+                                              the mumble:// link; missing → click-toast
+                                              button; invalid → component returns null
+                                              (button hidden). Dropped usePushToTalk +
+                                              buildPttWsUrl imports.
+src/components/cameras/CameraHistoryModal.jsx 2026-06-08: added PttHeaderButton next to
+                                              the Close button. Same three-status shape
+                                              as the Control tile / AlarmClipModal. Uses
+                                              useAssets({}) (cached) to resolve the per-
+                                              tower PttAsset.
 ```
 
 ### Deleted files
@@ -2022,6 +2047,21 @@ src/constants/ptz.js                          2026-06-07: deleted. PTZ_BASE_URL 
                                               external AI-side controller, which the
                                               new ptzCommand attribute flow replaces.
                                               No remaining importers.
+src/hooks/usePushToTalk.js                    2026-06-08: deleted. Held the entire
+                                              hold-to-talk PCM-over-WebSocket pipeline
+                                              (~230 lines: AudioContext + inline
+                                              AudioWorklet that converted Float32→Int16,
+                                              WebSocket lifecycle, getUserMedia mic
+                                              capture, RAF-paced level meter). All
+                                              replaced by a plain <a href={socketIP}>
+                                              that hands off to the OS Mumble client.
+                                              No remaining importers.
+src/constants/ptt.js                          2026-06-08: deleted. PTT_WS_URL (the
+                                              global PC-speaker URL) + buildPttWsUrl
+                                              (hard-coded wss:// scheme + prefix strip).
+                                              Neither is needed once socketIP carries
+                                              the full mumble:// URL and there is no
+                                              client-side socket. No remaining importers.
 ```
 
 ### Memory files (operator-side, persist across conversations)
@@ -2169,18 +2209,23 @@ In rough priority order:
    an Asset history panel** that charts any tower child's numeric or
    boolean attribute over 1h/6h/24h/7d/30d. See §9a for the full
    layout. Bulk operations (lock-all-doors, lights-off, etc.) still TODO.
-4. **Push-to-talk — ✅ shipped 2026-05-23, relocated to AlarmClipModal 2026-05-27**
-   (per-tower from the start). Originally `PushToTalkCard` inside the
-   Overview's Remote Control panel; both panels were removed when the
-   Overview slimmed to KPI + Recent Alerts (§8). The PTT button now
-   lives inline in the alarm clip modal's meta strip (§5.1b),
-   compressed to a single 28×28 icon button (status via background
-   tint + tooltip, no meter, no inline hint). Still routes 16-bit PCM
-   (mono, 48 kHz) over a WebSocket via `usePushToTalk` (§5.5); still
-   resolves URL per-tower from `PttAsset.socketIP` with no global
-   fallback; still hard-codes `wss://` via `buildPttWsUrl`.
-   **Open polish:** Space hotkey when modal is focused; per-operator
-   transmit lock; Settings surface for which towers lack a PttAsset.
+4. **Push-to-talk — ✅ shipped 2026-05-23, pivoted to mumble:// anchor 2026-06-08.**
+   Originally a hold-to-talk PCM-over-WebSocket pipeline
+   (`usePushToTalk` + inline `AudioWorklet` + per-press `getUserMedia`
+   against a PC-side `server.js` near the site speaker). As of
+   2026-06-08 that's all deleted — `PttAsset.socketIP` now carries a
+   full `mumble://user:pass@host:port/` URL and the control is just
+   `<a href={socketIP}>` that opens the OS Mumble client. The dashboard
+   does no audio capture, no streaming, no socket. Three render
+   surfaces share `resolvePttForTower` (§5.5): the `/control` Controls
+   grid tile, the `AlarmClipModal` icon button, the
+   `CameraHistoryModal` header button. `ok` → anchor; `missing` →
+   click-toast button (`"PTT not configured for this tower."`);
+   `invalid` (`socketIP` doesn't start with `mumble://`) → render
+   `null` so a malformed link doesn't show as a broken affordance.
+   **Open polish:** a Settings tab that lists every tower's PTT status
+   so the configurer can fix `missing` / `invalid` rows in bulk; a
+   small "?" tooltip explaining the URL format next to the toast.
 5. **In-app alarm notification stack — ✅ shipped 2026-05-23** as
    `AlarmNotificationStack` mounted in `DashboardLayout`. Replaces the
    prior `react-hot-toast` flow that blocked the site dropdown. See

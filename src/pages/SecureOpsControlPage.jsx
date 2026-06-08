@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
+import toast from 'react-hot-toast';
 import {
   SlidersHorizontal, Video as VideoIcon, RadioTower,
   Thermometer, Droplets, BatteryCharging, LineChart as LineIcon,
+  Mic,
 } from 'lucide-react';
 import { useAssets, useWriteAttribute } from '../hooks/useAssets';
 import {
   pickSites, pickTowersForSite, pickGatewayChildren,
-  getWeatherAssetForTower, isCameraAsset,
+  getWeatherAssetForTower, isCameraAsset, resolvePttForTower,
 } from '../utils/gateways';
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
@@ -144,7 +146,7 @@ export default function SecureOpsControlPage() {
           </div>
 
           {/* ===== Controllable devices ===== */}
-          <ControlsPanel assets={controllables} />
+          <ControlsPanel assets={controllables} tower={activeTower} towerAssets={assets} />
 
           {/* ===== Asset history (chart) =====
               Key on tower id so switching tower remounts the panel and
@@ -212,6 +214,77 @@ function HistoryPanel({ assets }) {
         </p>
       )}
     </section>
+  );
+}
+
+/* ==========================================================================
+   PTT tile — sits inside the Controls grid
+
+   `PttAsset.socketIP` holds the link to hand off to the OS (a
+   `mumble://user:pass@host:port/` URL). Three branches via
+   `resolvePttForTower`:
+
+   • ok      → `<a href>` opening the link via the OS handler
+   • missing → `<button>` that toasts "not configured" on click
+   • invalid → hide entirely. A broken affordance is worse than no
+                affordance — the operator can't fix a malformed URL by
+                clicking it, and the tile clutters the grid.
+   ========================================================================== */
+
+function PttTile({ tower, assets }) {
+  const { status, href } = useMemo(
+    () => resolvePttForTower(tower, assets),
+    [tower, assets],
+  );
+
+  if (status === 'invalid') return null;
+
+  const meta = status === 'ok'
+    ? { label: 'Ready',          color: 'var(--color-accent-300)' }
+    : { label: 'Not configured', color: 'var(--color-warning-400)' };
+
+  const onMissingClick = () => {
+    toast.error('PTT not configured for this tower — set the `socketIP` attribute on the tower\'s PttAsset in OpenRemote.');
+  };
+
+  const body = (
+    <>
+      <div className="so-control-icon">
+        <Mic className="w-6 h-6" strokeWidth={2} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-[var(--color-ink-0)] truncate">Push-to-talk</p>
+        <p className="text-[11px] text-[var(--color-ink-2)] truncate">
+          PTT · <span className="font-semibold" style={{ color: meta.color }}>{meta.label}</span>
+        </p>
+      </div>
+    </>
+  );
+
+  if (status === 'ok') {
+    return (
+      <a
+        href={href}
+        data-active="true"
+        className="so-control-tile"
+        title="Open PTT in Mumble client"
+        aria-label="Open PTT in Mumble client"
+      >
+        {body}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onMissingClick}
+      className="so-control-tile"
+      title={meta.label}
+      aria-label={meta.label}
+    >
+      {body}
+    </button>
   );
 }
 
@@ -379,7 +452,16 @@ function EnvBigStat({ icon: Icon, label, value, tone }) {
    Controllable devices grid
    ========================================================================== */
 
-function ControlsPanel({ assets }) {
+function ControlsPanel({ assets, tower, towerAssets }) {
+  // PTT is rendered in the grid as long as its status isn't `invalid` —
+  // resolve once here so the header count matches what the operator sees.
+  const pttStatus = useMemo(
+    () => resolvePttForTower(tower, towerAssets).status,
+    [tower, towerAssets],
+  );
+  const showPtt = pttStatus !== 'invalid';
+  const total = assets.length + (showPtt ? 1 : 0);
+
   return (
     <section className="panel p-4 md:p-5">
       <div className="so-panel-head">
@@ -388,11 +470,11 @@ function ControlsPanel({ assets }) {
           Controls
         </div>
         <span className="so-panel-meta tabular-nums">
-          {assets.length} device{assets.length === 1 ? '' : 's'}
+          {total} control{total === 1 ? '' : 's'}
         </span>
       </div>
 
-      {assets.length === 0 ? (
+      {total === 0 ? (
         <p className="text-sm text-[var(--color-ink-2)] py-6 text-center">
           No controllable devices under this tower.
         </p>
@@ -401,6 +483,7 @@ function ControlsPanel({ assets }) {
           {assets.map((a) => (
             <ControllableTile key={a.id} asset={a} />
           ))}
+          {showPtt && <PttTile tower={tower} assets={towerAssets} />}
         </div>
       )}
     </section>

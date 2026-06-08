@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format, formatDistanceToNowStrict } from 'date-fns';
+import toast from 'react-hot-toast';
 import {
-  X, History, Play, RefreshCw, Loader2, RadioTower,
+  X, History, Play, RefreshCw, Loader2, RadioTower, Mic,
 } from 'lucide-react';
 import CameraStream from './CameraStream';
 import PtzControls from './PtzControls';
+import { useAssets } from '../../hooks/useAssets';
 import { useCameraEvents } from '../../hooks/useCameraEvents';
 import { usePtzMove } from '../../hooks/usePtzMove';
-import { getCameraStreamUrl, isPtzCamera } from '../../utils/gateways';
+import { getCameraStreamUrl, isPtzCamera, resolvePttForTower } from '../../utils/gateways';
 import { getAssetDisplayName } from '../../utils/assetIcons';
 import {
   getEventClipUrl, getEventSnapshotUrl, normalizeEventLabel,
@@ -215,15 +217,18 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
               )}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="audit-btn flex-shrink-0"
-            title="Close (Esc)"
-          >
-            <X className="w-3.5 h-3.5" strokeWidth={2} />
-            Close
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <PttHeaderButton tower={tower} />
+            <button
+              type="button"
+              onClick={onClose}
+              className="audit-btn"
+              title="Close (Esc)"
+            >
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+              Close
+            </button>
+          </div>
         </div>
 
         {/* Body: player + history sidebar */}
@@ -418,6 +423,47 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
 /* ==========================================================================
    Local primitives — kept inline so the modal is self-contained.
    ========================================================================== */
+
+/* PTT button — opens the OS Mumble client via `PttAsset.socketIP`.
+   Three branches matching the Control tile + AlarmClipModal:
+   `ok` → anchor with the raw value; `missing` → click-toast button;
+   `invalid` → render nothing (broken affordance hidden). */
+function PttHeaderButton({ tower }) {
+  const { data: assets = [] } = useAssets({});
+  const { status, href } = useMemo(
+    () => resolvePttForTower(tower, assets),
+    [tower, assets],
+  );
+
+  if (status === 'invalid') return null;
+
+  if (status === 'ok') {
+    return (
+      <a
+        href={href}
+        className="audit-btn"
+        title="Open PTT in Mumble client"
+        aria-label="Open PTT in Mumble client"
+      >
+        <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+        PTT
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => toast.error('PTT not configured for this tower.')}
+      className="audit-btn"
+      title="PTT not configured"
+      aria-label="PTT not configured"
+    >
+      <Mic className="w-3.5 h-3.5" strokeWidth={2} />
+      PTT
+    </button>
+  );
+}
 
 function ToggleChip({ active, onClick, color, count, children }) {
   const tint = color || 'var(--color-ink-1)';
