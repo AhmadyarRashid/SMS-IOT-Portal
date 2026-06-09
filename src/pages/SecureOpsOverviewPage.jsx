@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition 
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict, format } from 'date-fns';
 import {
-  ServerCog, AlertOctagon, Activity, Cpu,
+  ServerCog, AlertOctagon, Activity, CheckCircle2,
   RadioTower, ChevronRight,
   Building2, Check, CheckCheck, Loader2, Clock, RotateCcw,
   Lock, Lightbulb, Volume2, X,
@@ -44,9 +44,9 @@ export default function SecureOpsOverviewPage() {
   );
   const { selectedSiteId } = useSecureOpsStore();
 
-  // Time-range filter — drives the "Active alerts" + "Detections" KPIs and
-  // the Recent Alerts list. "Sites online" and "AI uptime" are state-based
-  // snapshots and ignore the range. Default `all` so a fresh load surfaces
+  // Time-range filter — drives the "Active alerts", "Detections", and
+  // "Resolved" KPIs and the Recent Alerts list. "Sites online" is a
+  // state-based snapshot and ignores the range. Default `all` so a fresh load surfaces
   // every alert in the realm; operators can narrow via the chip strip. The
   // setter is wrapped in `startTransition` so React keeps the previous list
   // visible during the re-derive instead of flashing an empty intermediate
@@ -347,19 +347,16 @@ export default function SecureOpsOverviewPage() {
       ? null
       : detectionsCount - prevWindowHighPriorityCount;
 
-    const heartbeats = towers
-      .map((t) => parseDate(t.attributes?.aiHeartbeatAt?.value))
-      .filter(Boolean);
-    const aiUptime = towers.length === 0
-      ? null
-      : towers.reduce((acc, t) => {
-          const pct = readNumber(t.attributes?.aiUptime30d?.value);
-          return pct != null ? acc.concat(pct) : acc;
-        }, []);
-    const aiUptimePct = aiUptime && aiUptime.length
-      ? aiUptime.reduce((s, x) => s + x, 0) / aiUptime.length
-      : null;
-    const aiUp = aiUptimePct ?? (heartbeats.length ? 100 : null);
+    // Acted-on — alarms the operator has touched (acknowledged OR resolved/closed).
+    const totalInRange = allAlarmsInScope.length;
+    let ackedCount = 0;
+    let resolvedCount = 0;
+    for (const al of allAlarmsInScope) {
+      const s = (al.status || '').toUpperCase();
+      if (s === 'ACKNOWLEDGED' || s === 'IN_PROGRESS') ackedCount += 1;
+      else if (s === 'RESOLVED' || s === 'CLOSED') resolvedCount += 1;
+    }
+    const actedOn = ackedCount + resolvedCount;
 
     return {
       sitesOnline: {
@@ -370,9 +367,9 @@ export default function SecureOpsOverviewPage() {
       },
       alerts: { total: openAlarmsInScope.length, critical, warning },
       detections: { count: detectionsCount, delta: detectionDelta },
-      aiUptime: aiUp,
+      actedOn: { actedOn, acknowledged: ackedCount, resolved: resolvedCount, total: totalInRange },
     };
-  }, [siteSummaries, openAlarmsInScope, allAlarmsInScope, prevWindowHighPriorityCount, towers]);
+  }, [siteSummaries, openAlarmsInScope, allAlarmsInScope, prevWindowHighPriorityCount]);
 
   // Gate on BOTH assets and alarms — otherwise assets land first, alarms are
   // briefly empty, and the Recent Alerts panel flashes "No alerts in last 24h"
@@ -424,11 +421,23 @@ export default function SecureOpsOverviewPage() {
           subTone={kpis.detections.delta != null && kpis.detections.delta > 0 ? 'warning' : 'ok'}
         />
         <KpiCard
-          icon={Cpu}
-          label="AI uptime"
-          value={kpis.aiUptime != null ? `${kpis.aiUptime.toFixed(1)}%` : '—'}
-          subline={kpis.aiUptime != null ? 'Last 30 days' : 'No heartbeat data'}
-          subTone={kpis.aiUptime != null && kpis.aiUptime >= 99 ? 'ok' : 'warning'}
+          icon={CheckCircle2}
+          label={`Acted on · ${rangeWindow.shortLabel}`}
+          value={`${kpis.actedOn.actedOn}/${kpis.actedOn.total}`}
+          subline={
+            kpis.actedOn.total === 0
+              ? 'No events in this period'
+              : kpis.actedOn.actedOn === kpis.actedOn.total
+                ? 'All events handled'
+                : `${kpis.actedOn.acknowledged} acknowledged, ${kpis.actedOn.resolved} resolved`
+          }
+          subTone={
+            kpis.actedOn.total === 0
+              ? 'ok'
+              : kpis.actedOn.actedOn === kpis.actedOn.total
+                ? 'ok'
+                : 'warning'
+          }
         />
       </section>
 
@@ -1122,12 +1131,6 @@ const SEVERITY_META = {
 /* ==========================================================================
    Misc helpers
    ========================================================================== */
-
-function readNumber(v) {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
 
 // "High priority" = CRITICAL or HIGH. Maps to the AI side's human-detection
 // events on this deployment; lower-severity rows (animal / vehicle / other)

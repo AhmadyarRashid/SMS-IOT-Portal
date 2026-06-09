@@ -215,7 +215,7 @@ a.so-kpi.so-kpi-clickable:hover {
   color: var(--color-ink-2);
 }
 .so-kpi-sub.is-critical { color: var(--color-danger-400); }
-.so-kpi-sub.is-warning  { color: var(--color-warning-400); }
+.so-kpi-sub.is-warning  { color: var(--color-warning-500); }
 .so-kpi-sub.is-ok       { color: var(--color-accent-400); }
 
 /* ---------- Refresh icon button (used in panel headers) ---------- */
