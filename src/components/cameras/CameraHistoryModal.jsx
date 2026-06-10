@@ -12,7 +12,7 @@ import { usePtzMove } from '../../hooks/usePtzMove';
 import { getCameraStreamUrl, isPtzCamera, resolvePttForTower } from '../../utils/gateways';
 import { getAssetDisplayName } from '../../utils/assetIcons';
 import {
-  getEventClipUrl, getEventSnapshotUrl, normalizeEventLabel,
+  getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl, normalizeEventLabel,
 } from '../../constants/events';
 
 /* ==========================================================================
@@ -96,6 +96,13 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
 
   const history = useMemo(() => {
     if (!Array.isArray(rawPoints)) return [];
+
+    const cameraId = camera?.attributes?.cameraId?.value;
+    const beforeMs = Number(camera?.attributes?.beforeStartClip?.value);
+    const afterMs = Number(camera?.attributes?.afterEndClip?.value);
+    const beforeSec = Number.isFinite(beforeMs) ? beforeMs / 1000 : 0;
+    const afterSec = Number.isFinite(afterMs) ? afterMs / 1000 : 0;
+
     return rawPoints
       .map((pt, i) => {
         let ts, rawValue;
@@ -112,18 +119,24 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
         const eventId = entry?.id;
         if (!eventId) return null;
 
+        const { startTime, endTime } = entry;
+        const hasRange = cameraId && Number.isFinite(startTime) && Number.isFinite(endTime);
+        const url = hasRange
+          ? getTimeRangeClipUrl(cameraId, startTime - beforeSec, endTime + afterSec)
+          : getEventClipUrl(eventId);
+
         return {
           id: `${eventId}-${i}`,
           eventId,
           ts: tsNum,
           detection: normalizeEventLabel(entry?.label),
           rawLabel: entry?.label,
-          url: getEventClipUrl(eventId),
+          url,
         };
       })
       .filter(Boolean)
       .sort((a, b) => b.ts - a.ts);
-  }, [rawPoints]);
+  }, [rawPoints, camera]);
 
   const filteredHistory = useMemo(() => {
     if (drawerDetection.size === 0) return history;
@@ -500,5 +513,10 @@ function unwrapEventValue(raw) {
   }
   if (Array.isArray(v)) v = v[0];
   if (!v || typeof v !== 'object') return null;
-  return { id: v.id ?? v.eventId ?? v.event_id, label: v.label ?? v.type ?? v.category };
+  return {
+    id: v.id ?? v.eventId ?? v.event_id,
+    label: v.label ?? v.type ?? v.category,
+    startTime: v.start_time ?? v.startTime,
+    endTime: v.end_time ?? v.endTime,
+  };
 }

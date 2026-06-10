@@ -163,7 +163,7 @@ export default function SecureOpsAlertsPage() {
       } else if (asset) {
         site = findSiteForAsset(asset, sites);
       }
-      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al) });
+      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al, asset) });
     }
     return m;
   }, [openAlarms, alarmTowerMap, assetMap, towerById, siteById, towers, sites]);

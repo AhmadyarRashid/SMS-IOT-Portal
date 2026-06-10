@@ -27,6 +27,11 @@ export function getEventClipUrl(eventId) {
   return `${EVENTS_BASE_URL}/api/events/${encodeURIComponent(eventId)}/clip.mp4`;
 }
 
+export function getTimeRangeClipUrl(cameraId, start, end) {
+  if (!cameraId || !Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return `${EVENTS_BASE_URL}/api/${encodeURIComponent(cameraId)}/start/${start}/end/${end}/clip.mp4`;
+}
+
 // Raw AI labels → telco scope buckets. Anything not in this map falls into
 // `other` (matches the existing DETECTION_TYPES chips in the Video modal).
 const LABEL_MAP = {

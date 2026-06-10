@@ -61,7 +61,7 @@ export default function AlarmClipModal({
   onSelect,                    // (alarmId: string) — switch the modal to a sibling
   onClose,
 }) {
-  const clipUrl = getAlarmClipUrl(alarm);
+  const clipUrl = getAlarmClipUrl(alarm, asset);
   const snapshotUrl = getAlarmSnapshotUrl(alarm);
   // Live stream only exists when the alarm's linked asset is itself a camera
   // (alarms can also fire from non-camera assets — door lock, sensor — for

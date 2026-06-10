@@ -190,7 +190,7 @@ export default function SecureOpsOverviewPage() {
       } else if (asset) {
         site = findSiteForAsset(asset, sites);
       }
-      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al) });
+      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al, asset) });
     }
     return m;
   }, [allAlarms, alarmTowerMap, towerByIdAll, siteById, assetMap, allTowers, sites]);

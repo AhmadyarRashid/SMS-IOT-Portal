@@ -7,7 +7,7 @@
  * else is best-effort.
  */
 
-import { getEventClipUrl, getEventSnapshotUrl } from '../constants/events';
+import { getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl } from '../constants/events';
 
 // Matches the AI-side event id shape used by the Video page eventId
 // datapoints — e.g. `1779269865.828876-zcx508`: a unix timestamp (optionally
@@ -17,6 +17,11 @@ const EVENT_ID_RE = /\b\d{10,}(?:\.\d+)?-[A-Za-z0-9]+\b/;
 const EVENT_ID_RE_GLOBAL = new RegExp(EVENT_ID_RE.source, 'g');
 const URL_RE = /https?:\/\/[^\s,)>"'<]+/i;
 const URL_RE_GLOBAL = new RegExp(URL_RE.source, 'gi');
+
+// Bare epoch timestamp — 10+ digits (unix seconds), optional fractional part.
+// Same numeric shape as the leading portion of an event id, but without the
+// `-suffix`. Used to extract start_time / end_time from alarm descriptions.
+const TIMESTAMP_RE_GLOBAL = /\b\d{10,}(?:\.\d+)?\b/g;
 
 function findUrl(text) {
   if (typeof text !== 'string') return null;
@@ -36,6 +41,22 @@ function findEventId(text) {
   return m ? m[0] : null;
 }
 
+// Search for bare epoch timestamps in text after stripping URLs and event ids.
+// Returns `{ start, end }` (smaller / larger) when at least two are found,
+// `null` otherwise. This mirrors how `findEventId` defensively strips URLs
+// before matching — here we additionally strip event ids so the timestamp
+// portion of `1779269865.828876-zcx508` isn't double-counted.
+function findTimestamps(text) {
+  if (typeof text !== 'string') return null;
+  const cleaned = text.replace(URL_RE_GLOBAL, ' ').replace(EVENT_ID_RE_GLOBAL, ' ');
+  const matches = cleaned.match(TIMESTAMP_RE_GLOBAL);
+  if (!matches || matches.length < 2) return null;
+  const nums = matches.map(Number).filter(Number.isFinite);
+  if (nums.length < 2) return null;
+  nums.sort((a, b) => a - b);
+  return { start: nums[0], end: nums[nums.length - 1] };
+}
+
 /**
  * Strip any `http(s)://...` URLs AND raw event ids out of an alarm's
  * content / description text. The dashboard surfaces playback only via the
@@ -49,7 +70,7 @@ function findEventId(text) {
 export function getAlarmContentText(alarm) {
   const text = alarm?.content || alarm?.description;
   if (typeof text !== 'string') return null;
-  const stripped = text.replace(URL_RE_GLOBAL, '').replace(EVENT_ID_RE_GLOBAL, '');
+  const stripped = text.replace(URL_RE_GLOBAL, '').replace(EVENT_ID_RE_GLOBAL, '').replace(TIMESTAMP_RE_GLOBAL, '');
   // Collapse repeated whitespace, then trim leftover punctuation that often
   // dangles after a URL was removed ("Person detected — " → "Person detected").
   const tidy = stripped.replace(/\s+/g, ' ').replace(/^[\s,—–\-:|]+|[\s,—–\-:|]+$/g, '');
@@ -86,7 +107,7 @@ export function getAlarmContentText(alarm) {
  * Returns `null` when nothing is available. Consumers should hide the
  * "View clip" affordance in that case (no placeholder data rule).
  */
-export function getAlarmClipUrl(alarm) {
+export function getAlarmClipUrl(alarm, asset) {
   if (!alarm) return null;
 
   // 1. Structured field — preferred.
@@ -101,12 +122,34 @@ export function getAlarmClipUrl(alarm) {
     if (url) return url;
   }
 
-  // 3. Bare event id in description / content — built via the same helper
-  //    the Video page uses, so a host change in `constants/events.js`
-  //    updates both surfaces.
+  // 3. Bare event id (and optional timestamps) in description / content.
+  //    Search all text fields so the event id and timestamps can live in
+  //    either field — first match wins for each.
+  let eventId = null;
+  let timestamps = null;
   for (const text of [alarm.content, alarm.description]) {
-    const id = findEventId(text);
-    if (id) return getEventClipUrl(id);
+    if (!eventId) eventId = findEventId(text);
+    if (!timestamps) timestamps = findTimestamps(text);
+  }
+
+  if (eventId) {
+    // When the description also carries start_time + end_time (bare epoch
+    // timestamps) and the linked camera asset has a cameraId attribute,
+    // prefer the time-range clip endpoint — same logic the Video page's
+    // CameraHistoryModal uses. Padding (beforeStartClip / afterEndClip)
+    // widens the window, matching the camera history behaviour.
+    if (timestamps) {
+      const cameraId = asset?.attributes?.cameraId?.value;
+      if (cameraId) {
+        const beforeMs = Number(asset.attributes?.beforeStartClip?.value);
+        const afterMs = Number(asset.attributes?.afterEndClip?.value);
+        const beforeSec = Number.isFinite(beforeMs) ? beforeMs / 1000 : 0;
+        const afterSec = Number.isFinite(afterMs) ? afterMs / 1000 : 0;
+        const url = getTimeRangeClipUrl(cameraId, timestamps.start - beforeSec, timestamps.end + afterSec);
+        if (url) return url;
+      }
+    }
+    return getEventClipUrl(eventId);
   }
 
   return null;
