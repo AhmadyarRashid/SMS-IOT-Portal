@@ -508,7 +508,7 @@ right-click → Save As.
 
 Every actionable alert row carries a **View clip** button when the
 alarm references a recorded clip. The dashboard resolves the URL via
-`getAlarmClipUrl(alarm)` in `src/utils/alarms.js`, in this order:
+`getAlarmClipUrl(alarm, asset)` in `src/utils/alarms.js`, in this order:
 
 1. **Structured field** on the alarm — `clipUrl`, `videoUrl`, or
    `streamUrl` (first non-empty wins). Recommended for new installations:
@@ -518,12 +518,16 @@ alarm references a recorded clip. The dashboard resolves the URL via
    in the `content` or `description` fields. Useful when the AI side
    dumps `"Person detected — https://media/.../clip.mp4"` into the alarm
    body. Returned verbatim.
-3. **Bare event id in the description** — same id shape the Video page
-   reads from the `eventId` datapoints stream (e.g.
-   `1779269865.828876-zcx508`). Built into a clip URL via
-   `getEventClipUrl(id)` from `src/constants/events.js`, so the icon
-   points at the same media server as the Video modal — a host change
-   in `EVENTS_BASE_URL` updates both surfaces.
+3. **Bare event id (+ optional timestamps) in the description** — same id
+   shape the Video page reads from the `eventId` datapoints stream (e.g.
+   `1779269865.828876-zcx508`). When the description also carries two bare
+   epoch timestamps (`start_time` / `end_time`) and the linked camera
+   asset has a `cameraId` attribute, the function builds a **time-range
+   clip URL** via `getTimeRangeClipUrl(cameraId, adjStart, adjEnd)` — the
+   same endpoint the Video page's CameraHistoryModal uses. Padding from
+   `beforeStartClip` / `afterEndClip` (ms → seconds) widens the window.
+   When timestamps or `cameraId` are missing, falls back to
+   `getEventClipUrl(id)`.
 
 The event-id matcher is **strict** — `\b\d{10,}(?:\.\d+)?-[A-Za-z0-9]+\b`,
 i.e. unix timestamp (optionally fractional) + dash + alphanumeric suffix
@@ -533,10 +537,27 @@ before searching for ids, so an event id embedded inside a URL path
 (`https://media/api/events/1779…-zcx508/clip.mp4`) doesn't get re-extracted
 and rebuilt against the wrong host — step 2 wins for that case.
 
-When none of the three is available the View clip button hides itself
-(no placeholder data). Click → shared `ClipModal` plays the URL via the
-same `CameraStream` renderer (see §5.1d for the full URL routing table
-— same rules apply to clips, including extensionless MJPEG endpoints).
+The **timestamp extractor** (`findTimestamps`) strips URLs *and* event
+ids from the text before matching bare epoch timestamps
+(`\b\d{10,}(?:\.\d+)?\b`), so the timestamp portion of an event id is
+never double-counted. It requires at least two matches; the smallest
+becomes `start`, the largest becomes `end`.
+
+**Fallback table (step 3):**
+
+| Condition | Result |
+|---|---|
+| `start_time` + `end_time` present + `cameraId` attribute exists on asset | Time-range URL: `/api/{cameraId}/start/{adj_start}/end/{adj_end}/clip.mp4` |
+| `start_time` or `end_time` missing | Legacy URL: `/api/events/{eventId}/clip.mp4` |
+| `cameraId` attribute missing on camera asset | Legacy URL |
+| `asset` not passed to `getAlarmClipUrl` | Legacy URL |
+| `beforeStartClip` / `afterEndClip` missing or non-numeric | Treated as 0 (no padding) |
+
+When none of the three steps resolves a URL the View clip button hides
+itself (no placeholder data). Click → `AlarmClipModal` plays the URL via
+the same `CameraStream` renderer (see §5.1d for the full URL routing
+table — same rules apply to clips, including extensionless MJPEG
+endpoints).
 
 **Description text is no longer rendered on alert cards (2026-05-22)
 or in OS notifications (2026-05-23).**
@@ -790,11 +811,21 @@ OR manager. The base URL + path layout is centralised in
 export const EVENTS_BASE_URL        = 'http://203-99-61-86.sslip.io:5000';
 export const CAMERA_EVENT_ATTRIBUTE = 'eventId';
 
-getEventSnapshotUrl(id) → `${EVENTS_BASE_URL}/api/events/${id}/snapshot.jpg`
-getEventClipUrl(id)     → `${EVENTS_BASE_URL}/api/events/${id}/clip.mp4`
+getEventSnapshotUrl(id)            → `${EVENTS_BASE_URL}/api/events/${id}/snapshot.jpg`
+getEventClipUrl(id)                → `${EVENTS_BASE_URL}/api/events/${id}/clip.mp4`
+getTimeRangeClipUrl(camId, s, e)   → `${EVENTS_BASE_URL}/api/${camId}/start/${s}/end/${e}/clip.mp4`
 ```
 
 A host change is a single-line edit to `EVENTS_BASE_URL`.
+
+**`getTimeRangeClipUrl` (added 2026-06-10).** When the AI side sends
+`start_time` + `end_time` (epoch seconds) alongside the event id, both
+`CameraHistoryModal` (Video page) and `getAlarmClipUrl` (alarm surfaces)
+prefer this camera-specific time-range endpoint over the legacy
+event-id endpoint. The camera asset's optional `beforeStartClip` /
+`afterEndClip` attributes (text, milliseconds) widen the clip window —
+converted to seconds and subtracted/added to `start`/`end` respectively.
+Snapshot URL is unchanged (always uses event id).
 
 **Modal playback flow (three-state player):**
 
@@ -802,7 +833,7 @@ A host change is a single-line edit to `EVENTS_BASE_URL`.
 |---|---|---|
 | Modal opens | Live stream | `liveStreamUrl` / `streamUrl` |
 | Click a clip row in sidebar | Snapshot preview + centred play overlay | `getEventSnapshotUrl(eventId)` |
-| Click the play overlay (or anywhere on the snapshot) | Clip mp4, autoplaying | `getEventClipUrl(eventId)` |
+| Click the play overlay (or anywhere on the snapshot) | Clip mp4, autoplaying | `getTimeRangeClipUrl` when `start_time`/`end_time`/`cameraId` present, else `getEventClipUrl(eventId)` |
 | Click "Show snapshot" | Snapshot again | `getEventSnapshotUrl(eventId)` |
 | Click "← Back to live" | Live stream | `liveStreamUrl` |
 
@@ -1857,7 +1888,8 @@ src/components/notifications/alarmNotifications.css
                                               empty space click-throughs work.
 src/utils/auditEvents.js                      Shared alarm/tower event generators
 src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
-                                              getEventClipUrl / getEventSnapshotUrl,
+                                              getEventClipUrl / getEventSnapshotUrl /
+                                              getTimeRangeClipUrl (2026-06-10),
                                               normalizeEventLabel (person→human etc.)
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
@@ -1923,10 +1955,16 @@ src/hooks/useLiveEvents.js                    Alarm watcher now pushes to
                                               OS notifications via fireAlarmNotification
                                               unchanged.
 src/api/client.js                             Refresh-token dedup (concurrent 401 handling)
-src/utils/alarms.js                           getAlarmClipUrl unchanged + new
-                                              getAlarmEventId / getAlarmSnapshotUrl /
+src/utils/alarms.js                           getAlarmClipUrl(alarm, asset) now accepts
+                                              optional asset for time-range clip URLs
+                                              (2026-06-10) + getAlarmEventId /
+                                              getAlarmSnapshotUrl /
                                               getAlarmDetectionLabel helpers feeding
-                                              AlarmClipModal (§5.1b).
+                                              AlarmClipModal (§5.1b). findTimestamps
+                                              extracts bare epoch timestamps from
+                                              description text (strips URLs + event ids
+                                              first). getAlarmContentText also strips
+                                              bare timestamps from display text.
 src/utils/auditEvents.js                      Each event payload now carries the raw
                                               `alarm` ref so /audit's clip click can
                                               open AlarmClipModal with full context.
@@ -2192,9 +2230,13 @@ In rough priority order:
    sidebar → **snapshot preview + centred play overlay** → click the
    overlay → mp4 plays. "← Back to live" returns to the live feed;
    "Show snapshot" drops back to the preview while playing. Snapshot
-   and clip URLs are derived from the event id via
-   `getEventSnapshotUrl(id)` / `getEventClipUrl(id)` in
-   `src/constants/events.js` — host change is a one-line edit.
+   URLs use `getEventSnapshotUrl(id)`. Clip URLs use
+   `getTimeRangeClipUrl(cameraId, start, end)` when the event carries
+   `start_time` / `end_time` and the camera has a `cameraId` attribute,
+   otherwise fall back to `getEventClipUrl(id)`. Padding from
+   `beforeStartClip` / `afterEndClip` (ms → sec) widens the clip
+   window. All in `src/constants/events.js` — host change is a
+   one-line edit.
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free
