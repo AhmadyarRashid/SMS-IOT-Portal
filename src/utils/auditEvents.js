@@ -1,7 +1,7 @@
 import { AlertOctagon, ScrollText } from 'lucide-react';
 import { getAssetDisplayName } from './assetIcons';
 import { findGatewayForAsset, findSiteForAsset } from './gateways';
-import { getAlarmClipUrl, getAlarmContentText } from './alarms';
+import { getAlarmClipUrl, getAlarmContentText, getAlarmEventId } from './alarms';
 
 /**
  * Shared audit-event generation. Both the dashboard panel
@@ -46,9 +46,13 @@ export function alarmAuditEvents(alarm, ctx = {}) {
     : (asset ? findSiteForAsset(asset, ctx.sites || []) : null);
 
   const clipUrl = getAlarmClipUrl(alarm, asset);
+  // `hasClip` gates the row's clip icon: an alarm with an event id but no
+  // resolvable URL (camera media origin missing) still shows it — the modal
+  // then surfaces the config error.
+  const hasClip = !!clipUrl || !!getAlarmEventId(alarm);
   // `alarm` rides along so downstream surfaces (AlarmClipModal) can derive
   // snapshot URL + detection label from the same source the row already shows.
-  const common = { severity, status, site, tower, asset, clipUrl, alarm };
+  const common = { severity, status, site, tower, asset, clipUrl, hasClip, alarm };
 
   if (alarm.createdOn) {
     events.push({

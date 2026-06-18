@@ -413,6 +413,7 @@ extensionless paths.
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 | `ptzCommand` | text | **yes for `PtzCameraAsset`** | Written by `usePtzMove` to drive PTZ movement. Possible values: `move_up` · `move_down` · `move_left` · `move_right` · `stop` (and per the OR-side enum, also `preset_home` · `zoom_in` · `zoom_out` — not wired to the d-pad yet). The hook always pairs each `move_*` write with a follow-up `stop` write after `movementDuration`. See §5.1e. |
 | `movementDuration` | text (ms) | optional, PtzCameraAsset only | How long, in milliseconds, `usePtzMove` holds a `move_*` command before writing `stop`. Missing / blank / non-numeric / `≤ 0` ⇒ default **3000 ms**. See §5.1e. |
+| `eventsBaseUrl` | string | **yes** for clip / snapshot playback | Per-camera media-server origin that serves the clip / snapshot bytes — e.g. `https://100.84.108.142:8443`. Read via `getCameraEventsBaseUrl(camera)` in `utils/gateways.js` and fed to `getEventClipUrl` / `getEventSnapshotUrl` / `getTimeRangeClipUrl`. Kept dynamic per camera like `liveStreamUrl`. **No fallback** — missing / malformed (not an http(s) origin or a `/`-relative path) ⇒ resolves to `null`, the builders return `null`, and the clip surfaces show a **black frame + play icon**; pressing play raises a friendly toast (no attribute names / no "OpenRemote"). Trailing slash is trimmed before building the path. See §5.2c. |
 
 ### 5.1b. Alarm clip modal — `AlarmClipModal`
 
@@ -804,19 +805,54 @@ empty" when deciding what to do next (nothing). Any other status
 ### 5.2c. Event clip + snapshot URLs
 
 Clip and snapshot media live on a **separate media server** from the
-OR manager. The base URL + path layout is centralised in
-`src/constants/events.js`:
+OR manager. The **media-server origin is per-camera** — read from the
+camera's `eventsBaseUrl` attribute (§5.2) via
+`getCameraEventsBaseUrl(camera)` in `utils/gateways.js`, so each camera
+points at its own host. **There is no fallback constant** — only the
+path layout is centralised in `src/constants/events.js`:
 
 ```js
-export const EVENTS_BASE_URL        = 'http://203-99-61-86.sslip.io:5000';
 export const CAMERA_EVENT_ATTRIBUTE = 'eventId';
 
-getEventSnapshotUrl(id)            → `${EVENTS_BASE_URL}/api/events/${id}/snapshot.jpg`
-getEventClipUrl(id)                → `${EVENTS_BASE_URL}/api/events/${id}/clip.mp4`
-getTimeRangeClipUrl(camId, s, e)   → `${EVENTS_BASE_URL}/api/${camId}/start/${s}/end/${e}/clip.mp4`
+// Each builder takes the resolved per-camera base URL. The base is
+// trimmed (trailing slash stripped); a missing / blank base ⇒ null.
+getEventSnapshotUrl(id, base)          → `${base}/api/events/${id}/snapshot.jpg`
+getEventClipUrl(id, base)              → `${base}/api/events/${id}/clip.mp4`
+getTimeRangeClipUrl(camId, s, e, base) → `${base}/api/${camId}/start/${s}/end/${e}/clip.mp4`
 ```
 
-A host change is a single-line edit to `EVENTS_BASE_URL`.
+Resolution: `getCameraEventsBaseUrl(camera)` returns the trimmed
+`eventsBaseUrl` attribute when it's a usable origin (an http(s) URL or a
+`/`-relative reverse-proxy path), or **`null`** when the attribute is
+missing **or malformed**. The callsites that resolve a base from the
+linked camera are `CameraHistoryModal` (Video page),
+`getAlarmClipUrl(alarm, asset)` and `getAlarmSnapshotUrl(alarm, asset)`
+in `utils/alarms.js`.
+
+**Missing / malformed config behaviour (no fallback, no placeholder,
+no jargon).** When the base resolves to `null`, all three builders
+return `null`. The UX is deliberately uniform across surfaces and never
+exposes the attribute name or "OpenRemote" to the operator:
+
+- **`CameraHistoryModal` (Video / Control / audit camera pop-out).** The
+  full detection-history list still renders exactly as normal. Selecting
+  a row shows a **black frame with the play icon** instead of a snapshot;
+  pressing play raises the toast `EVENT_CLIP_MISSING_MESSAGE` — *"Event
+  clip configuration is missing. Please contact your administrator."*
+  The live stream still plays (it comes from `liveStreamUrl`).
+- **Alarm surfaces (Overview / `/alarms` / `/audit`).** The clip icon is
+  gated on **`hasClip`** = a resolvable clip URL **or** an event id (via
+  `getAlarmEventId`) — so an event-backed alarm still shows the icon even
+  when the base is unconfigured. Opening it lands on the Clip tab with
+  the same black-frame + play-icon → toast behaviour as the history
+  modal. The Download button is hidden while no clip URL exists. A clip
+  URL provided directly (literal URL / structured field) is unaffected
+  and plays normally.
+
+`EVENT_CLIP_MISSING_MESSAGE` is exported from `src/constants/events.js`
+so the wording lives in one place. The `hasClip` flag is precomputed
+into each page's `alarmContextMap` (and the audit event payload)
+alongside `clipUrl`.
 
 **`getTimeRangeClipUrl` (added 2026-06-10).** When the AI side sends
 `start_time` + `end_time` (epoch seconds) alongside the event id, both
@@ -854,14 +890,17 @@ the events host as "mixed content" (`<video>` always; modern Chrome /
 Firefox also block `<img>`). Three fixes, cheapest first:
 
 1. **Reverse-proxy** the events host through the dashboard origin
-   (Vite dev proxy + nginx/caddy in prod). Change `EVENTS_BASE_URL`
-   to the relative path (e.g. `/events`) and the browser only sees
-   one HTTPS origin.
+   (Vite dev proxy + nginx/caddy in prod). Set each camera's
+   `eventsBaseUrl` to the relative path (e.g. `/events`) and the
+   browser only sees one HTTPS origin.
 2. **Give the events host its own TLS cert** (Let's Encrypt /
-   certbot, or front with Cloudflare) and switch `EVENTS_BASE_URL`
+   certbot, or front with Cloudflare) and set `eventsBaseUrl`
    to `https://…`. Cleanest long-term — `<video>` and `<img>` need
    no CORS headers for cross-origin playback as long as the cert is
-   valid and the SAN matches the hostname.
+   valid and the SAN matches the hostname. (The current value
+   `https://100.84.108.142:8443` is a bare-IP origin whose cert
+   almost certainly won't match — expect a trust prompt until this
+   is addressed.)
 3. **Serve the portal over HTTP.** Works but throws away TLS for OR
    auth too — not recommended.
 
@@ -1887,9 +1926,11 @@ src/components/notifications/alarmNotifications.css
                                               open. Container pointer-events:none so
                                               empty space click-throughs work.
 src/utils/auditEvents.js                      Shared alarm/tower event generators
-src/constants/events.js                       EVENTS_BASE_URL, CAMERA_EVENT_ATTRIBUTE,
+src/constants/events.js                       CAMERA_EVENT_ATTRIBUTE,
                                               getEventClipUrl / getEventSnapshotUrl /
-                                              getTimeRangeClipUrl (2026-06-10),
+                                              getTimeRangeClipUrl — each now takes a
+                                              per-camera base URL arg (returns null when
+                                              the base is missing — no fallback constant);
                                               normalizeEventLabel (person→human etc.)
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
@@ -2230,13 +2271,17 @@ In rough priority order:
    sidebar → **snapshot preview + centred play overlay** → click the
    overlay → mp4 plays. "← Back to live" returns to the live feed;
    "Show snapshot" drops back to the preview while playing. Snapshot
-   URLs use `getEventSnapshotUrl(id)`. Clip URLs use
-   `getTimeRangeClipUrl(cameraId, start, end)` when the event carries
-   `start_time` / `end_time` and the camera has a `cameraId` attribute,
-   otherwise fall back to `getEventClipUrl(id)`. Padding from
-   `beforeStartClip` / `afterEndClip` (ms → sec) widens the clip
-   window. All in `src/constants/events.js` — host change is a
-   one-line edit.
+   URLs use `getEventSnapshotUrl(id, base)`. Clip URLs use
+   `getTimeRangeClipUrl(cameraId, start, end, base)` when the event
+   carries `start_time` / `end_time` and the camera has a `cameraId`
+   attribute, otherwise fall back to `getEventClipUrl(id, base)`. The
+   `base` is the camera's per-camera `eventsBaseUrl` attribute
+   (§5.2c) — when it's missing / malformed, selecting a history row
+   shows a black frame + play icon and pressing play toasts a friendly
+   config error (the list itself still renders normally). Padding from
+   `beforeStartClip` / `afterEndClip` (ms → sec) widens the clip window.
+   Path layout lives in `src/constants/events.js`; the host is
+   per-camera in OR.
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free

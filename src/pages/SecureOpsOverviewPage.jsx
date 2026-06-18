@@ -19,7 +19,7 @@ import {
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import AlarmClipModal from '../components/cameras/AlarmClipModal';
-import { getAlarmClipUrl } from '../utils/alarms';
+import { getAlarmClipUrl, getAlarmEventId } from '../utils/alarms';
 import './secureops.css';
 
 /* ==========================================================================
@@ -190,7 +190,11 @@ export default function SecureOpsOverviewPage() {
       } else if (asset) {
         site = findSiteForAsset(asset, sites);
       }
-      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al, asset) });
+      const clipUrl = getAlarmClipUrl(al, asset);
+      // `hasClip` (not `clipUrl`) gates the clip affordance: an alarm with an
+      // event id but no resolvable URL (camera media origin missing) still
+      // shows the clip icon — the modal then surfaces the config error.
+      m.set(al.id, { asset, tower, site, clipUrl, hasClip: !!clipUrl || !!getAlarmEventId(al) });
     }
     return m;
   }, [allAlarms, alarmTowerMap, towerByIdAll, siteById, assetMap, allTowers, sites]);
@@ -775,7 +779,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
     if (!tower) return { current, queue: [current], index: 0 };
     const queue = alarms
       .filter((al) => alarmTowerMap.get(al.id)?.has(tower.id))
-      .filter((al) => alarmContextMap.get(al.id)?.clipUrl)
+      .filter((al) => alarmContextMap.get(al.id)?.hasClip)
       .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
       .map(resolveAlarmContext);
     const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
@@ -885,7 +889,7 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
                   asset={ctx?.asset || null}
                   tower={ctx?.tower || null}
                   site={ctx?.site || null}
-                  clipUrl={ctx?.clipUrl || null}
+                  hasClip={ctx?.hasClip || false}
                   pendingStatus={pendingAlarmId === al.id ? pendingStatus : null}
                   onClipClick={handleClipClick}
                   onAck={handleAck}
@@ -995,7 +999,7 @@ function ToggleChip({ active, onClick, color, count, icon: Icon, children }) {
  *   • the alarm itself — React Query preserves object identity across
  *     polls when the alarm payload hasn't changed (structural sharing).
  */
-const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pendingStatus, onClipClick, onAck, onResolve }) {
+const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, hasClip, pendingStatus, onClipClick, onAck, onResolve }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
 
@@ -1065,9 +1069,9 @@ const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pe
           {sevMeta.label}
         </span>
 
-        {(canAck || canResolve || clipUrl) && (
+        {(canAck || canResolve || hasClip) && (
           <div className="so-alert-actions">
-            {clipUrl && (
+            {hasClip && (
               <button
                 type="button"
                 onClick={() => onClipClick?.(alarm.id)}

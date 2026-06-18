@@ -22,6 +22,7 @@ import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel,
   isAssetActive, getPrimaryControlAttr, nextToggleValue, normalizeAssetType,
 } from '../../utils/assetIcons';
+import { EVENT_CLIP_MISSING_MESSAGE } from '../../constants/events';
 
 /* ==========================================================================
    AlarmClipModal — rich preview for an alarm's recorded clip.
@@ -62,7 +63,13 @@ export default function AlarmClipModal({
   onClose,
 }) {
   const clipUrl = getAlarmClipUrl(alarm, asset);
-  const snapshotUrl = getAlarmSnapshotUrl(alarm);
+  const snapshotUrl = getAlarmSnapshotUrl(alarm, asset);
+  // An event id was found but no clip URL could be built (the camera's media
+  // origin is missing / malformed). We still open the modal and show a black
+  // frame + play icon; pressing play toasts a friendly config error rather
+  // than playing a dead URL — same UX as the camera history modal.
+  const alarmEventId = getAlarmEventId(alarm);
+  const clipConfigMissing = !clipUrl && !!alarmEventId;
   // Live stream only exists when the alarm's linked asset is itself a camera
   // (alarms can also fire from non-camera assets — door lock, sensor — for
   // which a "Live" tab makes no sense).
@@ -144,7 +151,9 @@ export default function AlarmClipModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose, onSelect, prev, next]);
 
-  if (!alarm || !clipUrl) return null;
+  // Render when there's something to show: a resolvable clip URL, or an event
+  // id (in which case clip playback surfaces the missing-config error).
+  if (!alarm || (!clipUrl && !clipConfigMissing)) return null;
 
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
@@ -307,21 +316,37 @@ export default function AlarmClipModal({
             </button>
           )}
           {view === 'clip' && (
-            <div className="so-clip-modal-player">
-              {/* Native controls — operator controls play / pause / seek /
-                  volume + browser-provided fullscreen + PiP. `key={clipUrl}`
-                  forces a fresh element if the modal is reused for a
-                  different clip without unmounting. */}
-              <video
-                key={clipUrl}
-                src={clipUrl}
-                controls
-                autoPlay
-                playsInline
-                controlsList="nodownload"
-                preload="metadata"
-              />
-            </div>
+            clipConfigMissing ? (
+              /* No media origin configured — black frame + play icon. Pressing
+                 it toasts a friendly config error instead of loading a dead
+                 URL (mirrors the camera history modal). */
+              <button
+                type="button"
+                className="so-clip-modal-snapshot"
+                onClick={() => toast.error(EVENT_CLIP_MISSING_MESSAGE)}
+                aria-label="Play clip"
+              >
+                <span className="so-clip-modal-play">
+                  <Play className="w-7 h-7" strokeWidth={2} fill="currentColor" />
+                </span>
+              </button>
+            ) : (
+              <div className="so-clip-modal-player">
+                {/* Native controls — operator controls play / pause / seek /
+                    volume + browser-provided fullscreen + PiP. `key={clipUrl}`
+                    forces a fresh element if the modal is reused for a
+                    different clip without unmounting. */}
+                <video
+                  key={clipUrl}
+                  src={clipUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  controlsList="nodownload"
+                  preload="metadata"
+                />
+              </div>
+            )
           )}
           {view === 'live' && hasLive && (
             <div className="so-clip-modal-player so-clip-modal-live">
@@ -444,7 +469,7 @@ export default function AlarmClipModal({
                 <span>{resolvePending ? 'Resolving…' : 'Resolve'}</span>
               </button>
             )}
-            {view === 'clip' && (
+            {view === 'clip' && clipUrl && (
               <button
                 type="button"
                 onClick={() => downloadClip({

@@ -9,10 +9,11 @@ import PtzControls from './PtzControls';
 import { useAssets } from '../../hooks/useAssets';
 import { useCameraEvents } from '../../hooks/useCameraEvents';
 import { usePtzMove } from '../../hooks/usePtzMove';
-import { getCameraStreamUrl, isPtzCamera, resolvePttForTower } from '../../utils/gateways';
+import { getCameraStreamUrl, getCameraEventsBaseUrl, isPtzCamera, resolvePttForTower } from '../../utils/gateways';
 import { getAssetDisplayName } from '../../utils/assetIcons';
 import {
   getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl, normalizeEventLabel,
+  EVENT_CLIP_MISSING_MESSAGE,
 } from '../../constants/events';
 
 /* ==========================================================================
@@ -69,6 +70,11 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
 
   const liveUrl = getCameraStreamUrl(camera);
   const offline = camera.attributes?.connected?.value === false;
+  // Per-camera media origin for clips / snapshots (eventsBaseUrl attribute).
+  // null ⇒ not configured (missing / malformed): the history list still shows
+  // every row, but selecting one renders a black frame + play icon instead of
+  // a snapshot, and pressing play toasts a config error (handled below).
+  const eventsBase = getCameraEventsBaseUrl(camera);
   const ptz = isPtzCamera(camera);
   const { move: ptzMove } = usePtzMove(ptz ? camera : null);
 
@@ -122,8 +128,8 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
         const { startTime, endTime } = entry;
         const hasRange = cameraId && Number.isFinite(startTime) && Number.isFinite(endTime);
         const url = hasRange
-          ? getTimeRangeClipUrl(cameraId, startTime - beforeSec, endTime + afterSec)
-          : getEventClipUrl(eventId);
+          ? getTimeRangeClipUrl(cameraId, startTime - beforeSec, endTime + afterSec, eventsBase)
+          : getEventClipUrl(eventId, eventsBase);
 
         return {
           id: `${eventId}-${i}`,
@@ -136,7 +142,7 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
       })
       .filter(Boolean)
       .sort((a, b) => b.ts - a.ts);
-  }, [rawPoints, camera]);
+  }, [rawPoints, camera, eventsBase]);
 
   const filteredHistory = useMemo(() => {
     if (drawerDetection.size === 0) return history;
@@ -153,14 +159,26 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
   let playerUrl;
   if (!activeClip) playerUrl = liveUrl;
   else if (isPlaying) playerUrl = activeClip.url;
-  else playerUrl = getEventSnapshotUrl(activeClip.eventId);
+  else playerUrl = getEventSnapshotUrl(activeClip.eventId, eventsBase);
   const playerKey = playerUrl || 'empty';
   const showPlayOverlay = !!activeClip && !isPlaying;
   const showPtzOverlay = ptz && !activeClip && !offline;
+  // A clip is selected but its media origin isn't configured — show a black
+  // frame under the play icon instead of a (broken) snapshot.
+  const clipConfigMissing = !!activeClip && !eventsBase;
 
   const handleSelectClip = (clip) => {
     setActiveClip(clip);
     setIsPlaying(false);
+  };
+  const handlePlayClip = () => {
+    // No usable media origin → can't fetch the clip. Tell the operator in
+    // plain language rather than playing a dead URL.
+    if (!eventsBase) {
+      toast.error(EVENT_CLIP_MISSING_MESSAGE);
+      return;
+    }
+    setIsPlaying(true);
   };
   const handleBackToLive = () => {
     setActiveClip(null);
@@ -249,11 +267,13 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
           {/* Player */}
           <div className="flex flex-col min-h-0 min-w-0">
             <div className="so-cam-full flex-1 relative">
-              <CameraStream key={playerKey} url={playerUrl} offline={!activeClip && offline} />
+              {clipConfigMissing
+                ? <div className="w-full h-full" aria-hidden="true" />
+                : <CameraStream key={playerKey} url={playerUrl} offline={!activeClip && offline} />}
               {showPlayOverlay && (
                 <button
                   type="button"
-                  onClick={() => setIsPlaying(true)}
+                  onClick={handlePlayClip}
                   className="so-play-overlay"
                   title="Play clip"
                   aria-label="Play clip"

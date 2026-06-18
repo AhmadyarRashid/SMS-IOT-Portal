@@ -441,7 +441,7 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-[var(--color-ink-0)] truncate">{e.title}</span>
-              {e.clipUrl && (
+              {e.hasClip && (
                 <button
                   type="button"
                   onClick={() => onClipClick?.({

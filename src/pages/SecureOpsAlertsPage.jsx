@@ -12,7 +12,7 @@ import {
 import {
   getAssetDisplayName, getCustomAssetType, getAssetTypeLabel, normalizeAssetType,
 } from '../utils/assetIcons';
-import { getAlarmClipUrl } from '../utils/alarms';
+import { getAlarmClipUrl, getAlarmEventId } from '../utils/alarms';
 import useSecureOpsStore from '../store/secureOpsStore';
 import { LoadingSpinner } from '../components/ui';
 import AlarmClipModal from '../components/cameras/AlarmClipModal';
@@ -163,7 +163,11 @@ export default function SecureOpsAlertsPage() {
       } else if (asset) {
         site = findSiteForAsset(asset, sites);
       }
-      m.set(al.id, { asset, tower, site, clipUrl: getAlarmClipUrl(al, asset) });
+      const clipUrl = getAlarmClipUrl(al, asset);
+      // `hasClip` gates the clip icon: an alarm with an event id but no
+      // resolvable URL (camera media origin missing) still shows it — the
+      // modal then surfaces the config error.
+      m.set(al.id, { asset, tower, site, clipUrl, hasClip: !!clipUrl || !!getAlarmEventId(al) });
     }
     return m;
   }, [openAlarms, alarmTowerMap, assetMap, towerById, siteById, towers, sites]);
@@ -432,7 +436,7 @@ export default function SecureOpsAlertsPage() {
                   asset={ctx?.asset || null}
                   tower={ctx?.tower || null}
                   site={ctx?.site || null}
-                  clipUrl={ctx?.clipUrl || null}
+                  hasClip={ctx?.hasClip || false}
                   pendingStatus={pendingAlarmId === al.id ? pendingStatus : null}
                   onClipClick={handleClipClick}
                   onAck={handleAck}
@@ -478,7 +482,7 @@ export default function SecureOpsAlertsPage() {
  * individual primitives / stable refs (NOT a wrapping context object)
  * so React.memo's shallow compare actually skips work on background polls.
  */
-const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pendingStatus, onClipClick, onAck, onResolve }) {
+const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, hasClip, pendingStatus, onClipClick, onAck, onResolve }) {
   const sev = (alarm.severity || 'LOW').toUpperCase();
   const sevMeta = SEVERITY_META[sev] || SEVERITY_META.LOW;
 
@@ -541,7 +545,7 @@ const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, clipUrl, pe
         </span>
 
         <div className="so-alert-actions">
-          {clipUrl && (
+          {hasClip && (
             <button
               type="button"
               onClick={() => onClipClick?.(alarm.id)}

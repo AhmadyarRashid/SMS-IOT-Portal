@@ -109,6 +109,34 @@ export function getCameraStreamUrl(camera) {
 }
 
 /**
+ * Read the per-camera media-server origin from its `eventsBaseUrl` attribute
+ * — e.g. `https://100.84.108.142:8443`. This is the host that serves the
+ * clip / snapshot bytes (`getEventClipUrl` / `getEventSnapshotUrl` /
+ * `getTimeRangeClipUrl`), kept dynamic per camera like `liveStreamUrl`
+ * rather than hard-coded.
+ *
+ * Returns `null` when the camera carries no `eventsBaseUrl`, OR when the
+ * value isn't a usable origin (malformed / missing scheme / junk). There is
+ * no fallback host — callers treat `null` as "events clips not configured"
+ * and surface a friendly error rather than fabricating or building a broken
+ * media URL (no-placeholder rule).
+ *
+ * Accepts an absolute http(s) origin (`https://host:port`) or a root-relative
+ * reverse-proxy path (`/events`). Anything else resolves to `null`.
+ */
+export function getCameraEventsBaseUrl(camera) {
+  const raw = camera?.attributes?.eventsBaseUrl?.value;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('/')) return trimmed;
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return trimmed;
+  } catch { /* not a parseable URL — fall through to null */ }
+  return null;
+}
+
+/**
  * Find the "weather" asset for a tower — the realm-side convention is that
  * each tower has a single `HeatSensorAsset` child carrying BOTH `temperature`
  * and `humidity` attributes (a packaged temp/humidity sensor inside the

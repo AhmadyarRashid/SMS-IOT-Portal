@@ -8,6 +8,7 @@
  */
 
 import { getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl } from '../constants/events';
+import { getCameraEventsBaseUrl } from './gateways';
 
 // Matches the AI-side event id shape used by the Video page eventId
 // datapoints — e.g. `1779269865.828876-zcx508`: a unix timestamp (optionally
@@ -133,6 +134,9 @@ export function getAlarmClipUrl(alarm, asset) {
   }
 
   if (eventId) {
+    // Media-server origin is per-camera (eventsBaseUrl attribute), falling
+    // back to the deployment-wide constant when the asset has none.
+    const baseUrl = getCameraEventsBaseUrl(asset);
     // When the description also carries start_time + end_time (bare epoch
     // timestamps) and the linked camera asset has a cameraId attribute,
     // prefer the time-range clip endpoint — same logic the Video page's
@@ -145,11 +149,11 @@ export function getAlarmClipUrl(alarm, asset) {
         const afterMs = Number(asset.attributes?.afterEndClip?.value);
         const beforeSec = Number.isFinite(beforeMs) ? beforeMs / 1000 : 0;
         const afterSec = Number.isFinite(afterMs) ? afterMs / 1000 : 0;
-        const url = getTimeRangeClipUrl(cameraId, timestamps.start - beforeSec, timestamps.end + afterSec);
+        const url = getTimeRangeClipUrl(cameraId, timestamps.start - beforeSec, timestamps.end + afterSec, baseUrl);
         if (url) return url;
       }
     }
-    return getEventClipUrl(eventId);
+    return getEventClipUrl(eventId, baseUrl);
   }
 
   return null;
@@ -191,10 +195,14 @@ export function getAlarmEventId(alarm) {
  * Used by the alarm clip modal to preview a still frame before pulling the
  * video bytes. Returns `null` when the alarm carries no event id — the
  * modal then jumps straight to clip playback (no snapshot step).
+ *
+ * `asset` (the linked camera) supplies the per-camera media-server origin
+ * via `eventsBaseUrl`; omit it and the snapshot falls back to the
+ * deployment-wide constant.
  */
-export function getAlarmSnapshotUrl(alarm) {
+export function getAlarmSnapshotUrl(alarm, asset) {
   const id = getAlarmEventId(alarm);
-  return id ? getEventSnapshotUrl(id) : null;
+  return id ? getEventSnapshotUrl(id, getCameraEventsBaseUrl(asset)) : null;
 }
 
 /**
