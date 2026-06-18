@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNowStrict } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -17,6 +17,7 @@ import {
   isAssetActive, getPrimaryControlAttr, nextToggleValue, getStateLabel,
   normalizeAssetType, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
+import { getSimulatedBatteryPercent } from '../utils/batterySim';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 import CameraCard from '../components/cameras/CameraCard';
 import AssetHistoryCard from '../components/charts/AssetHistoryCard';
@@ -353,9 +354,20 @@ function CamerasPanel({ cameras, tower }) {
    ========================================================================== */
 
 function EnvironmentPanel({ weather, battery }) {
+  // Re-render once a minute so the simulated battery value (below) keeps
+  // creeping up/down on screen without waiting for the 15s asset poll.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const temp = readNumber(weather?.attributes?.temperature?.value);
   const humidity = readNumber(weather?.attributes?.humidity?.value);
-  const energyLevel = readNumber(battery?.attributes?.energyLevelPercentage?.value);
+  // Battery is always the solar/battery time-of-day simulation (Asia-Karachi).
+  // The backend `energyLevelPercentage` is intentionally NOT read for now —
+  // swap back to it here when the device starts reporting reliably.
+  const batteryPct = getSimulatedBatteryPercent();
   const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
                  || parseDate(weather?.attributes?.humidity?.timestamp)
                  || parseDate(battery?.attributes?.energyLevelPercentage?.timestamp)
@@ -403,8 +415,8 @@ function EnvironmentPanel({ weather, battery }) {
               <EnvBigStat
                 icon={BatteryCharging}
                 label="Battery"
-                value={energyLevel != null ? `${energyLevel.toFixed(0)}%` : '—'}
-                tone={batteryTone(energyLevel)}
+                value={`${batteryPct}%`}
+                tone={batteryTone(batteryPct)}
               />
             )}
           </div>

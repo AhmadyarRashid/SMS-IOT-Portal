@@ -925,12 +925,14 @@ HeatSensorAsset child, the tile hides itself. (The header used to
 mirror these chips but no longer does — see §6.3.)
 
 **Note on battery (on-screen reading):** the `/control` Environment
-panel renders battery percentage from a per-tower **`BatteryAsset`
-child** carrying `energyLevelPercentage` — NOT from the
-TowerAsset-level `batteryLevel` attribute above. Match is
-case-insensitive (`normalizeAssetType(getCustomAssetType) ===
-'BatteryAsset'`). If a tower has no BatteryAsset child, the tile
-hides itself.
+panel shows the Battery tile when the tower has a per-tower
+**`BatteryAsset` child** (matched case-insensitively via
+`normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`); if there's
+no BatteryAsset child, the tile hides itself. **The displayed value is
+currently simulated** from the time of day — `energyLevelPercentage`
+(and the TowerAsset-level `batteryLevel`) are **not read** for now. See
+§9a.2 for the solar/battery model and how to switch back to the real
+attribute.
 
 ### 5.4. Device control attributes (existing convention)
 
@@ -1627,11 +1629,35 @@ asset is present:
 |---|---|---|---|
 | Temperature | `HeatSensorAsset` child of tower (via `getWeatherAssetForTower`) | `temperature` | `warning` (orange) |
 | Humidity | same `HeatSensorAsset` | `humidity` | `accent` (cyan) |
-| Battery | `BatteryAsset` child of tower (matched via `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`) | `energyLevelPercentage` | **threshold-coloured**: ≥50 % → `ok` (green) · 20-49 % → `warning` (yellow) · <20 % → `danger` (red) · null → `accent` (grey) |
+| Battery | `BatteryAsset` child of tower (matched via `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`) | **simulated — see below** | **threshold-coloured**: ≥50 % → `ok` (green) · 20-49 % → `warning` (yellow) · <20 % → `danger` (red) · null → `accent` (grey) |
 
 The Battery tile uses a `batteryTone(pct)` helper to map the reading
 to a tone, and `EnvBigStat` was extended to accept `tone: 'ok' |
 'danger'` (was only `warning` / `accent`).
+
+**Battery value is simulated (2026-06-18).** The backend doesn't report
+`energyLevelPercentage` reliably yet, so the tile shows a synthesised
+state-of-charge from `getSimulatedBatteryPercent()` in
+`src/utils/batterySim.js` — the OR attribute value is **intentionally
+not read** for now. The towers run on solar + battery, so the model is a
+time-of-day triangle wave in **Pakistan time (Asia/Karachi)**:
+
+- **Daylight (sunrise → sunset): charging.** SoC ramps up from the daily
+  minimum at sunrise to the daily maximum at sunset.
+- **Night (sunset → sunrise): discharging.** SoC ramps back down to the
+  minimum at the next sunrise (wraps across midnight).
+- Range is **`BATTERY_SIM_MIN` (42 %) → `BATTERY_SIM_MAX` (83 %)**, always
+  a **rounded integer**. Sunrise / sunset are named constants
+  (`05:30` / `19:15` PKT) so they can be nudged per season. Time-of-day
+  is resolved via `Intl.DateTimeFormat({ timeZone: 'Asia/Karachi' })` so
+  the curve is correct regardless of the browser's own timezone.
+
+`EnvironmentPanel` runs a 60 s `setInterval` tick so the value visibly
+creeps on screen between the 15 s asset polls. **To restore the real
+reading later:** read `energyLevelPercentage` again in `EnvironmentPanel`
+(the line is commented in the code) — the tone helper and tile markup
+need no change. The tile still renders only when the tower has a
+`BatteryAsset` child.
 
 **Empty state.** The panel hides itself only when **neither**
 HeatSensorAsset nor BatteryAsset is present (`!hasAny`). Previously
