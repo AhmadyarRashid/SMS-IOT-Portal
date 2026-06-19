@@ -7,7 +7,7 @@
  * else is best-effort.
  */
 
-import { getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl } from '../constants/events';
+import { getEventClipUrl, getEventSnapshotUrl } from '../constants/events';
 import { getCameraEventsBaseUrl } from './gateways';
 
 // Matches the AI-side event id shape used by the Video page eventId
@@ -40,22 +40,6 @@ function findEventId(text) {
   const withoutUrls = text.replace(URL_RE_GLOBAL, ' ');
   const m = withoutUrls.match(EVENT_ID_RE);
   return m ? m[0] : null;
-}
-
-// Search for bare epoch timestamps in text after stripping URLs and event ids.
-// Returns `{ start, end }` (smaller / larger) when at least two are found,
-// `null` otherwise. This mirrors how `findEventId` defensively strips URLs
-// before matching — here we additionally strip event ids so the timestamp
-// portion of `1779269865.828876-zcx508` isn't double-counted.
-function findTimestamps(text) {
-  if (typeof text !== 'string') return null;
-  const cleaned = text.replace(URL_RE_GLOBAL, ' ').replace(EVENT_ID_RE_GLOBAL, ' ');
-  const matches = cleaned.match(TIMESTAMP_RE_GLOBAL);
-  if (!matches || matches.length < 2) return null;
-  const nums = matches.map(Number).filter(Number.isFinite);
-  if (nums.length < 2) return null;
-  nums.sort((a, b) => a - b);
-  return { start: nums[0], end: nums[nums.length - 1] };
 }
 
 /**
@@ -123,36 +107,18 @@ export function getAlarmClipUrl(alarm, asset) {
     if (url) return url;
   }
 
-  // 3. Bare event id (and optional timestamps) in description / content.
-  //    Search all text fields so the event id and timestamps can live in
-  //    either field — first match wins for each.
+  // 3. Bare event id in description / content. Search all text fields so the
+  //    event id can live in either field — first match wins.
   let eventId = null;
-  let timestamps = null;
   for (const text of [alarm.content, alarm.description]) {
     if (!eventId) eventId = findEventId(text);
-    if (!timestamps) timestamps = findTimestamps(text);
   }
 
   if (eventId) {
-    // Media-server origin is per-camera (eventsBaseUrl attribute), falling
-    // back to the deployment-wide constant when the asset has none.
+    // Media-server origin is per-camera (eventsBaseUrl attribute). Always
+    // resolve the clip via the event id — the media server returns the
+    // recorded clip for that event directly.
     const baseUrl = getCameraEventsBaseUrl(asset);
-    // When the description also carries start_time + end_time (bare epoch
-    // timestamps) and the linked camera asset has a cameraId attribute,
-    // prefer the time-range clip endpoint — same logic the Video page's
-    // CameraHistoryModal uses. Padding (beforeStartClip / afterEndClip)
-    // widens the window, matching the camera history behaviour.
-    if (timestamps) {
-      const cameraId = asset?.attributes?.cameraId?.value;
-      if (cameraId) {
-        const beforeMs = Number(asset.attributes?.beforeStartClip?.value);
-        const afterMs = Number(asset.attributes?.afterEndClip?.value);
-        const beforeSec = Number.isFinite(beforeMs) ? beforeMs / 1000 : 0;
-        const afterSec = Number.isFinite(afterMs) ? afterMs / 1000 : 0;
-        const url = getTimeRangeClipUrl(cameraId, timestamps.start - beforeSec, timestamps.end + afterSec, baseUrl);
-        if (url) return url;
-      }
-    }
     return getEventClipUrl(eventId, baseUrl);
   }
 

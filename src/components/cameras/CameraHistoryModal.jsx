@@ -12,7 +12,7 @@ import { usePtzMove } from '../../hooks/usePtzMove';
 import { getCameraStreamUrl, getCameraEventsBaseUrl, isPtzCamera, resolvePttForTower } from '../../utils/gateways';
 import { getAssetDisplayName } from '../../utils/assetIcons';
 import {
-  getEventClipUrl, getEventSnapshotUrl, getTimeRangeClipUrl, normalizeEventLabel,
+  getEventClipUrl, getEventSnapshotUrl, normalizeEventLabel,
   EVENT_CLIP_MISSING_MESSAGE,
 } from '../../constants/events';
 
@@ -103,12 +103,6 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
   const history = useMemo(() => {
     if (!Array.isArray(rawPoints)) return [];
 
-    const cameraId = camera?.attributes?.cameraId?.value;
-    const beforeMs = Number(camera?.attributes?.beforeStartClip?.value);
-    const afterMs = Number(camera?.attributes?.afterEndClip?.value);
-    const beforeSec = Number.isFinite(beforeMs) ? beforeMs / 1000 : 0;
-    const afterSec = Number.isFinite(afterMs) ? afterMs / 1000 : 0;
-
     return rawPoints
       .map((pt, i) => {
         let ts, rawValue;
@@ -125,11 +119,9 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
         const eventId = entry?.id;
         if (!eventId) return null;
 
-        const { startTime, endTime } = entry;
-        const hasRange = cameraId && Number.isFinite(startTime) && Number.isFinite(endTime);
-        const url = hasRange
-          ? getTimeRangeClipUrl(cameraId, startTime - beforeSec, endTime + afterSec, eventsBase)
-          : getEventClipUrl(eventId, eventsBase);
+        // Always resolve the clip via the event id — the media server returns
+        // the recorded clip for that event directly.
+        const url = getEventClipUrl(eventId, eventsBase);
 
         return {
           id: `${eventId}-${i}`,
@@ -142,7 +134,7 @@ export default function CameraHistoryModal({ camera, tower, onClose }) {
       })
       .filter(Boolean)
       .sort((a, b) => b.ts - a.ts);
-  }, [rawPoints, camera, eventsBase]);
+  }, [rawPoints, eventsBase]);
 
   const filteredHistory = useMemo(() => {
     if (drawerDetection.size === 0) return history;

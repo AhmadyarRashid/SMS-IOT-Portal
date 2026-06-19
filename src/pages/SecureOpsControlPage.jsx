@@ -266,7 +266,6 @@ function PttTile({ tower, assets }) {
     return (
       <a
         href={href}
-        data-active="true"
         className="so-control-tile"
         title="Open PTT in Mumble client"
         aria-label="Open PTT in Mumble client"

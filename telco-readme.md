@@ -11,6 +11,11 @@
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
 **Status (2026-06-08):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrote PTZ movement to drive the camera through OR attributes instead of an external HTTP controller. The 2026-06-08 follow-up **rips the entire PTT WebSocket / PCM-streaming pipeline out** — PTT is now a one-line `<a href="mumble://…">` against the OS Mumble client.
 
+**Clip URL + PTT tile polish (2026-06-20):**
+
+- **Clips always resolve from the event id.** Both the Video history sidebar (`CameraHistoryModal`) and the alarm surfaces (`getAlarmClipUrl`) now build the clip URL with `getEventClipUrl(eventId, base)` unconditionally — `${base}/api/events/${id}/clip.mp4`. The time-range branch (`getTimeRangeClipUrl` driven by `start_time` / `end_time` + `cameraId` + `beforeStartClip` / `afterEndClip` padding) was removed from both paths: the media server returns the recorded clip for an event id directly. `findTimestamps` and the `getTimeRangeClipUrl` import were deleted from `src/utils/alarms.js`; the history `useMemo` in `CameraHistoryModal` no longer reads `cameraId` / padding / timestamps. `getTimeRangeClipUrl` still exists in `src/constants/events.js` (now unused — kept exported, harmless). Steps 1 (structured field) + 2 (literal URL) of the alarm resolver and the snapshot URL (always event-id based) are unchanged. (§5.1b.i + §5.2c updated.)
+- **PTT tile renders in the default (inactive) state.** The `/control` Controls-grid PTT tile's `ok` branch was hardcoding `data-active="true"`, giving it the accent gradient + border + tinted icon so it looked permanently selected next to the (off-by-default) device tiles. Dropped the attribute — the tile now matches the other Controls tiles for symmetry. Hover, click→Mumble hand-off, and the `missing` / `invalid` branches are unchanged. (§9a.2 updated.)
+
 **PTT pivot (2026-06-08):**
 
 - **PTT is no longer in-browser audio.** The `usePushToTalk` hook, the inline `AudioWorklet` PCM pipeline, the per-press `getUserMedia` mic capture, and the `wss://` socket to the PC speaker are all gone. `PttAsset.socketIP` now holds a full **`mumble://user:pass@host:port/`** URL and the PTT control is a plain `<a href={socketIP}>` — clicking hands off to the OS Mumble client.
@@ -413,7 +418,7 @@ extensionless paths.
 | `connected` | boolean | optional | If `false`, tile shows "Camera offline" instead of playing. |
 | `ptzCommand` | text | **yes for `PtzCameraAsset`** | Written by `usePtzMove` to drive PTZ movement. Possible values: `move_up` · `move_down` · `move_left` · `move_right` · `stop` (and per the OR-side enum, also `preset_home` · `zoom_in` · `zoom_out` — not wired to the d-pad yet). The hook always pairs each `move_*` write with a follow-up `stop` write after `movementDuration`. See §5.1e. |
 | `movementDuration` | text (ms) | optional, PtzCameraAsset only | How long, in milliseconds, `usePtzMove` holds a `move_*` command before writing `stop`. Missing / blank / non-numeric / `≤ 0` ⇒ default **3000 ms**. See §5.1e. |
-| `eventsBaseUrl` | string | **yes** for clip / snapshot playback | Per-camera media-server origin that serves the clip / snapshot bytes — e.g. `https://100.84.108.142:8443`. Read via `getCameraEventsBaseUrl(camera)` in `utils/gateways.js` and fed to `getEventClipUrl` / `getEventSnapshotUrl` / `getTimeRangeClipUrl`. Kept dynamic per camera like `liveStreamUrl`. **No fallback** — missing / malformed (not an http(s) origin or a `/`-relative path) ⇒ resolves to `null`, the builders return `null`, and the clip surfaces show a **black frame + play icon**; pressing play raises a friendly toast (no attribute names / no "OpenRemote"). Trailing slash is trimmed before building the path. See §5.2c. |
+| `eventsBaseUrl` | string | **yes** for clip / snapshot playback | Per-camera media-server origin that serves the clip / snapshot bytes — e.g. `https://100.84.108.142:8443`. Read via `getCameraEventsBaseUrl(camera)` in `utils/gateways.js` and fed to `getEventClipUrl` / `getEventSnapshotUrl` (the clip is always resolved from the event id as of 2026-06-20 — see §5.2c). Kept dynamic per camera like `liveStreamUrl`. **No fallback** — missing / malformed (not an http(s) origin or a `/`-relative path) ⇒ resolves to `null`, the builders return `null`, and the clip surfaces show a **black frame + play icon**; pressing play raises a friendly toast (no attribute names / no "OpenRemote"). Trailing slash is trimmed before building the path. See §5.2c. |
 
 ### 5.1b. Alarm clip modal — `AlarmClipModal`
 
@@ -519,16 +524,26 @@ alarm references a recorded clip. The dashboard resolves the URL via
    in the `content` or `description` fields. Useful when the AI side
    dumps `"Person detected — https://media/.../clip.mp4"` into the alarm
    body. Returned verbatim.
-3. **Bare event id (+ optional timestamps) in the description** — same id
-   shape the Video page reads from the `eventId` datapoints stream (e.g.
-   `1779269865.828876-zcx508`). When the description also carries two bare
-   epoch timestamps (`start_time` / `end_time`) and the linked camera
-   asset has a `cameraId` attribute, the function builds a **time-range
-   clip URL** via `getTimeRangeClipUrl(cameraId, adjStart, adjEnd)` — the
-   same endpoint the Video page's CameraHistoryModal uses. Padding from
-   `beforeStartClip` / `afterEndClip` (ms → seconds) widens the window.
-   When timestamps or `cameraId` are missing, falls back to
-   `getEventClipUrl(id)`.
+3. **Bare event id in the description** — same id shape the Video page
+   reads from the `eventId` datapoints stream (e.g.
+   `1779269865.828876-zcx508`). The clip URL is always built from the
+   event id via `getEventClipUrl(id, baseUrl)` —
+   `${base}/api/events/${id}/clip.mp4` — pointed at the camera's
+   per-camera media origin (`eventsBaseUrl`).
+
+> **2026-06-20: event id always wins — time-range URL removed.** The
+> alarm clip resolver no longer extracts `start_time` / `end_time` from
+> the description or builds a `getTimeRangeClipUrl` time-window URL. When
+> an event id is present the media server returns the recorded clip for
+> that event directly, so `getAlarmClipUrl` returns
+> `getEventClipUrl(eventId, baseUrl)` unconditionally. The
+> `findTimestamps` helper and the `getTimeRangeClipUrl` import were
+> deleted from `src/utils/alarms.js`; the camera's `beforeStartClip` /
+> `afterEndClip` padding attributes are no longer read by the alarm path.
+> `getTimeRangeClipUrl` itself still exists in `src/constants/events.js`
+> (now unused — kept exported, harmless). The same change was made to the
+> Video history page (see §5.2c). Steps 1 (structured field) and 2
+> (literal URL) are unchanged — an explicit URL still wins verbatim.
 
 The event-id matcher is **strict** — `\b\d{10,}(?:\.\d+)?-[A-Za-z0-9]+\b`,
 i.e. unix timestamp (optionally fractional) + dash + alphanumeric suffix
@@ -537,22 +552,6 @@ don't false-match. The matcher also **strips URLs from the text first**
 before searching for ids, so an event id embedded inside a URL path
 (`https://media/api/events/1779…-zcx508/clip.mp4`) doesn't get re-extracted
 and rebuilt against the wrong host — step 2 wins for that case.
-
-The **timestamp extractor** (`findTimestamps`) strips URLs *and* event
-ids from the text before matching bare epoch timestamps
-(`\b\d{10,}(?:\.\d+)?\b`), so the timestamp portion of an event id is
-never double-counted. It requires at least two matches; the smallest
-becomes `start`, the largest becomes `end`.
-
-**Fallback table (step 3):**
-
-| Condition | Result |
-|---|---|
-| `start_time` + `end_time` present + `cameraId` attribute exists on asset | Time-range URL: `/api/{cameraId}/start/{adj_start}/end/{adj_end}/clip.mp4` |
-| `start_time` or `end_time` missing | Legacy URL: `/api/events/{eventId}/clip.mp4` |
-| `cameraId` attribute missing on camera asset | Legacy URL |
-| `asset` not passed to `getAlarmClipUrl` | Legacy URL |
-| `beforeStartClip` / `afterEndClip` missing or non-numeric | Treated as 0 (no padding) |
 
 When none of the three steps resolves a URL the View clip button hides
 itself (no placeholder data). Click → `AlarmClipModal` plays the URL via
@@ -854,14 +853,21 @@ so the wording lives in one place. The `hasClip` flag is precomputed
 into each page's `alarmContextMap` (and the audit event payload)
 alongside `clipUrl`.
 
-**`getTimeRangeClipUrl` (added 2026-06-10).** When the AI side sends
-`start_time` + `end_time` (epoch seconds) alongside the event id, both
-`CameraHistoryModal` (Video page) and `getAlarmClipUrl` (alarm surfaces)
-prefer this camera-specific time-range endpoint over the legacy
-event-id endpoint. The camera asset's optional `beforeStartClip` /
-`afterEndClip` attributes (text, milliseconds) widen the clip window —
-converted to seconds and subtracted/added to `start`/`end` respectively.
-Snapshot URL is unchanged (always uses event id).
+**Clip URL is always built from the event id (2026-06-20).** The Video
+history sidebar (`CameraHistoryModal`) builds each row's clip URL with
+`getEventClipUrl(eventId, eventsBase)` — `${base}/api/events/${id}/clip.mp4`.
+
+> **2026-06-20: time-range URL removed (Video + alarm surfaces).** The
+> history `useMemo` no longer reads the datapoint's `start_time` /
+> `end_time` or the camera's `cameraId` / `beforeStartClip` /
+> `afterEndClip` attributes, and no longer calls `getTimeRangeClipUrl`.
+> The media server returns the recorded clip for an event id directly, so
+> both `CameraHistoryModal` and `getAlarmClipUrl` (§5.1b.i) now resolve
+> the clip via the event id unconditionally. `getTimeRangeClipUrl` is
+> still exported from `src/constants/events.js` but has no callers.
+> `unwrapEventValue` still parses `start_time` / `end_time` into the entry
+> (harmless, unused). The snapshot URL was always event-id based and is
+> unchanged.
 
 **Modal playback flow (three-state player):**
 
@@ -869,7 +875,7 @@ Snapshot URL is unchanged (always uses event id).
 |---|---|---|
 | Modal opens | Live stream | `liveStreamUrl` / `streamUrl` |
 | Click a clip row in sidebar | Snapshot preview + centred play overlay | `getEventSnapshotUrl(eventId)` |
-| Click the play overlay (or anywhere on the snapshot) | Clip mp4, autoplaying | `getTimeRangeClipUrl` when `start_time`/`end_time`/`cameraId` present, else `getEventClipUrl(eventId)` |
+| Click the play overlay (or anywhere on the snapshot) | Clip mp4, autoplaying | `getEventClipUrl(eventId)` |
 | Click "Show snapshot" | Snapshot again | `getEventSnapshotUrl(eventId)` |
 | Click "← Back to live" | Live stream | `liveStreamUrl` |
 
@@ -995,7 +1001,7 @@ clearly aren't protocol links at all.
 
 | Surface | File | Shape |
 |---|---|---|
-| `/control` Controls grid tile | `src/pages/SecureOpsControlPage.jsx → PttTile` | `.so-control-tile` chrome alongside Door / Siren / Lights. State line shows `Ready` (accent) or `Not configured` (warning). Active tile gets `data-active="true"` for the accent tint. |
+| `/control` Controls grid tile | `src/pages/SecureOpsControlPage.jsx → PttTile` | `.so-control-tile` chrome alongside Door / Siren / Lights. State line shows `Ready` (accent) or `Not configured` (warning). Renders in the **default (inactive) tile state** — no `data-active="true"` — so it matches the other Controls tiles for symmetry (changed 2026-06-20; previously the `ok` tile was hardcoded `data-active="true"`, which made it look permanently selected). |
 | `AlarmClipModal` quick-controls | `src/components/cameras/AlarmClipModal.jsx → PttButton` | 28×28 icon button in the modal's right-edge quick-controls cluster. Uses the existing `.so-clip-modal-quick-btn` classes. |
 | `CameraHistoryModal` header | `src/components/cameras/CameraHistoryModal.jsx → PttHeaderButton` | `.audit-btn` styled button placed next to the Close button. Mounts on every surface that opens the camera popup — Video wall, `/control`'s Cameras panel, Overview's (legacy) Live Camera Feeds, audit-log breadcrumbs. |
 
@@ -1678,8 +1684,14 @@ renders a `ControllableTile` per device, each toggling via
 2026-06-08 the grid also carries a **PTT tile** rendered by `PttTile`
 — same `.so-control-tile` chrome as the device tiles, but the action
 is a hand-off to the OS Mumble client via `PttAsset.socketIP` (see
-§5.5 for the full resolver contract). The panel resolves the PTT
-status once via `resolvePttForTower(activeTower, towerAssets)` and:
+§5.5 for the full resolver contract). The tile renders in the
+**default (inactive) tile state** — it does NOT set `data-active="true"`
+(removed 2026-06-20). The earlier `ok` branch hardcoded the active flag,
+giving the tile the accent gradient + border + tinted icon so it looked
+permanently selected next to the (off-by-default) device tiles; dropping
+it restores symmetry — PTT now reads as just another idle control. The
+panel resolves the PTT status once via
+`resolvePttForTower(activeTower, towerAssets)` and:
 - adds 1 to the header's `N controls` count only when status isn't
   `invalid`,
 - renders `<PttTile />` only when status isn't `invalid` (so a
@@ -1953,10 +1965,12 @@ src/components/notifications/alarmNotifications.css
                                               empty space click-throughs work.
 src/utils/auditEvents.js                      Shared alarm/tower event generators
 src/constants/events.js                       CAMERA_EVENT_ATTRIBUTE,
-                                              getEventClipUrl / getEventSnapshotUrl /
-                                              getTimeRangeClipUrl — each now takes a
-                                              per-camera base URL arg (returns null when
-                                              the base is missing — no fallback constant);
+                                              getEventClipUrl / getEventSnapshotUrl —
+                                              each takes a per-camera base URL arg
+                                              (returns null when the base is missing —
+                                              no fallback constant). getTimeRangeClipUrl
+                                              still exported but UNUSED as of 2026-06-20
+                                              (clips always resolve from the event id).
                                               normalizeEventLabel (person→human etc.)
 src/hooks/useCameraEvents.js                  React Query hook around the OR datapoints
                                               endpoint for the eventId attribute (type: 'ALL')
@@ -2022,16 +2036,17 @@ src/hooks/useLiveEvents.js                    Alarm watcher now pushes to
                                               OS notifications via fireAlarmNotification
                                               unchanged.
 src/api/client.js                             Refresh-token dedup (concurrent 401 handling)
-src/utils/alarms.js                           getAlarmClipUrl(alarm, asset) now accepts
-                                              optional asset for time-range clip URLs
-                                              (2026-06-10) + getAlarmEventId /
-                                              getAlarmSnapshotUrl /
+src/utils/alarms.js                           getAlarmClipUrl(alarm, asset) resolves the
+                                              clip from the event id via
+                                              getEventClipUrl (2026-06-20 — the
+                                              time-range branch + findTimestamps helper
+                                              were removed; asset still supplies the
+                                              per-camera eventsBaseUrl). + getAlarmEventId
+                                              / getAlarmSnapshotUrl /
                                               getAlarmDetectionLabel helpers feeding
-                                              AlarmClipModal (§5.1b). findTimestamps
-                                              extracts bare epoch timestamps from
-                                              description text (strips URLs + event ids
-                                              first). getAlarmContentText also strips
-                                              bare timestamps from display text.
+                                              AlarmClipModal (§5.1b). getAlarmContentText
+                                              still strips URLs + event ids + bare
+                                              timestamps from display text.
 src/utils/auditEvents.js                      Each event payload now carries the raw
                                               `alarm` ref so /audit's clip click can
                                               open AlarmClipModal with full context.
@@ -2297,17 +2312,14 @@ In rough priority order:
    sidebar → **snapshot preview + centred play overlay** → click the
    overlay → mp4 plays. "← Back to live" returns to the live feed;
    "Show snapshot" drops back to the preview while playing. Snapshot
-   URLs use `getEventSnapshotUrl(id, base)`. Clip URLs use
-   `getTimeRangeClipUrl(cameraId, start, end, base)` when the event
-   carries `start_time` / `end_time` and the camera has a `cameraId`
-   attribute, otherwise fall back to `getEventClipUrl(id, base)`. The
-   `base` is the camera's per-camera `eventsBaseUrl` attribute
-   (§5.2c) — when it's missing / malformed, selecting a history row
-   shows a black frame + play icon and pressing play toasts a friendly
-   config error (the list itself still renders normally). Padding from
-   `beforeStartClip` / `afterEndClip` (ms → sec) widens the clip window.
-   Path layout lives in `src/constants/events.js`; the host is
-   per-camera in OR.
+   URLs use `getEventSnapshotUrl(id, base)`. Clip URLs always use
+   `getEventClipUrl(id, base)` (2026-06-20 — the time-range branch was
+   removed; the media server returns the recorded clip for an event id
+   directly). The `base` is the camera's per-camera `eventsBaseUrl`
+   attribute (§5.2c) — when it's missing / malformed, selecting a history
+   row shows a black frame + play icon and pressing play toasts a friendly
+   config error (the list itself still renders normally). Path layout
+   lives in `src/constants/events.js`; the host is per-camera in OR.
 2. **Alerts tab — ✅ shipped 2026-05-16** as `SecureOpsAlertsPage` at
    `/alarms`. Actionable inbox: only `status:'OPEN'` alarms, severity
    chips (High/Medium/Low), tower chips scoped to the selected site, free
