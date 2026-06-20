@@ -11,6 +11,11 @@
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
 **Status (2026-06-08):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrote PTZ movement to drive the camera through OR attributes instead of an external HTTP controller. The 2026-06-08 follow-up **rips the entire PTT WebSocket / PCM-streaming pipeline out** — PTT is now a one-line `<a href="mumble://…">` against the OS Mumble client.
 
+**Battery tile hardcoded to 48% (2026-06-20):**
+
+- **The `/control` Environment Battery tile now shows a fixed `48 %`.** It is **not connected to any source and does not change over time** — `EnvironmentPanel` uses `const batteryPct = 48` instead of `getSimulatedBatteryPercent()`. The `getSimulatedBatteryPercent` import was removed from `SecureOpsControlPage.jsx` (it was the only caller) to keep lint clean. At 48 % the `batteryTone` helper returns `warning`, so the tile tints **yellow**.
+- **No simulation logic was deleted.** `src/utils/batterySim.js` is left fully intact for future use; only the call site changed. In-code comments at the import line and the `batteryPct` assignment spell out the one-liners to switch back to the simulated (`getSimulatedBatteryPercent()`) or real (`energyLevelPercentage`) reading. The `BatteryAsset`-child gating and the 60 s `setInterval` re-render tick are unchanged. (§5.3 + §9a.2 updated.)
+
 **Clip URL + PTT tile polish (2026-06-20):**
 
 - **Clips always resolve from the event id.** Both the Video history sidebar (`CameraHistoryModal`) and the alarm surfaces (`getAlarmClipUrl`) now build the clip URL with `getEventClipUrl(eventId, base)` unconditionally — `${base}/api/events/${id}/clip.mp4`. The time-range branch (`getTimeRangeClipUrl` driven by `start_time` / `end_time` + `cameraId` + `beforeStartClip` / `afterEndClip` padding) was removed from both paths: the media server returns the recorded clip for an event id directly. `findTimestamps` and the `getTimeRangeClipUrl` import were deleted from `src/utils/alarms.js`; the history `useMemo` in `CameraHistoryModal` no longer reads `cameraId` / padding / timestamps. `getTimeRangeClipUrl` still exists in `src/constants/events.js` (now unused — kept exported, harmless). Steps 1 (structured field) + 2 (literal URL) of the alarm resolver and the snapshot URL (always event-id based) are unchanged. (§5.1b.i + §5.2c updated.)
@@ -935,10 +940,12 @@ panel shows the Battery tile when the tower has a per-tower
 **`BatteryAsset` child** (matched case-insensitively via
 `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`); if there's
 no BatteryAsset child, the tile hides itself. **The displayed value is
-currently simulated** from the time of day — `energyLevelPercentage`
-(and the TowerAsset-level `batteryLevel`) are **not read** for now. See
-§9a.2 for the solar/battery model and how to switch back to the real
-attribute.
+currently hardcoded to 48 %** (2026-06-20) — not connected to anything,
+doesn't change over time. `energyLevelPercentage` (and the
+TowerAsset-level `batteryLevel`) are **not read** for now; the
+time-of-day simulation is kept on disk but no longer called. See §9a.2
+for the preserved solar/battery model and the exact one-liners to switch
+back to the simulated or real reading.
 
 ### 5.4. Device control attributes (existing convention)
 
@@ -1635,18 +1642,35 @@ asset is present:
 |---|---|---|---|
 | Temperature | `HeatSensorAsset` child of tower (via `getWeatherAssetForTower`) | `temperature` | `warning` (orange) |
 | Humidity | same `HeatSensorAsset` | `humidity` | `accent` (cyan) |
-| Battery | `BatteryAsset` child of tower (matched via `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`) | **simulated — see below** | **threshold-coloured**: ≥50 % → `ok` (green) · 20-49 % → `warning` (yellow) · <20 % → `danger` (red) · null → `accent` (grey) |
+| Battery | `BatteryAsset` child of tower (matched via `normalizeAssetType(getCustomAssetType) === 'BatteryAsset'`) | **hardcoded 48 % — see below** | **threshold-coloured**: ≥50 % → `ok` (green) · 20-49 % → `warning` (yellow) · <20 % → `danger` (red) · null → `accent` (grey). At the fixed 48 % the tile renders `warning` (yellow). |
 
 The Battery tile uses a `batteryTone(pct)` helper to map the reading
 to a tone, and `EnvBigStat` was extended to accept `tone: 'ok' |
 'danger'` (was only `warning` / `accent`).
 
-**Battery value is simulated (2026-06-18).** The backend doesn't report
-`energyLevelPercentage` reliably yet, so the tile shows a synthesised
-state-of-charge from `getSimulatedBatteryPercent()` in
-`src/utils/batterySim.js` — the OR attribute value is **intentionally
-not read** for now. The towers run on solar + battery, so the model is a
-time-of-day triangle wave in **Pakistan time (Asia/Karachi)**:
+**Battery value is hardcoded to 48 % (2026-06-20).** The tile now shows a
+**fixed `48 %`** — `const batteryPct = 48` in `EnvironmentPanel`. It is
+**not connected to anything and does not change over time**. The backend
+`energyLevelPercentage` is still not read, and the time-of-day simulation
+(`getSimulatedBatteryPercent`) is no longer called — its import was
+removed from `SecureOpsControlPage.jsx` to keep lint clean. At 48 % the
+`batteryTone` helper returns `warning`, so the tile tints **yellow**.
+
+**Nothing was deleted — the simulation is preserved for future use.**
+`src/utils/batterySim.js` (the solar/time-of-day model below) is left
+fully intact; only its *call site* was swapped for the constant. Two
+in-code comments (at the import line and at the `batteryPct` assignment)
+document the exact one-liners to switch back to either source:
+- simulated: `const batteryPct = getSimulatedBatteryPercent();`
+  (re-add the `../utils/batterySim` import)
+- real: `const batteryPct = readNumber(battery?.attributes?.energyLevelPercentage?.value);`
+
+The tone helper and tile markup need no change for either swap-back, and
+the tile still renders only when the tower has a `BatteryAsset` child.
+
+**The simulation that's kept on disk (`src/utils/batterySim.js`).** The
+towers run on solar + battery, so the model is a time-of-day triangle
+wave in **Pakistan time (Asia/Karachi)**:
 
 - **Daylight (sunrise → sunset): charging.** SoC ramps up from the daily
   minimum at sunrise to the daily maximum at sunset.
@@ -1658,12 +1682,10 @@ time-of-day triangle wave in **Pakistan time (Asia/Karachi)**:
   is resolved via `Intl.DateTimeFormat({ timeZone: 'Asia/Karachi' })` so
   the curve is correct regardless of the browser's own timezone.
 
-`EnvironmentPanel` runs a 60 s `setInterval` tick so the value visibly
-creeps on screen between the 15 s asset polls. **To restore the real
-reading later:** read `energyLevelPercentage` again in `EnvironmentPanel`
-(the line is commented in the code) — the tone helper and tile markup
-need no change. The tile still renders only when the tower has a
-`BatteryAsset` child.
+`EnvironmentPanel` still runs a 60 s `setInterval` tick (kept from the
+simulated flow; redundant now that the value is static, but harmless). It
+would make the value visibly creep on screen between the 15 s asset polls
+once a live/simulated source is wired back in.
 
 **Empty state.** The panel hides itself only when **neither**
 HeatSensorAsset nor BatteryAsset is present (`!hasAny`). Previously
