@@ -17,10 +17,7 @@ import {
   isAssetActive, getPrimaryControlAttr, nextToggleValue, getStateLabel,
   normalizeAssetType, CONTROLLABLE_TYPES,
 } from '../utils/assetIcons';
-// Battery is hardcoded to 48% for now (see EnvironmentPanel). The time-of-day
-// solar simulation in ../utils/batterySim is kept for future use — re-add
-// `import { getSimulatedBatteryPercent } from '../utils/batterySim';` when
-// switching back to the simulated/real reading.
+import { getSimulatedBatteryPercent } from '../utils/batterySim';
 import AssetGlyph from '../components/tiles/AssetGlyph';
 import CameraCard from '../components/cameras/CameraCard';
 import AssetHistoryCard from '../components/charts/AssetHistoryCard';
@@ -366,14 +363,10 @@ function EnvironmentPanel({ weather, battery }) {
 
   const temp = readNumber(weather?.attributes?.temperature?.value);
   const humidity = readNumber(weather?.attributes?.humidity?.value);
-  // Battery is a fixed 48% for now — not connected to anything, doesn't drift.
-  // The backend `energyLevelPercentage` is intentionally NOT read for now, and
-  // the time-of-day simulation (getSimulatedBatteryPercent, Asia-Karachi) is
-  // kept intact for future use. Swap this back to one of:
-  //   const batteryPct = getSimulatedBatteryPercent();                  // sim
-  //   const batteryPct = readNumber(battery?.attributes?.energyLevelPercentage?.value); // real
-  // when ready.
-  const batteryPct = 48;
+  // Battery is always the solar/battery time-of-day simulation (Asia-Karachi).
+  // The backend `energyLevelPercentage` is intentionally NOT read for now —
+  // swap back to it here when the device starts reporting reliably.
+  const batteryPct = getSimulatedBatteryPercent();
   const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
                  || parseDate(weather?.attributes?.humidity?.timestamp)
                  || parseDate(battery?.attributes?.energyLevelPercentage?.timestamp)
