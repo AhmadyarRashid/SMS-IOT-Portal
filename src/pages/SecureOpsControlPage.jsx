@@ -366,7 +366,7 @@ function EnvironmentPanel({ weather, battery }) {
   // Battery is always the solar/battery time-of-day simulation (Asia-Karachi).
   // The backend `energyLevelPercentage` is intentionally NOT read for now —
   // swap back to it here when the device starts reporting reliably.
-  const batteryPct = 58; // getSimulatedBatteryPercent();
+  const batteryPct = getSimulatedBatteryPercent();
   const updatedAt = parseDate(weather?.attributes?.temperature?.timestamp)
                  || parseDate(weather?.attributes?.humidity?.timestamp)
                  || parseDate(battery?.attributes?.energyLevelPercentage?.timestamp)
