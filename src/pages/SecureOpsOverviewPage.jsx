@@ -5,7 +5,7 @@ import {
   ServerCog, AlertOctagon, Activity, CheckCircle2,
   RadioTower, ChevronRight,
   Building2, Check, CheckCheck, Loader2, Clock, RotateCcw,
-  Lock, Lightbulb, Volume2, X,
+  Lock, Lightbulb, Volume2, X, Search,
 } from 'lucide-react';
 import { useAssets, useAlarms, useUpdateAlarmStatus, useWriteAttribute } from '../hooks/useAssets';
 import {
@@ -578,6 +578,10 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
   // when the filtered count changes a lot.
   const [severityFilter, setSeverityFilter] = useState(new Set());
   const [towerFilter, setTowerFilter] = useState(new Set());
+  // Free-text search across title / content / site / tower / device — mirrors
+  // the /alarms page. Kept in the same `useTransition` so typing doesn't blank
+  // the list, and folded into `filterSig` so it resets infinite scroll.
+  const [query, setQuery] = useState('');
   const [isFilterPending, startFilterTransition] = useTransition();
 
   // `alarms` is already site + range scoped by the parent — by design, so
@@ -611,9 +615,10 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
     return out;
   }, [alarms, towers, alarmTowerMap]);
 
-  // Apply severity + tower filters.
+  // Apply severity + tower + text filters.
   const filtered = useMemo(() => {
     const sevSet = expandSeverity(severityFilter);
+    const q = query.trim().toLowerCase();
     return alarms.filter((al) => {
       if (sevSet.size > 0) {
         const sev = (al.severity || 'LOW').toUpperCase();
@@ -626,9 +631,19 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
         for (const tid of towerFilter) if (tset.has(tid)) { hit = true; break; }
         if (!hit) return false;
       }
+      if (q) {
+        const ctx = alarmContextMap.get(al.id);
+        const hay = [
+          al.title, al.content,
+          ctx?.site && getAssetDisplayName(ctx.site),
+          ctx?.tower && getAssetDisplayName(ctx.tower),
+          ctx?.asset && getAssetDisplayName(ctx.asset),
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
-  }, [alarms, severityFilter, towerFilter, alarmTowerMap]);
+  }, [alarms, severityFilter, towerFilter, query, alarmTowerMap, alarmContextMap]);
 
   const sorted = useMemo(
     () => filtered.slice().sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0)),
@@ -644,10 +659,11 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
   });
   const toggleSeverity = toggleInSet(setSeverityFilter);
   const toggleTower = toggleInSet(setTowerFilter);
-  const activeFilterCount = severityFilter.size + towerFilter.size;
+  const activeFilterCount = severityFilter.size + towerFilter.size + (query.trim() ? 1 : 0);
   const clearFilters = () => startFilterTransition(() => {
     setSeverityFilter(new Set());
     setTowerFilter(new Set());
+    setQuery('');
   });
 
   /* ----- Infinite scroll -----
@@ -664,8 +680,8 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
    */
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const filterSig = useMemo(
-    () => `sev:${[...severityFilter].sort().join(',')}|tow:${[...towerFilter].sort().join(',')}`,
-    [severityFilter, towerFilter]
+    () => `q:${query.trim()}|sev:${[...severityFilter].sort().join(',')}|tow:${[...towerFilter].sort().join(',')}`,
+    [query, severityFilter, towerFilter]
   );
   const [prevFilterSig, setPrevFilterSig] = useState(filterSig);
   if (prevFilterSig !== filterSig) {
@@ -846,6 +862,28 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
               {g.label}
             </ToggleChip>
           ))}
+          {/* Compact search — shares the Severity row (no extra vertical space). */}
+          <div className="so-alert-search">
+            <Search className="w-3 h-3 text-[var(--color-ink-3)] flex-shrink-0" strokeWidth={2} />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => startFilterTransition(() => setQuery(e.target.value))}
+              placeholder="Search alerts…"
+              aria-label="Search alerts by title, site, tower or device"
+              className="bg-transparent border-0 outline-0 flex-1 min-w-0 text-[12px] text-[var(--color-ink-0)] placeholder:text-[var(--color-ink-3)]"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => startFilterTransition(() => setQuery(''))}
+                className="text-[var(--color-ink-3)] hover:text-[var(--color-ink-0)] flex-shrink-0"
+                aria-label="Clear search"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
         {towers.length > 0 && (
           <div className="so-alert-filter-group">

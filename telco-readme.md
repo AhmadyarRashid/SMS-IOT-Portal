@@ -11,6 +11,23 @@
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
 **Status (2026-06-08):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrote PTZ movement to drive the camera through OR attributes instead of an external HTTP controller. The 2026-06-08 follow-up **rips the entire PTT WebSocket / PCM-streaming pipeline out** — PTT is now a one-line `<a href="mumble://…">` against the OS Mumble client.
 
+**Overview search + Alerts clip-modal parity (2026-06-23):**
+
+- **Overview Recent Alerts gains a compact search field.** A small inline
+  `.so-alert-search` input sits at the end of the Severity chip row (no
+  extra vertical height — the Overview is viewport-fit) and substring-
+  matches the alarm title / content / breadcrumb names, mirroring the
+  `/alarms` search. Folded into the panel's `useTransition`, `filterSig`
+  (resets infinite scroll), `activeFilterCount`, and `Reset`. (§8.3.)
+- **`/alarms` clip modal now has Prev/Next queue navigation** identical to
+  the Overview. The page stores just `clipAlarmId` and rebuilds a
+  tower-scoped `{current, queue, index}` from the live `scoped` list, so
+  ←/→ keys navigate and Ack/Resolve auto-advances. (§8.7 + §8.4.)
+
+**Battery hardcode reverted (2026-06-21):**
+
+- **The 2026-06-20 "battery hardcoded to 48 %" change was reverted** (commit `44f7129`). `EnvironmentPanel` is back to the time-of-day simulation — `const batteryPct = getSimulatedBatteryPercent()` with the `../utils/batterySim` import restored. The Battery tile once again shows a synthesised state-of-charge that creeps over the day (see §5.3 + §9a.2), not a fixed value. `energyLevelPercentage` is still not read; switching to the real attribute is the one-liner documented in §9a.2.
+
 **Clip URL + PTT tile polish (2026-06-20):**
 
 - **Clips always resolve from the event id.** Both the Video history sidebar (`CameraHistoryModal`) and the alarm surfaces (`getAlarmClipUrl`) now build the clip URL with `getEventClipUrl(eventId, base)` unconditionally — `${base}/api/events/${id}/clip.mp4`. The time-range branch (`getTimeRangeClipUrl` driven by `start_time` / `end_time` + `cameraId` + `beforeStartClip` / `afterEndClip` padding) was removed from both paths: the media server returns the recorded clip for an event id directly. `findTimestamps` and the `getTimeRangeClipUrl` import were deleted from `src/utils/alarms.js`; the history `useMemo` in `CameraHistoryModal` no longer reads `cameraId` / padding / timestamps. `getTimeRangeClipUrl` still exists in `src/constants/events.js` (now unused — kept exported, harmless). Steps 1 (structured field) + 2 (literal URL) of the alarm resolver and the snapshot URL (always event-id based) are unchanged. (§5.1b.i + §5.2c updated.)
@@ -1296,9 +1313,23 @@ same `.audit-chip` styling, same `ToggleChip` primitive, same
   CRITICAL folds into HIGH (three buckets map cleanly to three colour rails).
 - **Tower** — multi-select chips for every tower in scope. Hides when scope
   has no towers.
+- **Search** (2026-06-23) — a **compact** free-text field
+  (`.so-alert-search`) matching the `/alarms` search: substring match
+  (case-insensitive) across the alarm `title`, `content`, and the
+  breadcrumb names (site / tower / device) pulled from `alarmContextMap`.
+  Deliberately **inline at the end of the Severity chip row** (pinned
+  right via `margin-left:auto`), NOT its own row — the Overview is
+  viewport-fit, so the field reuses the empty space beside the chips and
+  adds **zero extra vertical height** (a smaller variant of the `/alarms`
+  page's full-width `.audit-search`). The `query` is folded into
+  `filterSig`, so typing resets infinite scroll to `PAGE_SIZE`; it's
+  counted in `activeFilterCount` and cleared by the panel's `Reset`
+  button. Like the chips, search filters the **list only** — the
+  clip-modal Prev/Next queue (§8.4) ignores it.
 
-Both setters wrap in `useTransition` so the list stays visible during the
-re-derive — clicking a chip with thousands of alarms doesn't blank the panel.
+All three setters wrap in `useTransition` so the list stays visible during
+the re-derive — clicking a chip (or typing) with thousands of alarms
+doesn't blank the panel.
 
 **Rows.** Same `AlertRow` component as before: severity-colored left rail,
 `Site › Tower › Asset` breadcrumb (display-only `.so-crumb-static` chips),
@@ -1509,6 +1540,20 @@ Overview and Alerts pages flipped from `useAlarms({status:'OPEN'})` to
 `useAlarms({})` and a `useMemo` filter on the result. Saves one network
 round-trip every 15 s and shares the React Query cache slot — Overview
 → Alerts navigation is now instant (no extra fetch).
+
+**Clip-modal Prev/Next queue on `/alarms` (2026-06-23).** The Alerts page
+now seeds the `AlarmClipModal` with a **tower-scoped queue** exactly like
+the Overview (§8.4) so the modal feels identical on both surfaces. It
+stores only the **alarm id** (`clipAlarmId`, was the resolved
+`{alarm, asset, tower, site}` payload) and rebuilds `{current, queue,
+index}` from the live `scoped` list each render — queue = same tower
+(`alarmTowerMap`) + `hasClip`, newest-first, via the same
+`resolveAlarmContext` helper. The modal gets `prev` / `next` / `position` /
+`onSelect` + `key={alarm.id}`, so ←/→ keys navigate and Ack/Resolve
+auto-advances to the next sibling (or closes at the end). The queue is
+built from `scoped` (site-scoped OPEN list), **not** the
+severity/tower/search-filtered list — clip-by-clip triage sees every
+alarm in the tower regardless of active chips, matching Overview.
 
 ---
 

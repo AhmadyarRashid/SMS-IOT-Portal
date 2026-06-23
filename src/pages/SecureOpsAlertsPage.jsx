@@ -65,7 +65,12 @@ export default function SecureOpsAlertsPage() {
   );
   const { selectedSiteId } = useSecureOpsStore();
   const update = useUpdateAlarmStatus();
-  const [clipInView, setClipInView] = useState(null);
+  // Store only the alarm id (not the resolved payload) so the clip modal's
+  // tower-scoped Prev/Next queue is rebuilt from the live `scoped` list on
+  // every render — same approach as the Overview page. When the operator
+  // Acks/Resolves inside the modal, the alarm drops off `scoped`, the queue
+  // shrinks, and the modal auto-advances to the next sibling.
+  const [clipAlarmId, setClipAlarmId] = useState(null);
 
   /* ---- Scope from global site dropdown ---- */
   const sites = useMemo(() => pickSites(assets), [assets]);
@@ -304,12 +309,53 @@ export default function SecureOpsAlertsPage() {
   }, [hasMore]);
 
   /* ---- Stable handlers — keep AlertRow memoized ---- */
-  const handleClipClick = useCallback((alarmId) => {
-    const ctx = alarmContextMap.get(alarmId);
-    const alarm = openAlarms.find((a) => a.id === alarmId);
-    if (alarm) setClipInView({ alarm, asset: ctx?.asset, tower: ctx?.tower, site: ctx?.site });
-  }, [alarmContextMap, openAlarms]);
-  const handleClipClose = useCallback(() => setClipInView(null), []);
+  const handleClipClick = useCallback((alarmId) => setClipAlarmId(alarmId), []);
+  const handleClipClose = useCallback(() => setClipAlarmId(null), []);
+
+  /* ---- Clip-modal queue (Prev / Next navigation) -----------------------
+   * Mirrors the Overview page. Build a tower-scoped queue of OPEN alarms
+   * with a clip so the operator can step between siblings without closing
+   * the modal. Derived from `scoped` (the site-scoped OPEN list) — NOT the
+   * severity/tower/search-filtered `filtered` list — so clip-by-clip triage
+   * sees every alarm in the tower regardless of which chips are active.
+   */
+  const resolveAlarmContext = useCallback((al) => {
+    if (!al) return null;
+    const ctx = alarmContextMap.get(al.id);
+    if (ctx) return { alarm: al, asset: ctx.asset, tower: ctx.tower, site: ctx.site };
+    const linked = Array.isArray(al.asset) && al.asset[0];
+    const asset = linked?.id
+      ? (assetMap.get(linked.id) || linked)
+      : (al.assetId ? assetMap.get(al.assetId) : null);
+    const tower = asset ? findGatewayForAsset(asset, towers) : null;
+    const site = tower
+      ? findSiteForAsset(tower, sites)
+      : (asset ? findSiteForAsset(asset, sites) : null);
+    return { alarm: al, asset, tower, site };
+  }, [alarmContextMap, assetMap, towers, sites]);
+
+  const clipModal = useMemo(() => {
+    if (!clipAlarmId) return null;
+    const currentAlarm = scoped.find((a) => a.id === clipAlarmId);
+    if (!currentAlarm) return null; // alarm vanished (acked/resolved) — modal closes
+    const current = resolveAlarmContext(currentAlarm);
+    const tower = current.tower;
+    if (!tower) return { current, queue: [current], index: 0 };
+    const queue = scoped
+      .filter((al) => alarmTowerMap.get(al.id)?.has(tower.id))
+      .filter((al) => alarmContextMap.get(al.id)?.hasClip)
+      .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
+      .map(resolveAlarmContext);
+    const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
+    return { current, queue, index };
+  }, [clipAlarmId, scoped, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
+
+  const clipPrev = (clipModal && clipModal.index > 0)
+    ? clipModal.queue[clipModal.index - 1]
+    : null;
+  const clipNext = (clipModal && clipModal.index >= 0 && clipModal.index < clipModal.queue.length - 1)
+    ? clipModal.queue[clipModal.index + 1]
+    : null;
   const handleAck = useCallback((alarm) => {
     update.mutate({ alarm, status: 'ACKNOWLEDGED' });
   }, [update]);
@@ -458,12 +504,19 @@ export default function SecureOpsAlertsPage() {
         )}
       </section>
 
-      {clipInView && (
+      {clipModal && (
         <AlarmClipModal
-          alarm={clipInView.alarm}
-          asset={clipInView.asset}
-          tower={clipInView.tower}
-          site={clipInView.site}
+          // Key on alarm id so a Prev/Next step remounts the modal with a
+          // fresh view (snapshot-first), download state, and mutation hook.
+          key={clipModal.current.alarm.id}
+          alarm={clipModal.current.alarm}
+          asset={clipModal.current.asset}
+          tower={clipModal.current.tower}
+          site={clipModal.current.site}
+          prev={clipPrev}
+          next={clipNext}
+          position={{ current: clipModal.index + 1, total: clipModal.queue.length }}
+          onSelect={setClipAlarmId}
           onClose={handleClipClose}
         />
       )}

@@ -101,6 +101,26 @@
   min-width: 56px;
 }
 
+/* Compact inline search — sits at the end of the Severity row so it adds no
+   extra vertical space. `margin-left:auto` pins it to the right; it shrinks
+   on narrow panels and wraps to its own line only when the chips run out of
+   room. Deliberately smaller than the /alarms page `.audit-search`. */
+.so-alert-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-ink-0) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+  width: 160px;
+  max-width: 200px;
+}
+.so-alert-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent-400) 55%, transparent);
+}
+
 /* ---------- Loader overlays + pending dimming ----------
  * `.so-alert-list-wrap` is the relatively-positioned host for the alert
  * list AND its loader overlay. While loading we drop list opacity, kill
