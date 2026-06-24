@@ -166,12 +166,12 @@ export default function AlarmClipModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="so-clip-modal-backdrop fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(6px)' }}
       onClick={onClose}
     >
       <div
-        className="panel p-0 w-[min(1280px,96vw)] h-[95vh] flex flex-col overflow-hidden"
+        className="panel p-0 so-clip-modal-panel flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ----- Header (severity · title · queue nav · close) ----- */}

@@ -448,9 +448,10 @@ export default function SecureOpsOverviewPage() {
       {/* ===== Recent Alerts (left ~70%) + Device Summary (right ~30%) =====
           Viewport-fit row — the grid takes whatever vertical space is left
           under the time-range bar + KPI strip (`flex-1 min-h-0`) and each
-          panel inside it scrolls its own list internally. Stacks
-          vertically on small screens (`grid-cols-1`). */}
-      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] gap-4 flex-1 min-h-0">
+          panel inside it scrolls its own list internally. Goes 2-column from
+          tablet up (`md:`) so iPad keeps the viewport-fit layout; stacks
+          vertically only on mobile phones (`grid-cols-1`). */}
+      <section className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] gap-4 flex-1 min-h-0">
         <RecentAlertsPanel
           alarms={openAlarmsInScope}
           rangeLabel={rangeWindow.label}
@@ -695,20 +696,27 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
   );
   const hasMore = visibleCount < sorted.length;
 
-  // Sentinel observer — root is the alert list wrapper (`.so-alert-list-wrap`),
-  // which is the actual scrolling container now that the Overview is
-  // viewport-fit again. Setting `root: null` (viewport) would never fire
-  // because the page itself doesn't scroll.
+  // Sentinel observer — root depends on which element actually scrolls:
+  //   • tablet+ (md, ≥768px — iPad and desktop) : the Overview is
+  //           viewport-fit, so the alert list wrapper (`.so-alert-list-wrap`)
+  //           is the scroll container — observe against it. `root: null`
+  //           would never fire (page doesn't scroll).
+  //   • mobile (<768px) : the shell grows and the DOCUMENT scrolls (see the
+  //           `max-width: 767.98px` rule in secureops.css), so the wrapper
+  //           no longer scrolls — fall back to the viewport (`root: null`)
+  //           so paging fires on page scroll instead of loading everything
+  //           at once.
   const scrollRootRef = useRef(null);
   const sentinelRef = useRef(null);
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node || !hasMore) return undefined;
+    const isWide = window.matchMedia('(min-width: 768px)').matches;
     const obs = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting) {
         setVisibleCount((c) => c + VISIBLE_BUMP);
       }
-    }, { root: scrollRootRef.current, rootMargin: '200px 0px', threshold: 0 });
+    }, { root: isWide ? scrollRootRef.current : null, rootMargin: '200px 0px', threshold: 0 });
     obs.observe(node);
     return () => obs.disconnect();
   }, [hasMore]);
@@ -755,14 +763,15 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
    *
    * When the modal is open, build a tower-scoped queue of OPEN alarms with
    * a clip URL so the operator can navigate between siblings without
-   * closing the modal. The queue is derived from `alarms` (the parent's
-   * already-scoped list) on every render — so when an alarm is acked /
-   * resolved and drops off the list, the queue shrinks automatically and
-   * Prev/Next pointers update.
+   * closing the modal. The queue is derived from `filtered` (the
+   * severity/tower/search-filtered list the operator is actually looking
+   * at) on every render — so when an alarm is acked / resolved and drops
+   * off the list, the queue shrinks automatically and Prev/Next pointers
+   * update.
    *
-   * Severity/tower CHIP filters are deliberately ignored here — the
-   * operator triaging clip-by-clip wants every alarm in the tower in the
-   * queue, regardless of what chips happen to be active in the list view.
+   * Severity/tower/search filters ARE respected here — Prev/Next only walks
+   * the alarms that survive the active chips/search, matching the visible
+   * list. Clear the filters to navigate every alarm in the tower again.
    */
   // Use the page-level alarmContextMap as the primary source — it already
   // resolved asset / tower / site once over allAlarms, so the modal queue
@@ -786,21 +795,21 @@ function RecentAlertsPanel({ alarms, rangeLabel, assetMap, alarmTowerMap, alarmC
 
   const clipModal = useMemo(() => {
     if (!clipAlarmId) return null;
-    const currentAlarm = alarms.find((a) => a.id === clipAlarmId);
-    if (!currentAlarm) return null; // alarm vanished — modal will close
+    const currentAlarm = filtered.find((a) => a.id === clipAlarmId);
+    if (!currentAlarm) return null; // alarm vanished (acked/resolved/filtered out) — modal will close
     const current = resolveAlarmContext(currentAlarm);
     const tower = current.tower;
     // Without a tower we can't build a tower-scoped queue, so render the
     // modal alone (no Prev/Next siblings).
     if (!tower) return { current, queue: [current], index: 0 };
-    const queue = alarms
+    const queue = filtered
       .filter((al) => alarmTowerMap.get(al.id)?.has(tower.id))
       .filter((al) => alarmContextMap.get(al.id)?.hasClip)
       .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
       .map(resolveAlarmContext);
     const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
     return { current, queue, index };
-  }, [clipAlarmId, alarms, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
+  }, [clipAlarmId, filtered, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
 
   const clipPrev = (clipModal && clipModal.index > 0)
     ? clipModal.queue[clipModal.index - 1]
@@ -1060,7 +1069,7 @@ const AlertRow = memo(function AlertRow({ alarm, asset, tower, site, hasClip, pe
       data-pending={anyPending}
     >
       <div className="flex-1 min-w-0">
-        <p className="so-alert-title truncate">{alarm.title || 'Alarm'}</p>
+        <p className="so-alert-title">{alarm.title || 'Alarm'}</p>
 
         <p className="so-alert-meta flex items-center flex-wrap gap-x-1.5 gap-y-0.5 mt-0.5">
           {site && (

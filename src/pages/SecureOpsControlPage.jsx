@@ -190,7 +190,7 @@ function HistoryPanel({ assets }) {
           Asset history
         </div>
         {chartable.length > 0 && (
-          <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-ink-2)]">
+          <label className="so-history-select inline-flex items-center gap-2 text-[12px] font-semibold text-[var(--color-ink-2)]">
             Asset
             <select
               value={selected?.id || ''}

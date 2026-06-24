@@ -430,12 +430,12 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
 
   return (
     <tr>
-      <td className="audit-when">
+      <td className="audit-when" data-label="When">
         <div className="font-semibold text-[var(--color-ink-0)] tabular-nums">{format(at, 'HH:mm:ss')}</div>
         <div className="text-[10px] text-[var(--color-ink-3)] tabular-nums">{format(at, 'dd MMM yyyy')}</div>
         <div className="text-[10px] text-[var(--color-ink-3)] tabular-nums">{formatDistanceToNowStrict(at)} ago</div>
       </td>
-      <td>
+      <td data-label="Event">
         <div className="flex items-start gap-2">
           <e.icon className="w-3.5 h-3.5 mt-0.5 text-[var(--color-ink-2)] flex-shrink-0" strokeWidth={2} />
           <div className="min-w-0">
@@ -460,7 +460,7 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
           </div>
         </div>
       </td>
-      <td>
+      <td data-label="Location">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px]">
           {e.site && (
             <button type="button" onClick={() => onSiteClick?.(e.site)} className="so-crumb" title={`Scope to ${getAssetDisplayName(e.site)}`}>
@@ -496,17 +496,17 @@ function EventRow({ event: e, onSiteClick, onTowerClick, onCameraClick, onClipCl
           )}
         </div>
       </td>
-      <td>
+      <td data-label="Severity" className="audit-td-inline">
         {sevMeta ? (
           <span className="audit-pill" style={sevPillStyle(sevMeta.color)}>{sevMeta.label}</span>
         ) : <span className="text-[var(--color-ink-3)] text-[11px]">—</span>}
       </td>
-      <td>
+      <td data-label="Status" className="audit-td-inline">
         {statusMeta ? (
           <span className="audit-pill" style={sevPillStyle(statusMeta.color)}>{statusMeta.label}</span>
         ) : <span className="text-[var(--color-ink-3)] text-[11px]">—</span>}
       </td>
-      <td>
+      <td data-label="Tag" className="audit-td-inline">
         <span className={`so-audit-tag is-${e.tagTone}`}>{e.tag}</span>
       </td>
     </tr>

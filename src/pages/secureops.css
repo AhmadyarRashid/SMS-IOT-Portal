@@ -30,6 +30,119 @@
 }
 .so-panel-fit .so-panel-head { flex-shrink: 0; }
 
+/* ---------- Mobile only: scroll the page instead of viewport-fit ----------
+ * On phones (below the md breakpoint) the Recent Alerts panel and the Device
+ * Summary sidebar stack vertically (grid-cols-1). Sharing the fixed
+ * `calc(100dvh - 112px)` height between them squeezes the alert list down to
+ * a couple of rows. So on phones we let the shell grow to its content and the
+ * document scroll naturally — each panel shows its full content with no inner
+ * clipping. The infinite-scroll observer switches to the viewport as its root
+ * on these widths (see SecureOpsOverviewPage) so paging still works.
+ *
+ * iPad and desktop (md and up) keep the viewport-fit layout — they get the
+ * 2-column grid (`md:grid-cols-…`), so the alert list has room and scrolls
+ * internally as before. The cutoff is the md boundary (767.98px) on purpose:
+ * iPad portrait is 768px+ and must behave like desktop.
+ */
+@media (max-width: 767.98px) {
+  .so-overview-shell {
+    height: auto;
+    min-height: calc(100dvh - 112px);
+    overflow: visible;
+  }
+  .so-overview-shell .so-panel-fit {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .so-overview-shell .so-alert-list-wrap {
+    flex: 0 0 auto;
+  }
+  .so-overview-shell .so-alert-list {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
+
+  /* --- Mobile symmetry fixes --- */
+
+  /* Time-range bar: stack the label above a full-width chip row instead of
+     forcing label + 5 nowrap chips onto one line (which overflowed the
+     viewport on phones). The chips spread edge-to-edge and scroll
+     horizontally if they ever run out of room. */
+  .so-overview-shell .so-range-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .so-overview-shell .so-range-chips {
+    width: 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+  }
+
+  /* Inline search: drop the right-edge pin + fixed width. On a narrow panel
+     it wrapped under the severity chips and floated right, leaving a dead
+     gap on the left. Give it its own full-width row and lift it ABOVE the
+     Severity label + chips (`order: -1`) so search reads first — better
+     mobile flow than hunting for it after the chips. */
+  .so-overview-shell .so-alert-search {
+    order: -1;
+    margin-left: 0;
+    width: 100%;
+    max-width: none;
+    flex-basis: 100%;
+    margin-bottom: 2px;
+  }
+
+  /* KPI cards: in the 2-column phone grid the labels wrap to different line
+     counts, which pushed each card's big value to a different height and
+     made the row look ragged. Top-align the (now possibly multi-line) label
+     and bottom-anchor the value+subline — the grid already stretches the two
+     cards in a row to equal height, so the values line up across the row. */
+  .so-overview-shell .so-kpi-label {
+    align-items: flex-start;
+  }
+  .so-overview-shell .so-kpi-label svg {
+    margin-top: 1px;
+    flex-shrink: 0;
+  }
+  .so-overview-shell .so-kpi-value {
+    margin-top: auto;
+  }
+
+  /* --- Alert cards: stack content over a full-width action row ---
+     On phones the row's right-side stack (severity pill above a cramped
+     button cluster) squeezed the title and clipped the buttons. Switch the
+     card to a column: the title / breadcrumb / time take the full width on
+     top, then the severity pill + action buttons sit on their own row below,
+     filling 100% — each button flexes to an equal share so the labels never
+     truncate. Applies to BOTH the Overview Recent Alerts panel and the
+     /alarms page (same `.so-alert-row` markup), so it is intentionally not
+     scoped under `.so-overview-shell`. */
+  .so-alert-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .so-alert-right {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    gap: 8px;
+  }
+  .so-alert-sev {
+    flex-shrink: 0;
+  }
+  .so-alert-actions {
+    flex: 1;
+    gap: 6px;
+  }
+  .so-alert-actions .so-alert-btn,
+  .so-alert-actions .so-clip-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
 /* ---------- Time-range filter bar ---------- */
 
 .so-range-bar {
@@ -912,6 +1025,10 @@ button.so-cam:focus-visible {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-ink-0);
+  /* Wrap long titles onto the next line instead of overflowing the row;
+     `anywhere` also breaks a single very long unspaced string. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .so-alert-meta {
   font-size: 11px;
@@ -1703,4 +1820,162 @@ button.so-crumb {
 @keyframes so-live-blink {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.35; }
+}
+
+/* ---------- Clip modal shell sizing ----------
+ * Width/height live here (not as Tailwind arbitrary classes on the element)
+ * so the mobile media query below can override them without a specificity
+ * fight. Desktop / iPad keep the centred 1280px × 95vh card. */
+.so-clip-modal-backdrop { padding: 16px; }
+.so-clip-modal-panel {
+  width: min(1280px, 96vw);
+  height: 95vh;
+}
+
+/* ---------- Clip modal — full mobile responsiveness (phones, < md) ----------
+ * The modal was laid out for a wide card: a single-row header, a right-floated
+ * tools cluster, and a one-row footer with the long "Download clip" button.
+ * On a phone those overflow / wrap raggedly. Here we turn the modal into a
+ * full-screen sheet and reflow every section into clean stacked rows. */
+@media (max-width: 767.98px) {
+  /* Full-screen sheet — maximise the video viewport, drop the letterboxing. */
+  .so-clip-modal-backdrop { padding: 0; }
+  .so-clip-modal-panel {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  /* Header: severity + queue nav + Close share the top line; the title wraps
+     onto its own full-width line below instead of truncating to an ellipsis. */
+  .so-clip-modal-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .so-clip-modal-nav { order: 1; margin-left: auto; }
+  .so-clip-modal-head > .audit-btn { order: 2; margin-left: auto; }
+  .so-clip-modal-title {
+    order: 3;
+    flex-basis: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+  }
+
+  /* Meta strip: let the tools cluster (Door / Siren / Lights + PTT) drop onto
+     its own full-width row instead of floating right with a ragged gap. */
+  .so-clip-modal-tools {
+    margin-left: 0;
+    padding-left: 0;
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Footer: stack the view tabs above a full-width action row. The buttons
+     share the width so the long "Download clip" label stops breaking the
+     layout when the Clip tab is active. */
+  .so-clip-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .so-clip-modal-tabs { align-self: center; }
+  .so-clip-modal-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .so-clip-modal-actions > .so-alert-btn {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+  .so-clip-modal-download {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- Control page — mobile responsiveness (phones, < md) ----------
+ * The Asset-history panel head puts a label + <select> on the right of the
+ * title. The select sizes to its longest option ("Asset Name · Type"), which
+ * overflowed the row on a phone. Wrap the head and give the dropdown its own
+ * full-width line with a shrinkable select. */
+@media (max-width: 767.98px) {
+  .so-panel-head {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .so-history-select {
+    width: 100%;
+    justify-content: space-between;
+  }
+  /* A native <select> clips its displayed label to its box, so shrinking it
+     here removes the overflow without truncating the option list itself. */
+  .so-history-select .so-tower-select {
+    flex: 1;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+/* ---------- Audit page — mobile responsiveness (phones, < md) ----------
+ * A 6-column table can't fit a phone, so collapse each row into a card:
+ * hide the header, stack the cells full-width, and label every value with its
+ * column name via `data-label`. Short cells (severity / status / tag) keep the
+ * label + value on one line. All data stays visible — nothing is hidden. */
+@media (max-width: 767.98px) {
+  /* Search takes the whole row instead of its 260px desktop minimum. */
+  .audit-search { min-width: 0; width: 100%; }
+
+  .audit-table thead { display: none; }
+  .audit-table,
+  .audit-table tbody { display: block; width: 100%; }
+
+  .audit-table tbody tr {
+    display: block;
+    margin: 0 12px 10px;
+    padding: 4px 0;
+    border: 1px solid color-mix(in srgb, var(--color-ink-0) 10%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-ink-0) 2%, transparent);
+  }
+  .audit-table tbody tr:first-child { margin-top: 12px; }
+
+  .audit-table tbody td {
+    display: block;
+    border-bottom: 0;
+    padding: 6px 14px;
+  }
+  .audit-table tbody td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  /* Short cells: label + value share one line. */
+  .audit-table tbody td.audit-td-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .audit-table tbody td.audit-td-inline::before { margin-bottom: 0; }
+
+  /* The 110px min-width / nowrap hint is moot once cells are full-width. */
+  .audit-when { min-width: 0; white-space: normal; }
+  /* Let the event title wrap inside the card instead of truncating. */
+  .audit-table tbody td .truncate {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  /* Pagination wraps so the pager drops below the "showing X–Y" line. */
+  .audit-pagination { flex-wrap: wrap; row-gap: 8px; }
 }

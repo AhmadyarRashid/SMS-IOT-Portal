@@ -11,6 +11,45 @@
 **Backend:** OpenRemote (Keycloak OAuth2 + REST) — **no other services**
 **Status (2026-06-08):** Overview, Video, Alerts, Control, full Audit, Settings shipped. The most recent wave (commits `6828a67` → `f27d12a`) focused on **performance, viewport-fit polish, and a Device Summary sidebar on Overview**. The 2026-06-07 follow-up rewrote PTZ movement to drive the camera through OR attributes instead of an external HTTP controller. The 2026-06-08 follow-up **rips the entire PTT WebSocket / PCM-streaming pipeline out** — PTT is now a one-line `<a href="mumble://…">` against the OS Mumble client.
 
+**Filtered clip queue + full mobile-responsiveness pass (2026-06-24):**
+
+- **Clip-modal Prev/Next now respects the active filters.** The tower-scoped
+  queue is rebuilt from each surface's `filtered` list instead of the raw
+  site-scoped list, so ←/→ (and the chevrons) walk only the alarms that
+  match the active severity/tower/search, and the `N / M` counter reflects
+  the filtered count. Applied identically on the Overview Recent Alerts
+  panel and the `/alarms` page. (§8.4 updated — this **reverses** the prior
+  "filters not applied to the queue" decision.)
+- **Mobile responsiveness across every SecureOps surface** (new breakpoint
+  convention: phones = `max-width:767.98px`; iPad + desktop = `≥768px`,
+  unchanged). All changes are scoped to that media query — desktop/iPad
+  render exactly as before. Details in the new **§14a**. Summary:
+  - **Overview** is **page-scrollable on phones** (the viewport-fit shell
+    grows to content; the infinite-scroll `IntersectionObserver` switches
+    its `root` to the viewport so paging stays lazy). The alerts/sidebar
+    grid goes 2-column from `md:` (was `lg:`) so **iPad keeps the
+    viewport-fit layout**. KPI cards bottom-anchor their value so the
+    2-column grid lines up; the time-range bar stacks; the Recent-Alerts
+    **search moves above the Severity chips**; long alert titles **wrap**
+    (the Overview row dropped its `truncate`); alert cards **stack into a
+    full-width action row** (severity pill + `Clip / Ack / Resolve`, each
+    flexing to share the width).
+  - **AlarmClipModal** becomes a **full-screen sheet on phones**
+    (`100vw × 100dvh`, sizing moved off Tailwind arbitrary classes onto
+    `.so-clip-modal-panel` / `.so-clip-modal-backdrop` to avoid specificity
+    fights). Header wraps (title onto its own line, no ellipsis); the tools
+    cluster drops to its own row; the footer **stacks** the view tabs above
+    a full-width action row so the long **Download clip** button stops
+    breaking the layout. (§14a.)
+  - **Control** — the Asset-history `<select>` (`.so-tower-select`) sized to
+    its longest option and overflowed the panel head; on phones the head
+    wraps and the dropdown takes a full-width row with a shrinkable select
+    (`.so-history-select`). (§14a.)
+  - **Audit** — the 6-column table **collapses into labeled cards** on
+    phones (header hidden; each `<td>` carries a `data-label` rendered via
+    `::before`; short cells stay inline). Search goes full-width and
+    pagination wraps. All columns stay visible. (§14a.)
+
 **Overview search + Alerts clip-modal parity (2026-06-23):**
 
 - **Overview Recent Alerts gains a compact search field.** A small inline
@@ -100,6 +139,7 @@ Earlier wins still in place: in-app `AlarmNotificationStack` replacing `react-ho
 12. [Audit events shared util](#12-audit-events-shared-util)
 13. [File map: what's new vs. what changed](#13-file-map-whats-new-vs-what-changed)
 14. [Styling conventions](#14-styling-conventions)
+14a. [Mobile responsiveness](#14a-mobile-responsiveness-added-2026-06-24)
 15. [How to add a new SecureOps tab](#15-how-to-add-a-new-secureops-tab)
 16. [What's next (open work)](#16-whats-next-open-work)
 17. [Reference: memory files](#17-reference-memory-files)
@@ -184,7 +224,7 @@ It **is not**:
 | **PTT lives in the Controls grid on `/control`** | User decided 2026-06-08. On the per-tower control surface, PTT renders as a regular `ControllableTile`-shaped tile alongside Door / Siren / Lights, NOT in the header. Operators triage one tower at a time; PTT sits next to the other "act on this tower" affordances, not next to the tower picker. |
 | **PTT is inline UI, not a popup** | User decided 2026-05-23. Don't reintroduce `PttModal` or any popup for PTT. As of 2026-06-08 the inline surfaces are: the `AlarmClipModal` quick-controls cluster, the `CameraHistoryModal` header, and the `/control` Controls grid. |
 | **Alarm notifications are an in-app stack, not toasts** | User decided 2026-05-23. The `react-hot-toast` flow stacked 3 un-dismissible cards in the top-right corner and covered the site dropdown. The replacement (`AlarmNotificationStack` — §6.4) is positioned below the header, has per-card close + "Close all", and a Mac-style collapsed peek when 2+ items are active. Don't route alarms back through `react-hot-toast`. |
-| **Overview is viewport-fit, no page scroll** | User decided 2026-05-27. `h-[calc(100dvh-112px)]` + `overflow:hidden` on the shell; only the Recent Alerts list scrolls internally. Don't reintroduce vertical panel stacks that would push the page taller. |
+| **Overview is viewport-fit, no page scroll — _except phones_** | User decided 2026-05-27; mobile exception added 2026-06-24. `h-[calc(100dvh-112px)]` + `overflow:hidden` on the shell; only the Recent Alerts list scrolls internally. **Holds for iPad + desktop (≥768px).** On phones (`max-width:767.98px`) the shell grows to its content and the document scrolls — the fixed height squeezed the stacked alerts/sidebar to a couple of rows. Don't reintroduce vertical panel stacks on iPad/desktop that would push the page taller. (§14a.) |
 | **Active alerts KPI === sum of Recent Alerts chip counts** | User decided 2026-05-27. Apply site+range scope at the page level so KPI and panel share the same source. Don't go back to a KPI that's "realm-wide but the panel below is site-scoped" — operators read the discrepancy as a bug. |
 | **All alert surfaces use AlarmClipModal** | User decided 2026-05-27. Don't reintroduce `ClipModal` or a "just play the URL" variant. The rich modal carries the operator's whole triage workflow (preview / clip / live / controls / PTT / Ack / Resolve / Prev / Next / Download) — the old single-purpose modal forced operators to close and reopen for every action. |
 | **Loader signal is user-action only, NOT React-Query `isFetching`** | User decided 2026-05-27. The 15s background poll would flash the loader every cycle for no operator-meaningful reason. Drive the soft loader overlay from `useTransition` pending states only. |
@@ -1398,9 +1438,18 @@ download state clears, mutation hook starts fresh. This is the
 project's "reset state when a prop changes" idiom (per §11 + the
 React-hooks `set-state-in-effect` lint rule).
 
-Severity/tower chip filters in the panel are deliberately **NOT** applied
-to the queue — the operator triaging clip-by-clip wants every alarm in
-the tower in the queue regardless of which chips happen to be active.
+**Severity/tower/search filters ARE applied to the queue (changed
+2026-06-24).** The queue is built from the panel's `filtered` list (not the
+raw site-scoped `scoped` / `alarms` list), so Prev/Next — and the ←/→
+keys — only walk the alarms that survive the active chips + search,
+matching the visible list. The `N / M` counter reflects the filtered
+count too. Clear the filters to navigate every alarm in the tower again.
+The same change was made on the Overview Recent Alerts panel and the
+`/alarms` page (both derive `clipModal` from `filtered`). Consequence: if
+the operator applies a filter that excludes the currently-open alarm, the
+modal closes (that alarm is no longer in the visible set) — intentional,
+keeps the modal consistent with the list. (Reverses the earlier "filters
+deliberately not applied to the queue" decision.)
 
 ### 8.5. Loader UX
 
@@ -2291,6 +2340,72 @@ src/constants/ptt.js                          2026-06-08: deleted. PTT_WS_URL (t
   no transparent regions. If you re-theme the chrome, audit the logo at
   the same time — swap to a transparent PNG/SVG or a dark-theme variant
   if you see a white rectangle around it.
+
+---
+
+## 14a. Mobile responsiveness (added 2026-06-24)
+
+The portal was built desktop-first (operators run it on a NOC wall). A
+2026-06-24 pass made every SecureOps surface usable on a phone **without
+touching the desktop/iPad rendering**.
+
+**The one breakpoint.** Everything keys off a single boundary:
+
+- **Phones** = `@media (max-width: 767.98px)` — the `md` boundary minus a
+  hair.
+- **iPad + desktop** = `≥ 768px` — unchanged from before this pass.
+
+iPad portrait starts at 768px, so it is treated as desktop on purpose
+(user decision: "fixed logic for desktop and iPad, scrollable for mobile").
+Every rule below lives **inside** that media query, so there is zero risk
+to the wide layout. When you add a mobile tweak, follow the same rule:
+put it in a `max-width: 767.98px` block, don't special-case widths in JS
+unless an observer root genuinely depends on which element scrolls (see
+the Overview note below).
+
+**Where the rules live.** All of it is in `src/pages/secureops.css`, in a
+handful of `@media (max-width: 767.98px)` blocks near the relevant desktop
+rules (Overview shell, clip modal, Control, Audit). A few needed a JSX
+hook:
+
+- `SecureOpsOverviewPage.jsx` — the infinite-scroll `IntersectionObserver`
+  reads `window.matchMedia('(min-width: 768px)')` to pick its `root`: the
+  alert-list wrapper on tablet+ (the viewport-fit scroll container) vs. the
+  **viewport (`root: null`) on phones** (where the document scrolls, so the
+  wrapper no longer does). Without this, the sentinel would sit permanently
+  inside a non-scrolling root and load every page at once. The grid also
+  moved from `lg:grid-cols-…` to `md:grid-cols-…` so iPad portrait gets the
+  2-column viewport-fit layout instead of a squeezed single column.
+- `AlarmClipModal.jsx` — sizing moved off the Tailwind arbitrary classes
+  (`w-[min(1280px,96vw)] h-[95vh]`) onto `.so-clip-modal-panel` /
+  `.so-clip-modal-backdrop` so the phone overrides (`100vw × 100dvh`,
+  `border-radius:0`, `padding:0`) win without an `!important` specificity
+  fight.
+- `SecureOpsControlPage.jsx` — the Asset-history label got a
+  `.so-history-select` class so the phone rule can give it a full-width row
+  + a shrinkable `<select>` (a native select clips its displayed label, so
+  shrinking it removes the overflow without hiding options).
+- `AuditLogPage.jsx` — every `<td>` got a `data-label="…"` (and the three
+  short cells an `audit-td-inline` class) so the phone rule can hide the
+  `<thead>` and render each row as a card with the column name shown via
+  `td::before { content: attr(data-label) }`.
+
+**Per-surface summary** (full rationale in each section's change-log entry
+at the top of this file):
+
+| Surface | Phone behaviour |
+|---|---|
+| **Overview** | Page scrolls (shell `height:auto`, `overflow:visible`); KPIs bottom-anchor their value for a tidy 2-col grid; time-range bar stacks; Recent-Alerts search sits **above** the Severity chips; alert titles wrap; alert cards stack content over a full-width `[sev] [Clip][Ack][Resolve]` row. |
+| **Alerts (`/alarms`)** | Shares `.so-alert-row` with Overview, so the same stacked-card + wrapping-title rules apply. |
+| **AlarmClipModal** | Full-screen sheet; header wraps (title on its own line); tools cluster on its own row; footer stacks tabs over a full-width action row (fixes the "Download clip" overflow). |
+| **Control** | `.so-panel-head` wraps; Asset-history dropdown gets a full-width row with a shrinkable select. |
+| **Audit** | Table → labeled cards (header hidden, `data-label` per cell); search full-width; pagination wraps. No data hidden. |
+
+**Don't.** Don't add per-tower telemetry or new fixed-height panels that
+assume the desktop viewport-fit on phones. Don't reach for a JS width
+check when a `max-width: 767.98px` CSS block will do. Don't horizontally
+scroll the Audit table on phones — the card transform is the agreed
+pattern so every column stays visible.
 
 ---
 

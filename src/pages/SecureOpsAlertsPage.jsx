@@ -315,9 +315,10 @@ export default function SecureOpsAlertsPage() {
   /* ---- Clip-modal queue (Prev / Next navigation) -----------------------
    * Mirrors the Overview page. Build a tower-scoped queue of OPEN alarms
    * with a clip so the operator can step between siblings without closing
-   * the modal. Derived from `scoped` (the site-scoped OPEN list) — NOT the
-   * severity/tower/search-filtered `filtered` list — so clip-by-clip triage
-   * sees every alarm in the tower regardless of which chips are active.
+   * the modal. Derived from `filtered` (the severity/tower/search-filtered
+   * list the operator is actually looking at) — so Prev/Next only walks the
+   * alarms that survive the active chips/search, matching the visible list.
+   * Clear the filters to navigate every alarm in the tower again.
    */
   const resolveAlarmContext = useCallback((al) => {
     if (!al) return null;
@@ -336,19 +337,19 @@ export default function SecureOpsAlertsPage() {
 
   const clipModal = useMemo(() => {
     if (!clipAlarmId) return null;
-    const currentAlarm = scoped.find((a) => a.id === clipAlarmId);
-    if (!currentAlarm) return null; // alarm vanished (acked/resolved) — modal closes
+    const currentAlarm = filtered.find((a) => a.id === clipAlarmId);
+    if (!currentAlarm) return null; // alarm vanished (acked/resolved/filtered out) — modal closes
     const current = resolveAlarmContext(currentAlarm);
     const tower = current.tower;
     if (!tower) return { current, queue: [current], index: 0 };
-    const queue = scoped
+    const queue = filtered
       .filter((al) => alarmTowerMap.get(al.id)?.has(tower.id))
       .filter((al) => alarmContextMap.get(al.id)?.hasClip)
       .sort((a, b) => new Date(b.createdOn || 0) - new Date(a.createdOn || 0))
       .map(resolveAlarmContext);
     const index = queue.findIndex((c) => c.alarm.id === clipAlarmId);
     return { current, queue, index };
-  }, [clipAlarmId, scoped, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
+  }, [clipAlarmId, filtered, resolveAlarmContext, alarmTowerMap, alarmContextMap]);
 
   const clipPrev = (clipModal && clipModal.index > 0)
     ? clipModal.queue[clipModal.index - 1]
